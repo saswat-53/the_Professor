@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Against a fake server with a scripted reply, `learn` on a real temp file prints the reply on stdout, and the test sees it arrive in more than one chunk before the stream ends
 - [ ] With `--dry-run`, the fake server records zero requests, and stderr shows the base URL, the model, and the file content exactly as it would be sent
