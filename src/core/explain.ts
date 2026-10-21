@@ -5,6 +5,8 @@ import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./type
 const SYSTEM_PROMPT =
   "You are a patient teacher. Explain the supplied code: what it does and, above all, why it is written this way.";
 
+const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
 export interface ExplainInput {
   reference: string;
   settings: Settings;
@@ -30,7 +32,7 @@ export async function* explain(
   try {
     request = await buildRequest(input);
   } catch (err) {
-    yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+    yield { type: "error", message: errorMessage(err) };
     return;
   }
   try {
@@ -39,6 +41,6 @@ export async function* explain(
     }
     yield { type: "done" };
   } catch (err) {
-    yield { type: "error", message: err instanceof Error ? err.message : String(err) };
+    yield { type: "error", message: errorMessage(err) };
   }
 }

@@ -18,7 +18,7 @@ async function main(): Promise<number> {
       },
     });
   } catch (err) {
-    process.stderr.write(`${(err as Error).message}\n${USAGE}\n`);
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n${USAGE}\n`);
     return 2;
   }
   const { values, positionals } = parsed;
@@ -39,7 +39,7 @@ async function main(): Promise<number> {
       );
       return 0;
     } catch (err) {
-      process.stderr.write(`${(err as Error).message}\n`);
+      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
       return 1;
     }
   }
