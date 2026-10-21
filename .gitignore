@@ -1,0 +1,57 @@
+# Secrets and credentials (never commit these)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.keystore
+credentials*.json
+secrets.*
+.npmrc
+.netrc
+
+# Dependencies and build output
+node_modules/
+dist/
+build/
+out/
+coverage/
+.vitest-cache/
+.tsbuildinfo
+*.tsbuildinfo
+*.tgz
+
+# Logs and temp files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.tmp/
+tmp/
+*.swp
+*.bak
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# Agent skills are third-party and restorable from skills-lock.json
+.claude/skills/
+.agents/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/projects/
+.claude/*.local.*
+CLAUDE.local.md
+
+# The tool's own output if run inside this repo
+learn-notes/

@@ -1,0 +1,3 @@
+# One package with an enforced core/cli boundary
+
+The code lives in a single npm package with `src/core` and `src/cli`, not a workspace of packages. Core never imports from `cli`, never touches `process.stdout`, `process.argv` or terminal libraries, and never imports file-write APIs; a lint rule or test fails the build if it does. Core returns data and the CLI decides how to show it. We considered splitting into packages now and rejected it as premature: a package split buys nothing until the desktop app exists, and the boundary rule gives the same separation today. When the desktop app arrives, `src/core` can move into its own package without changing its callers.
