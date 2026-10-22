@@ -1,7 +1,20 @@
 import { open, stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 
 const MAX_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
+
+/** Reads until end of file or `limit` bytes, whichever comes first; a single read can come back short. */
+async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(limit);
+  let total = 0;
+  while (total < limit) {
+    const { bytesRead } = await handle.read(buffer, total, limit - total, total);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+  }
+  return buffer.subarray(0, total);
+}
 
 /**
  * Reads a file the safe way: only ordinary text files of reasonable size are opened.
@@ -11,26 +24,19 @@ const BINARY_SNIFF_BYTES = 8192;
  * steps is caught, and at most one byte past the limit is ever read.
  */
 export async function readTextFile(path: string): Promise<string> {
-  const before = await stat(path);
-  if (!before.isFile()) throw new Error(`${path}: not a regular file`);
-  if (before.size > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
+  const pathStat = await stat(path);
+  if (!pathStat.isFile()) throw new Error(`${path}: not a regular file`);
+  if (pathStat.size > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
 
   const handle = await open(path, "r");
   let bytes: Buffer;
   try {
-    const after = await handle.stat();
-    if (!after.isFile() || after.dev !== before.dev || after.ino !== before.ino) {
+    const handleStat = await handle.stat();
+    if (!handleStat.isFile() || handleStat.dev !== pathStat.dev || handleStat.ino !== pathStat.ino) {
       throw new Error(`${path}: changed while being read`);
     }
-    const buffer = Buffer.alloc(MAX_BYTES + 1);
-    let length = 0;
-    while (length < buffer.length) {
-      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, length);
-      if (bytesRead === 0) break;
-      length += bytesRead;
-    }
-    if (length > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
-    bytes = buffer.subarray(0, length);
+    bytes = await readBounded(handle, MAX_BYTES + 1);
+    if (bytes.length > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
   } finally {
     await handle.close();
   }
