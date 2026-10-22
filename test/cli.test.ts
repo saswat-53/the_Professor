@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const BIN = join(import.meta.dirname, "../dist/cli.js");
@@ -78,6 +78,12 @@ describe("learn CLI", () => {
     expect(r.stderr).toContain("http://flag/v1");
     expect(r.stderr).toContain("flag-model");
     expect(r.stderr).not.toContain("env-model");
+  });
+
+  it("refuses a directory with a message on stderr and exit 1", async () => {
+    const r = await run([dirname(file), "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("not a regular file");
   });
 
   it("exits 2 with usage when base URL and model are missing", async () => {

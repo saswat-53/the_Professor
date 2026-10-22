@@ -1,4 +1,4 @@
-import { readFile as nodeReadFile } from "node:fs/promises";
+import { readTextFile } from "./read-file.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
 // Placeholder until the bundled teaching prompt (ticket 07) replaces it.
@@ -15,7 +15,7 @@ export interface ExplainInput {
 
 /** Pure: turns a reference and settings into the exact request that would be sent. */
 export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
-  const read = input.readFile ?? ((p: string) => nodeReadFile(p, "utf8"));
+  const read = input.readFile ?? readTextFile;
   const content = await read(input.reference);
   return {
     baseUrl: input.settings.baseUrl,
