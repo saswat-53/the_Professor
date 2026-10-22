@@ -12,3 +12,7 @@
 - [ ] If a file literally named like `a:b` exists, `learn a:b` reads that file instead of parsing a line number
 - [ ] A bare word such as `learn debounce` prints a "not supported yet" message, not a crash
 - [ ] The Reference type in core is open to a new kind: adding a word kind later needs no change to the resolver's callers (shown by a test that registers a fake kind)
+
+## Notes
+
+- Decide on purpose how a lone `\r` is treated. Ticket 03 normalises only `\r\n`, so a bare CR stays in the text; line counting here must match what editors show.

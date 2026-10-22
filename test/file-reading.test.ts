@@ -36,6 +36,8 @@ async function fileWith(name: string, content: string | Buffer) {
   return path;
 }
 
+// The 1 MB and 8 KB boundaries are hard-coded on purpose: importing the constants would let
+// an accidental change to them pass these tests silently.
 describe("file reading rules", () => {
   it("refuses a directory", async () => {
     const r = await run(dir);
