@@ -33,9 +33,23 @@ describe("boundary checker catches violations", () => {
   ];
   for (const { label, source, rule } of cases) {
     it(`flags ${label}`, () => {
-      expect(findViolations("fixture.ts", source)).toContain(rule);
+      expect(findViolations("fixture.ts", source).map((v) => v.rule)).toContain(rule);
     });
   }
+
+  it("process.stdout.write triggers only the stdout rule", () => {
+    expect(findViolations("f.ts", `process.stdout.write("x");`).map((v) => v.rule)).toEqual([RULE.stdio]);
+  });
+
+  it("a generic something.write(...) triggers no rule", () => {
+    expect(findViolations("f.ts", `something.write("x");\nwriter.write(data);`)).toEqual([]);
+  });
+
+  it("reports the line number and offending text", () => {
+    expect(findViolations("f.ts", `/* a\nb */\nconst ok = 1;\nprocess.stdout.write("x");`)).toEqual([
+      { rule: RULE.stdio, line: 4, text: `process.stdout.write("x");` },
+    ]);
+  });
 
   it("passes clean code", () => {
     expect(findViolations("clean.ts", `export const add = (a: number, b: number) => a + b;`)).toEqual([]);
