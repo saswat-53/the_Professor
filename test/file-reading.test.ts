@@ -45,12 +45,18 @@ describe("file reading rules", () => {
     expect(r.requests).toHaveLength(0);
   });
 
-  it.skipIf(process.platform === "win32")("refuses a named pipe without blocking on it", async () => {
-    const fifo = join(dir, "pipe");
-    execFileSync("mkfifo", [fifo]);
-    const r = await run(fifo);
-    expect(r.error).toMatch(/not a regular file/);
-  });
+  // Opening a FIFO blocks until a writer appears, so a regression to open-before-stat hangs here;
+  // the short timeout makes that fail fast. FIFOs and devices assume macOS or Linux.
+  it.skipIf(process.platform === "win32")(
+    "refuses a named pipe without blocking on it",
+    { timeout: 2000 },
+    async () => {
+      const fifo = join(dir, "pipe");
+      execFileSync("mkfifo", [fifo]);
+      const r = await run(fifo);
+      expect(r.error).toMatch(/not a regular file/);
+    },
+  );
 
   it.skipIf(process.platform === "win32")("refuses a device", async () => {
     const r = await run("/dev/null");
