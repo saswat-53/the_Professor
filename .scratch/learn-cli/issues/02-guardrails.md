@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Thin slice: explain a file against a fake server, plus --dry-run)
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] A fixture where core imports from cli makes the check fail
 - [ ] A fixture where core touches stdout, argv, or a terminal library makes the check fail
