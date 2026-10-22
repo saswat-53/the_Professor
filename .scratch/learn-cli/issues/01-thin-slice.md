@@ -6,8 +6,8 @@
 
 **Status:** done
 
-- [ ] Against a fake server with a scripted reply, `learn` on a real temp file prints the reply on stdout, and the test sees it arrive in more than one chunk before the stream ends
-- [ ] With `--dry-run`, the fake server records zero requests, and stderr shows the base URL, the model, and the file content exactly as it would be sent
-- [ ] A flag overrides the environment for base URL and model; with neither set, the run fails with a usage message and exit code 2
-- [ ] A core test drives explain with a fake model and a real temp file and observes text deltas followed by done
-- [ ] The built bundle can be run locally as the `learn` command
+- [x] Against a fake server with a scripted reply, `learn` on a real temp file prints the reply on stdout, and the test sees it arrive in more than one chunk before the stream ends
+- [x] With `--dry-run`, the fake server records zero requests, and stderr shows the base URL, the model, and the file content exactly as it would be sent
+- [x] A flag overrides the environment for base URL and model; with neither set, the run fails with a usage message and exit code 2
+- [x] A core test drives explain with a fake model and a real temp file and observes text deltas followed by done
+- [x] The built bundle can be run locally as the `learn` command

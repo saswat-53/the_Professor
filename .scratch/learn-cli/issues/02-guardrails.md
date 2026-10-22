@@ -6,11 +6,11 @@
 
 **Status:** done
 
-- [ ] A fixture where core imports from cli makes the check fail
-- [ ] A fixture where core touches stdout, argv, or a terminal library makes the check fail
-- [ ] A fixture where core imports a file-write API makes the check fail; the rule's allowlist can hold exactly one entry, reserved for the notes writer from ticket 36 (/save), and nothing else may be added
-- [ ] CI runs the full test suite on Node 22, 24, and 26 and fails if any of them fails
-- [ ] The package declares Node 22 or newer, a Node version file exists, and a lockfile is committed and installed unmodified in CI
+- [x] A fixture where core imports from cli makes the check fail
+- [x] A fixture where core touches stdout, argv, or a terminal library makes the check fail
+- [x] A fixture where core imports a file-write API makes the check fail; the rule's allowlist can hold exactly one entry, reserved for the notes writer from ticket 36 (/save), and nothing else may be added
+- [x] CI runs the full test suite on Node 22, 24, and 26 and fails if any of them fails
+- [x] The package declares Node 22 or newer, a Node version file exists, and a lockfile is committed and installed unmodified in CI
 
 ## Comments
 
