@@ -1,3 +1,5 @@
+import type { LearnError } from "./errors.js";
+
 export interface ModelRequest {
   baseUrl: string;
   model: string;
@@ -19,4 +21,4 @@ export type ExplainEvent =
   | { type: "context-report"; text: string }
   | { type: "text-delta"; text: string }
   | { type: "done" }
-  | { type: "error"; message: string; kind?: "usage" };
+  | { type: "error"; error: LearnError };

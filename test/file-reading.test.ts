@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { explain } from "../src/core/explain.js";
+import { FileRefusedError } from "../src/core/errors.js";
 import type { ExplainEvent, LanguageModel, ModelRequest } from "../src/core/types.js";
 
 let dir: string;
@@ -27,7 +28,13 @@ async function run(reference: string) {
     signal: new AbortController().signal,
   })) events.push(e);
   const last = events.at(-1);
-  return { requests, error: last?.type === "error" ? last.message : undefined };
+  return { requests, error: last?.type === "error" ? last.error : undefined };
+}
+
+function expectRefusal(error: unknown, reason: string) {
+  expect(error).toBeInstanceOf(FileRefusedError);
+  expect((error as FileRefusedError).reason).toBe(reason);
+  expect((error as FileRefusedError).exitCode).toBe(3);
 }
 
 async function fileWith(name: string, content: string | Buffer) {
@@ -41,7 +48,7 @@ async function fileWith(name: string, content: string | Buffer) {
 describe("file reading rules", () => {
   it("refuses a directory", async () => {
     const r = await run(dir);
-    expect(r.error).toMatch(/not a regular file/);
+    expectRefusal(r.error, "not-regular");
     expect(r.requests).toHaveLength(0);
   });
 
@@ -54,19 +61,19 @@ describe("file reading rules", () => {
       const fifo = join(dir, "pipe");
       execFileSync("mkfifo", [fifo]);
       const r = await run(fifo);
-      expect(r.error).toMatch(/not a regular file/);
+      expectRefusal(r.error, "not-regular");
     },
   );
 
   it.skipIf(process.platform === "win32")("refuses a device", async () => {
     const r = await run("/dev/null");
-    expect(r.error).toMatch(/not a regular file/);
+    expectRefusal(r.error, "not-regular");
   });
 
   it("refuses a file over 1 MB, judged by its size before it is read", async () => {
     const path = await fileWith("big.txt", "a".repeat(1024 * 1024 + 1));
     const r = await run(path);
-    expect(r.error).toMatch(/too large/);
+    expectRefusal(r.error, "too-large");
     expect(r.requests).toHaveLength(0);
   });
 
@@ -79,7 +86,7 @@ describe("file reading rules", () => {
   it("refuses a file with a NUL byte in its first 8 KB as binary", async () => {
     const path = await fileWith("bin.dat", Buffer.concat([Buffer.from("text"), Buffer.from([0]), Buffer.from("more")]));
     const r = await run(path);
-    expect(r.error).toMatch(/binary/);
+    expectRefusal(r.error, "binary");
     expect(r.requests).toHaveLength(0);
   });
 
@@ -92,7 +99,7 @@ describe("file reading rules", () => {
   it("refuses a file that isn't valid UTF-8 with 'not UTF-8 text'", async () => {
     const path = await fileWith("latin1.txt", Buffer.from([0x63, 0x61, 0x66, 0xe9]));
     const r = await run(path);
-    expect(r.error).toContain("not UTF-8 text");
+    expectRefusal(r.error, "not-utf8");
     expect(r.requests).toHaveLength(0);
   });
 

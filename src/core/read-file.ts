@@ -1,5 +1,6 @@
 import { open, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
+import { FileRefusedError } from "./errors.js";
 
 const MAX_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
@@ -25,27 +26,27 @@ async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
  */
 export async function readTextFile(path: string): Promise<string> {
   const pathStat = await stat(path);
-  if (!pathStat.isFile()) throw new Error(`${path}: not a regular file`);
-  if (pathStat.size > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
+  if (!pathStat.isFile()) throw new FileRefusedError("not-regular", `${path}: not a regular file`);
+  if (pathStat.size > MAX_BYTES) throw new FileRefusedError("too-large", `${path}: file too large (over 1 MB)`);
 
   const handle = await open(path, "r");
   let bytes: Buffer;
   try {
     const handleStat = await handle.stat();
     if (!handleStat.isFile() || handleStat.dev !== pathStat.dev || handleStat.ino !== pathStat.ino) {
-      throw new Error(`${path}: changed while being read`);
+      throw new FileRefusedError("changed", `${path}: changed while being read`);
     }
     bytes = await readBounded(handle, MAX_BYTES + 1);
-    if (bytes.length > MAX_BYTES) throw new Error(`${path}: file too large (over 1 MB)`);
+    if (bytes.length > MAX_BYTES) throw new FileRefusedError("too-large", `${path}: file too large (over 1 MB)`);
   } finally {
     await handle.close();
   }
 
-  if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) throw new Error(`${path}: looks like a binary file`);
+  if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) throw new FileRefusedError("binary", `${path}: looks like a binary file`);
   try {
     // The decoder drops a leading BOM by default; CRLF becomes LF afterwards.
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replaceAll("\r\n", "\n");
   } catch {
-    throw new Error(`${path}: not UTF-8 text`);
+    throw new FileRefusedError("not-utf8", `${path}: not UTF-8 text`);
   }
 }

@@ -1,5 +1,5 @@
 import { readTextFile } from "./read-file.js";
-import { UsageError } from "./errors.js";
+import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
@@ -7,7 +7,14 @@ import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./type
 const SYSTEM_PROMPT =
   "You are a patient teacher. Explain the supplied code: what it does and, above all, why it is written this way.";
 
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+/**
+ * Local failures (a missing file, a permission error) keep their own message. A failure from the
+ * model is only trusted if it is already typed: anything else could carry raw provider output.
+ */
+const local = (err: unknown): LearnError =>
+  err instanceof LearnError ? err : new UnexpectedError(err instanceof Error ? err.message : String(err));
+const fromModel = (err: unknown): LearnError =>
+  err instanceof LearnError ? err : new ProviderError("the model provider returned an error that learn could not classify");
 
 export interface ExplainInput {
   reference: string;
@@ -34,7 +41,7 @@ export async function* explain(
   try {
     request = await buildRequest(input);
   } catch (err) {
-    yield { type: "error", message: errorMessage(err), ...(err instanceof UsageError && { kind: "usage" as const }) };
+    yield { type: "error", error: local(err) };
     return;
   }
   try {
@@ -43,6 +50,6 @@ export async function* explain(
     }
     yield { type: "done" };
   } catch (err) {
-    yield { type: "error", message: errorMessage(err) };
+    yield { type: "error", error: fromModel(err) };
   }
 }

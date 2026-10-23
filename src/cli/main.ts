@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { UsageError, buildRequest, explain } from "../core/index.js";
+import { LearnError, buildRequest, explain } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--dry-run]
@@ -40,7 +40,7 @@ async function main(): Promise<number> {
       return 0;
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-      return err instanceof UsageError ? 2 : 1;
+      return err instanceof LearnError ? err.exitCode : 1;
     }
   }
 
@@ -50,8 +50,8 @@ async function main(): Promise<number> {
   for await (const event of explain({ reference, settings, model: llm, signal: controller.signal })) {
     if (event.type === "text-delta") process.stdout.write(event.text);
     else if (event.type === "error") {
-      process.stderr.write(`\n${event.message}\n`);
-      return event.kind === "usage" ? 2 : 1;
+      process.stderr.write(`\n${event.error.message}\n`);
+      return event.error.exitCode;
     }
   }
   process.stdout.write("\n");

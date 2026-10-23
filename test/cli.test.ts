@@ -80,9 +80,9 @@ describe("learn CLI", () => {
     expect(r.stderr).not.toContain("env-model");
   });
 
-  it("refuses a directory with a message on stderr and exit 1", async () => {
+  it("refuses a directory with a message on stderr and exit 3", async () => {
     const r = await run([dirname(file), "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
-    expect(r.code).toBe(1);
+    expect(r.code).toBe(3);
     expect(r.stderr).toContain("not a regular file");
   });
 
