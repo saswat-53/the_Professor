@@ -15,3 +15,4 @@
 ## Comments
 
 - From ticket 14: document the Context report on stderr, including the budget line, a format pinned by a test and so safe for scripts to read: `local endpoint budget 8,000 characters (default)`, `hosted endpoint budget 24,000 characters (default)`, `budget N characters (setting)`.
+- From ticket 14: say in one sentence that the local-endpoint exemption from the sensitive-file check trusts the address, not the destination: a tunnel, port forward or local proxy on 127.0.0.1 may lead to a remote or hosted model, and the Context report's "sensitive-file check skipped: … endpoint is local (host)" note is the cue to notice.
