@@ -43,10 +43,14 @@ const formatRange = (start: number, end: number) => (start === end ? `${start}` 
 /** The range part of `path:SPEC`; every malformed shape gets its own message. */
 function parseSpec(spec: string): { start: number; end: number } {
   if (/^-\d/.test(spec)) throw new UsageError(`line numbers must be positive, got "${spec}"`);
+  if (spec === "") throw new UsageError("the line reference is missing a line number after the colon");
   const parts = spec.split("-");
-  if (parts.length > 2 || !parts.every((p) => /^\d+$/.test(p))) {
-    throw new UsageError(`"${spec}" is not a line number or range; use path:N or path:N-M`);
+  if (parts.length === 2 && parts[1] === "") {
+    throw new UsageError(`open-ended ranges like "${spec}" are not supported; give both ends as N-M`);
   }
+  if (parts.length > 2) throw new UsageError(`a range has two ends, got "${spec}"; use N-M`);
+  const bad = parts.find((p) => !/^\d+$/.test(p));
+  if (bad !== undefined) throw new UsageError(`"${bad}" is not a whole number; use path:N or path:N-M`);
   const [start, end] = parts.map(Number) as [number, number?];
   for (const n of [start, end ?? start]) {
     if (n === 0) throw new UsageError("line numbers start at 1, got 0");
@@ -90,7 +94,9 @@ export const defaultResolvers: Resolvers = {
     return { label: `${ref.path}:${formatRange(ref.start, ref.end)}`, text: lines.slice(ref.start - 1, ref.end).join("\n") };
   },
   word: async (ref: WordReference) => {
-    throw new UsageError(`word references like "${ref.word}" are not supported yet; use a file or path:N-M`);
+    throw new UsageError(
+      `"${ref.word}" was not found as a file. Word references are not supported yet; use a file or path:N-M`,
+    );
   },
 };
 

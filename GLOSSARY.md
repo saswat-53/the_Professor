@@ -9,7 +9,7 @@ What the user supplies to say which code they want explained: a file, a line, a 
 _Avoid_: Target, selection, query, input
 
 **Excerpt**:
-The exact code a Reference resolves to.
+The exact code a Reference resolves to, together with its **label**: the name shown to the model and the user for where it came from (for example `src/auth.ts:40-60`).
 _Avoid_: Snippet, selection, chunk
 
 **Context**:

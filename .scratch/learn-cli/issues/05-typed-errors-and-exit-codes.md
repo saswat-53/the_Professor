@@ -12,4 +12,5 @@
 - [ ] A provider error body containing a sentinel string never appears in stdout or stderr
 - [ ] After a 429, the fake server has seen exactly one request (no automatic retry)
 - [ ] The file-reading refusals from ticket 03 (directory, device, pipe, too large, binary, not UTF-8) become typed refusals that exit 3, and the CLI refusal test in `test/cli.test.ts` and the message-text matches in `test/file-reading.test.ts` are updated to match
+- [ ] The temporary `kind: "usage"` field on error events and the `instanceof UsageError` checks in `src/cli/main.ts` (added in ticket 04) are replaced by the typed errors, and exit code 2 for malformed `path:N-M` references still holds
 - [ ] A failure after a large streamed output still flushes all the output before the process ends (the exit code is set, not forced)

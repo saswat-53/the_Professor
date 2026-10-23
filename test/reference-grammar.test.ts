@@ -51,11 +51,12 @@ describe("malformed references", () => {
     ["line 0", `${"FILE"}:0`, /start at 1/],
     ["range starting at 0", `${"FILE"}:0-3`, /start at 1/],
     ["negative number", `${"FILE"}:-3`, /positive/],
-    ["non-integer", `${"FILE"}:1.5`, /not a line number/],
-    ["words", `${"FILE"}:abc`, /not a line number/],
-    ["empty spec", `${"FILE"}:`, /not a line number/],
+    ["non-integer", `${"FILE"}:1.5`, /not a whole number/],
+    ["words", `${"FILE"}:abc`, /not a whole number/],
+    ["empty spec", `${"FILE"}:`, /missing a line number/],
+    ["open-ended range", `${"FILE"}:5-`, /open-ended ranges/],
     ["reversed range", `${"FILE"}:4-2`, /reversed/],
-    ["three-part range", `${"FILE"}:1-2-3`, /not a line number/],
+    ["three-part range", `${"FILE"}:1-2-3`, /two ends/],
   ];
   for (const [label, ref, message] of cases) {
     it(`rejects ${label} as a usage error`, async () => {
@@ -84,6 +85,7 @@ describe("file names and words", () => {
   it("answers a bare word with a not-supported-yet usage error", async () => {
     const err = await buildRequest({ reference: "debounce", settings }).catch((e) => e);
     expect(err).toBeInstanceOf(UsageError);
+    expect(err.message).toContain("not found as a file");
     expect(err.message).toContain("not supported yet");
   });
 

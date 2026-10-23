@@ -9,5 +9,6 @@
 - [ ] A bare word is searched for as an identifier within the project root, and the best definition becomes the Excerpt
 - [ ] When nothing is found, the message says so
 - [ ] Only files inside the project root and passing the Sensitive-file check are searched
+- [ ] `buildRequest` accepts custom resolvers, so a kind can be added without editing its callers (ticket 04 only proved the resolver table is open)
 - [ ] The Reference type gains a word kind with no change to existing callers
 - [ ] The same works for a word typed in chat

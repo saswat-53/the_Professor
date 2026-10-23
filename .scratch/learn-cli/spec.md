@@ -172,7 +172,7 @@ A command-line tool, `learn`, that you run from inside any project. You point it
 - MIT licence; semver 0.x until Milestone 3; this is documented in the README.
 
 ### Core interface (the main seam)
-- Core exposes four capabilities: resolve a Reference, gather Context, build the prompt, and explain. Explain returns an asynchronous stream of typed events (a discriminated union): context report, text delta, done, error. It takes the request, settings, a Session and an abort signal.
+- Core exposes four capabilities: resolve a Reference, gather Context, build the prompt, and explain. Explain returns an asynchronous stream of typed events (a discriminated union): context report, text delta, done, error (the error event may carry a `kind` so the frontend can pick an exit code). The prompt's user message starts with a `File: <label>` header naming where the Excerpt came from. It takes the request, settings, a Session and an abort signal.
 - File reading, git execution and the model are passed in as plain dependencies. The blocked-file check lives inside file reading so no caller can bypass it.
 - The Reference type is open to new kinds. Milestone 1 supports file, line and range; a word kind is added in Milestone 3 without changes elsewhere.
 - The Enclosing-block finder is defined as an interface first. The Milestone 1 implementation is heuristic and skips strings and comments when matching braces. Brace-based families: `.ts .tsx .js .jsx .mjs .cjs .java .kt .c .h .cc .cpp .hpp .cs .go .rs .php .swift`. Indentation family: `.py` (including decorators and multi-line signatures). Every other extension uses the fixed fallback window. The Context report states which method was used. This extension list is the starting point and may be extended.

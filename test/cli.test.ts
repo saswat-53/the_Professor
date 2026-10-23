@@ -92,7 +92,7 @@ describe("learn CLI", () => {
     expect(r.stderr).toContain("start at 1");
   });
 
-  it.each([["4-2", "reversed"], ["-3", "positive"], ["1.5", "not a line number"], ["99", "has 1 lines"]])(
+  it.each([["4-2", "reversed"], ["-3", "positive"], ["1.5", "not a whole number"], ["99", "has 1 lines"]])(
     "exits 2 for %s",
     async (spec, message) => {
       const r = await run([`${file}:${spec}`, "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
