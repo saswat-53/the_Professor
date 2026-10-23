@@ -5,6 +5,7 @@ export {
   BlockedFileError,
   ContextTooLongError,
   ExitCode,
+  FileNotFoundError,
   FileRefusedError,
   LearnError,
   ModelNotFoundError,

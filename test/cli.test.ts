@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -290,5 +291,40 @@ describe("project root and path escape", () => {
       expect(r.stderr).not.toContain(home);
       expect(r.stdout).not.toContain(home);
     }
+  });
+});
+
+describe("--root validation, missing files and letter case", () => {
+  const env = () => ({ LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+
+  it("a missing file exits 2 with 'no such file' and no raw Node error", async () => {
+    const r = await run(["nope/missing.ts", "--dry-run"], env());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("nope/missing.ts: no such file");
+    expect(r.stderr).not.toMatch(/ENOENT|errno|syscall/);
+  });
+
+  it.each([
+    ["a nonexistent directory", () => join(tmpdir(), "learn-does-not-exist-xyz"), "does not exist"],
+    ["a file", () => file, "not a directory"],
+    ["the filesystem root", () => "/", "filesystem root"],
+  ])("--root %s exits 2 with a clear message", async (_label, root, message) => {
+    const r = await run([file, "--dry-run", "--root", root()], env());
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain(message);
+  });
+
+  it("the same folder spelled with different letter case is still inside the root", async (ctx) => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "learn-case-")));
+    const dir = join(base, "Proj");
+    await mkdir(dir);
+    await writeFile(join(dir, "a.txt"), "hi\n");
+    const swapped = join(base, "pROJ");
+    if (!existsSync(swapped)) return ctx.skip(); // case-sensitive disk: nothing to test
+    const r = await run([join(swapped, "a.txt"), "--dry-run", "--root", dir], env(), base);
+    expect(r.code, r.stderr).toBe(0);
+    expect(/File: (.*)\n/.exec(r.stderr)?.[1]).toBe("a.txt");
+    const viaCwd = await run(["a.txt", "--dry-run"], env(), swapped);
+    expect(viaCwd.code, viaCwd.stderr).toBe(0);
   });
 });

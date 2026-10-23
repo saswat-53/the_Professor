@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { UsageError } from "../src/core/errors.js";
+import { FileNotFoundError, UsageError } from "../src/core/errors.js";
 import { buildRequest } from "../src/core/explain.js";
 import { defaultResolvers, resolveReference } from "../src/core/reference.js";
 
@@ -92,9 +92,12 @@ describe("file names and words", () => {
     expect(err.message).toContain("not supported yet");
   });
 
-  it("a missing path-like file is still a read error, not a word", async () => {
+  it("a missing path-like file is a file-not-found error (exit 2), not a word", async () => {
     const err = await buildRequest({ reference: join(dir, "missing.ts"), settings, root: tmpdir() }).catch((e) => e);
-    expect(err).not.toBeInstanceOf(UsageError);
+    expect(err).toBeInstanceOf(FileNotFoundError);
+    expect(err.exitCode).toBe(2);
+    expect(err.message).toContain("no such file");
+    expect(err.message).not.toContain("Word references");
   });
 });
 

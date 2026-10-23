@@ -12,7 +12,7 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "learn-read-"));
 });
 
-async function run(reference: string) {
+async function run(reference: string, root = tmpdir()) {
   const requests: ModelRequest[] = [];
   const model: LanguageModel = {
     async *stream(request) {
@@ -23,7 +23,7 @@ async function run(reference: string) {
   const events: ExplainEvent[] = [];
   for await (const e of explain({
     reference,
-    root: "/",
+    root,
     settings: { baseUrl: "http://h/v1", model: "m" },
     model,
     signal: new AbortController().signal,
@@ -67,7 +67,7 @@ describe("file reading rules", () => {
   );
 
   it.skipIf(process.platform === "win32")("refuses a device", async () => {
-    const r = await run("/dev/null");
+    const r = await run("/dev/null", "/dev");
     expectRefusal(r.error, "not-regular");
   });
 

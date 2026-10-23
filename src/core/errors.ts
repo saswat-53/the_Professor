@@ -13,6 +13,11 @@ export class UsageError extends LearnError {
   readonly exitCode = ExitCode.Usage;
 }
 
+/** The path the user named does not exist. */
+export class FileNotFoundError extends UsageError {
+  override name = "FileNotFoundError";
+}
+
 /** Learn declined to send something to the model, on purpose. */
 export abstract class RefusedError extends LearnError {
   readonly exitCode = ExitCode.Refused;

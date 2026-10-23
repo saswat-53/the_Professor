@@ -1,8 +1,17 @@
-import { realpath } from "node:fs/promises";
+import { realpath } from "node:fs";
+import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, relative, resolve, sep } from "node:path";
-import { PathEscapeError, UsageError } from "./errors.js";
+import { promisify } from "node:util";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { FileNotFoundError, PathEscapeError, UsageError } from "./errors.js";
 import { findRepo } from "./git.js";
+
+/**
+ * `realpath.native` asks the operating system, which reports a folder's true letter case. The
+ * JavaScript `realpath` keeps whatever case was typed, so on a case-insensitive disk (the macOS
+ * default) the same folder spelled two ways would look like two different places.
+ */
+const real = promisify(realpath.native);
 
 export interface ProjectRoot {
   /** Real path of the directory learn treats as "the project". */
@@ -17,10 +26,15 @@ export interface ProjectRoot {
  */
 export async function findProjectRoot(cwd: string, explicit?: string): Promise<ProjectRoot> {
   const start = explicit !== undefined ? resolve(cwd, explicit) : ((await findRepo(cwd))?.root ?? cwd);
-  const root = await realpath(start).catch(() => {
+  const root = await real(start).catch(() => {
     throw new UsageError(`the project root ${start} does not exist`);
   });
-  return { root, isHome: root === (await realpath(homedir()).catch(() => homedir())) };
+  if (!(await stat(root)).isDirectory()) throw new UsageError(`the project root ${start} is not a directory`);
+  // Labels are relative to the root, so a filesystem root would turn them into absolute paths that include the home directory.
+  if (explicit !== undefined && root === dirname(root)) {
+    throw new UsageError("--root cannot be the filesystem root: labels would reveal full paths; pick a narrower directory");
+  }
+  return { root, isHome: root === (await real(homedir()).catch(() => homedir())) };
 }
 
 /** `child` is inside `root` when the relative path between them does not climb out. Comparing relative paths (not string prefixes) keeps `app-secrets` from passing as inside `app`. */
@@ -41,11 +55,15 @@ export interface LocatedFile {
  * no `--root` can only be inside the current directory, so "elsewhere" is simply outside the root.
  */
 export async function locateFile(root: string, cwd: string, path: string): Promise<LocatedFile> {
-  const real = await realpath(resolve(cwd, path));
-  if (!isInside(root, real)) {
+  const target = resolve(cwd, path);
+  const resolved = await real(target).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT" || err.code === "ENOTDIR") throw new FileNotFoundError(`${path}: no such file`);
+    throw err;
+  });
+  if (!isInside(root, resolved)) {
     throw new PathEscapeError(
       `${path} is outside the project root; pass --root <dir> to allow reading outside it`,
     );
   }
-  return { real, name: relative(root, real) };
+  return { real: resolved, name: relative(root, resolved) };
 }
