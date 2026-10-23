@@ -20,7 +20,7 @@
 - Template env files (`.env.example`) are blocked too: no exemption, `--allow-sensitive` is the escape hatch.
 - The gitignore check uses `git check-ignore --no-index`, so a file committed and only later ignored is still refused (tested); so is one added with `git add -f`.
 - Decision: if git cannot run, the gitignore half fails closed (the read is refused with the git error). The denylist needs no git and is checked first; a directory that is not a repo just has no gitignore rules.
-- Decision: the localhost exemption is the parsed URL host, exactly `localhost`, `127.0.0.1` or `[::1]` (case-insensitive). `localhost.`, `0.0.0.0`, `127.0.0.2` and `::ffff:127.0.0.1` are not exempt.
+- Decision: the localhost exemption is the parsed URL host, exactly `localhost`, `127.0.0.1` or `[::1]` (case-insensitive), as the parsed host: spellings the URL parser normalises to loopback (`127.1`, `2130706433`, `[0:0:0:0:0:0:0:1]`) are exempt too (tested). `localhost.`, `0.0.0.0`, `127.0.0.2` and `::ffff:127.0.0.1` are not exempt.
 - `--allow-sensitive` is a flag only (no env var, not implied by `--root`).
 - `BlockedFileError` carries `file` and `rule`; the CLI adds the `--allow-sensitive` advice.
 - Denylist extended with `.git-credentials`, `.pypirc`, `.htpasswd`, `.aws/credentials`, `.docker/config.json`, `.kube/config`, `.git/config`, `*.tfstate`, `*.tfvars`.
@@ -31,3 +31,4 @@
 - The `check-ignore -v` parse only words the message. The decision fails closed: any output refuses unless the first line is positively a `!` negation (git reports those with exit 0). Output that cannot be parsed refuses with "ignored by git (details unavailable)". The line splits at the first tab and the first `:<digits>:`, so a colon in the pattern and a space in the file name are harmless (tested). The home directory is shown as `~` only when it is a whole leading path segment, so the full `/Users/...` path is never printed for it.
 - Two ignore sources matching one file: git prints a single line, the pattern it applied (checked by hand: root `*.log`, a nested `!keep.log` and an `info/exclude` entry give only the nested negation), so a deeper negation allows the file, as git decides (tested end to end). If git ever printed more than one line, the decision is to refuse rather than guess which line wins (unit-tested).
 - Errors may print absolute paths outside home in full (for example `/etc/...`); the README's "Reporting bugs" section tells people to read error text before pasting it publicly.
+- Gitignore is checked on both the resolved target and the link's own path (directory resolved, final name kept), like the denylist: a link `x.log` matching `*.log` that points at an unignored file is refused (tested).

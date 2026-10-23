@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
-import { basename, dirname, relative, sep } from "node:path";
+import { realpath } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BlockedFileError } from "./errors.js";
 import { findRepo, runGit } from "./git.js";
 import { readTextFile } from "./read-file.js";
@@ -135,7 +136,9 @@ export function createFileReader(options: FileReaderOptions): FileReader {
         // Both names are checked: a harmless-looking link to `.env` and a `.env` link to a harmless file are each caught.
         const rule = denylistRule(real) ?? denylistRule(path);
         if (rule) throw new BlockedFileError(name, rule);
-        const source = await ignoredBy(real);
+        // Both names again: a link whose own path is ignored, pointing at a file that is not, is the owner's "don't share" too.
+        const link = join(await realpath(dirname(resolve(options.cwd, path))), basename(path));
+        const source = (await ignoredBy(real)) ?? (link === real ? undefined : await ignoredBy(link));
         if (source) throw new BlockedFileError(name, "gitignore", source);
       }
       return { text: await readText(real), name };

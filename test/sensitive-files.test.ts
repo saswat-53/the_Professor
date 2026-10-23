@@ -29,6 +29,8 @@ beforeAll(async () => {
   await mkdir(join(repo, "sub"));
   await writeFile(join(repo, "sub", ".env.local"), CANARY);
   await symlink(join(repo, ".env"), join(repo, "innocent.txt"));
+  // The link's own path matches `*.log`; its target does not.
+  await symlink(join(repo, "ok.ts"), join(repo, "linked.log"));
   await mkdir(join(repo, "build"));
   await writeFile(join(repo, "build", "out.js"), CANARY);
   await writeFile(join(repo, "debug.log"), CANARY);
@@ -110,6 +112,7 @@ describe("sensitive files", () => {
     ["config/local.json", "gitignore"],
     ["build/out.js", "gitignore"],
     ["debug.log", "gitignore"],
+    ["linked.log", "gitignore"],
     [".env.example", ".env.*"],
     ["private_key.json", "secret"],
   ])("refuses %s and names the rule %s", async (path, rule) => {
@@ -182,6 +185,10 @@ describe("sensitive files", () => {
     ["http://[::ffff:127.0.0.1]/v1", false],
     ["http://0.0.0.0:8080/v1", false],
     ["http://127.0.0.2/v1", false],
+    // Spellings that the URL parser normalises to loopback are exempt, because the exemption is on the parsed host.
+    ["http://127.1/v1", true],
+    ["http://2130706433/v1", true],
+    ["http://[0:0:0:0:0:0:0:1]/v1", true],
   ])("isLocalHost(%s) is %s", (url, expected) => {
     expect(isLocalHost(url)).toBe(expected);
   });
@@ -234,8 +241,14 @@ describe("sensitive files through the CLI", () => {
     expect(r.stderr).toContain("--allow-sensitive");
   });
 
-  it.each(["--show-prompt", "--dry-run"])("%s never prints a blocked file's content", async (flag) => {
-    const r = await run(["ignored.txt", flag], env, repo);
+  it.each([
+    ["ignored.txt", "--show-prompt"],
+    ["ignored.txt", "--dry-run"],
+    [".env", "--show-prompt"],
+    [".aws/credentials", "--dry-run"],
+    ["innocent.txt", "--show-prompt"],
+  ])("%s with %s never prints a blocked file's content", async (file, flag) => {
+    const r = await run([file, flag], env, repo);
     expect(r.code).toBe(3);
     expect(r.stdout + r.stderr).not.toContain(CANARY);
   });
