@@ -21,7 +21,7 @@ The smallest named function, method, or class (or class-like declaration such as
 _Avoid_: Parent, container, scope
 
 **Block finder**:
-The replaceable component that locates the Enclosing block for an Excerpt, or finds nothing. The built-in one for brace languages (TypeScript, JavaScript, Java, Kotlin, C-family, C#, Go, Rust, PHP, Swift) scans for balanced braces, skipping strings and comments. When a finder finds nothing, Context falls back to a fixed window of nearby lines. A Python finder comes later, and a tree-sitter one may follow.
+The replaceable component that locates the Enclosing block for an Excerpt, or finds nothing. The built-in one for brace languages (TypeScript, JavaScript, Java, Kotlin, C-family, C#, Go, Rust, PHP, Swift) scans for balanced braces, skipping strings and comments. When a finder finds nothing, Context falls back to a fixed window of nearby lines. The Python one reads indentation (a block runs from its first decorator to its last indented statement; blank lines, comments and multi-line strings do not end it early). A tree-sitter one may follow.
 _Avoid_: Parser, scanner, locator
 
 **Line span**:

@@ -31,5 +31,7 @@ export type { ProjectRoot, LocatedFile } from "./root.js";
 export { createFileReader, denylistRule, isLocalHost } from "./sensitive.js";
 export type { FileReader, FileReaderOptions } from "./sensitive.js";
 export { braceBlockFinder, BRACE_EXTENSIONS } from "./brace-block-finder.js";
+export { pythonBlockFinder } from "./python-block-finder.js";
+export { defaultBlockFinder } from "./default-block-finder.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";
