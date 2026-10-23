@@ -23,6 +23,8 @@ export interface WordReference extends Reference {
 export interface Excerpt {
   label: string;
   text: string;
+  /** Where the Excerpt sits in its file. Absent for input with no file behind it, which gets no Context. */
+  source?: { path: string; text: string; start: number; end: number };
 }
 
 export interface ResolverDeps {
@@ -96,7 +98,11 @@ export const defaultResolvers: Resolvers = {
         `${name}: ${noun} ${formatRange(ref.start, ref.end)} is past the end of the file, which has ${total} lines`,
       );
     }
-    return { label: `${name}:${formatRange(ref.start, ref.end)}`, text: lines.slice(ref.start - 1, ref.end).join("\n") };
+    return {
+      label: `${name}:${formatRange(ref.start, ref.end)}`,
+      text: lines.slice(ref.start - 1, ref.end).join("\n"),
+      source: { path: name, text, start: ref.start, end: ref.end },
+    };
   },
   word: async (ref: WordReference) => {
     throw new UsageError(

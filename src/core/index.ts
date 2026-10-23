@@ -30,3 +30,5 @@ export { findProjectRoot, locateFile, isInside } from "./root.js";
 export type { ProjectRoot, LocatedFile } from "./root.js";
 export { createFileReader, denylistRule, isLocalHost } from "./sensitive.js";
 export type { FileReader, FileReaderOptions } from "./sensitive.js";
+export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
+export type { BlockFinder, Context, LineSpan } from "./context.js";

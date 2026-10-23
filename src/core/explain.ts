@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
-import { DEFAULT_LEVEL, buildSystemPrompt, fenceCode } from "./prompt.js";
+import { type BlockFinder, formatRequest, gatherContext, noBlockFinder } from "./context.js";
+import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader } from "./sensitive.js";
 import { parseReference, resolveReference } from "./reference.js";
@@ -26,6 +27,8 @@ export interface ExplainInput {
   root?: string;
   /** Skips the sensitive-file refusal for this run (`--allow-sensitive`). */
   allowSensitive?: boolean;
+  /** Finds the Enclosing block. Default: one that finds nothing, so the fixed window is used. */
+  blockFinder?: BlockFinder;
 }
 
 /** Turns a reference and settings into the exact request that would be sent. Reads the file and finds the project root, but never contacts the model. */
@@ -47,7 +50,7 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
-    user: `File: ${excerpt.label}\n\n${fenceCode(excerpt.text)}`,
+    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? noBlockFinder)),
   };
 }
 
