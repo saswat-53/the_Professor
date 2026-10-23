@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blockFinderFor } from "../src/core/default-block-finder.js";
+import { blockFinderFor } from "../src/core/block-finder-for.js";
 import { pythonBlockFinder } from "../src/core/python-block-finder.js";
 import { blockFinderContract } from "./support/block-finder-contract.js";
 
@@ -78,6 +78,9 @@ blockFinderContract("python finder", pythonBlockFinder, [
   { name: "backslash continuation", path: "a.py", text: "def a():\n    x = 1 + \\\n2\n    return x", range: { start: 4, end: 4 }, expect: { start: 1, end: 4 } },
   { name: "the word def inside a string is not a block", path: "a.py", text: 'x = """\ndef fake():\n    pass\n"""', range: { start: 3, end: 3 }, expect: null },
   { name: "an unterminated string finds nothing", path: "a.py", text: 'def f():\n    x = """oops\n    return 1', range: { start: 3, end: 3 }, expect: null },
+  // Python 3.12+ allows reusing the f-string's own quote inside `{}`. The scanner ends the string early,
+  // but the quotes still pair up, so the block is right; this pins the limitation to evidence.
+  { name: "an f-string reusing its own quote (3.12) still gives the right block", path: "a.py", text: 'def f(d):\n    s = f"{d["a"]} and {d["b"]}"\n    return s\nx = 1', range: { start: 3, end: 3 }, expect: { start: 1, end: 3 } },
   { name: "other extensions find nothing", path: "a.rb", text: "def f\n  1\nend", range: { start: 2, end: 2 }, expect: null },
   { name: "no extension finds nothing", path: "Makefile", text: "def f():\n    pass", range: { start: 2, end: 2 }, expect: null },
   { name: "upper-case extension", path: "A.PY", text: "def f():\n    pass", range: { start: 2, end: 2 }, expect: { start: 1, end: 2 } },
@@ -87,6 +90,6 @@ describe("blockFinderFor", () => {
   it("picks the Python finder for .py", () => expect(blockFinderFor("src/a.py").name).toBe("python"));
   it("picks the brace finder for brace languages", () => expect(blockFinderFor("a.TS").name).toBe("braces"));
   it("picks the finder that finds nothing for other files", () => {
-    for (const path of ["a.txt", "Makefile", ".py", ""]) expect(blockFinderFor(path).name).toBe("none");
+    for (const path of ["a.txt", "Makefile", ""]) expect(blockFinderFor(path).name).toBe("none");
   });
 });

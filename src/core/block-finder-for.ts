@@ -1,6 +1,6 @@
 import { BRACE_EXTENSIONS, braceBlockFinder } from "./brace-block-finder.js";
 import { type BlockFinder, noBlockFinder } from "./context.js";
-import { pythonBlockFinder } from "./python-block-finder.js";
+import { PYTHON_EXTENSIONS, pythonBlockFinder } from "./python-block-finder.js";
 
 /**
  * The built-in finder for a file, chosen by extension before searching so the Context report names
@@ -8,6 +8,6 @@ import { pythonBlockFinder } from "./python-block-finder.js";
  */
 export function blockFinderFor(path: string): BlockFinder {
   const ext = path.includes(".") ? path.slice(path.lastIndexOf(".") + 1).toLowerCase() : "";
-  if (ext === "py") return pythonBlockFinder;
+  if (PYTHON_EXTENSIONS.has(ext)) return pythonBlockFinder;
   return BRACE_EXTENSIONS.has(ext) ? braceBlockFinder : noBlockFinder;
 }

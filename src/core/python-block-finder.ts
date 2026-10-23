@@ -10,6 +10,10 @@ interface LogicalLine {
   code: string;
 }
 
+/** File extensions (lower case, no dot) that this finder understands. */
+export const PYTHON_EXTENSIONS: ReadonlySet<string> = new Set(["py"]);
+
+// `async def` counts as a def. A `lambda` never matches: it is an expression, not a statement that starts a line.
 const DEFINITION = /^(?:async\s+def|def|class)\b/;
 
 function indentWidth(whitespace: string): number {
@@ -102,8 +106,11 @@ function findBlocks(lines: readonly string[]): LineSpan[] | null {
 export const pythonBlockFinder: BlockFinder = {
   name: "python",
   find({ path, lines }, range) {
-    if (!path.toLowerCase().endsWith(".py")) return null;
+    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+    if (!path.includes(".") || !PYTHON_EXTENSIONS.has(ext)) return null;
     let best: LineSpan | null = null;
+    // findBlocks returns null when a triple-quoted string never closes; no block is better than a wrong
+    // one, so the caller falls back to the fixed window.
     for (const b of findBlocks(lines) ?? []) {
       if (b.start > range.start || b.end < range.end) continue;
       if (!best || b.end - b.start < best.end - best.start) best = b;
