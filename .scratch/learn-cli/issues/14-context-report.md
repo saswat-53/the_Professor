@@ -17,8 +17,10 @@
 
 ## Comments
 
-- Decision: `prepareRequest` (core/explain.ts) returns `{ request, report }`; `buildRequest` is kept as a wrapper. `ContextReport` is data (core/report.ts: `buildContextReport`, `refusedReport`, `formatContextReport`) and is built from the same Excerpt and Context that `formatRequest` uses. `explain` yields it as a `context-report` event before any text; the CLI writes it to stderr. `--dry-run` prints it too.
+- Decision: `prepareRequest` (core/explain.ts) returns `{ request, report }`; `buildRequest` is kept as a wrapper. `ContextReport` is data (core/report.ts: `buildContextReport`, `refusedReport`, `formatContextReport`) and is built from the same Excerpt and Context that `formatRequest` uses. `explain` yields it as a `context-report` event before any text, carrying the `ContextReport` data (not rendered text); the CLI formats it and writes it to stderr. `--dry-run` prints it too.
 - Decision: `Dropped.importTail` counts the straddling import statement's lines inside the window, separate from `lines`; `Budget` is passed to the report from `resolveBudget`, so `gatherContext` still takes the bare number.
 - Decision: a refused Sensitive file yields a refused report event and then the error, so the rule shows twice on the terminal (report line, then the error message).
 - Changed test: `cli-errors.test.ts` "starts the error on a fresh line" now expects the report first, then a blank line and the error; the fresh-line check is kept.
 - Not done: `describe()` in `src/cli/main.ts` still has two hints, so no lookup yet.
+- Decision: the budget line reads "local endpoint budget 8,000 characters (default)" (also "hosted endpoint budget 24,000 ...", and "budget 500 characters (setting)").
+- Added: a table test of report vs request over six cases (imports kept, dropped whole, dropped with an import tail, Enclosing block, fallback window, trimmed), and a canary test on the report path (`.env`, gitignored file and ordinary file; `--dry-run`, `--show-prompt`, streaming; no canary, API-key canary or temp HOME path in stdout, stderr, the request body or the report events). Ticket 21 still owns the `--allow-sensitive` canary case and the full gate.

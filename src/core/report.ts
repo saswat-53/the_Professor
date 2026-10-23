@@ -53,6 +53,7 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
 export const refusedReport = (err: BlockedFileError): ContextReport => ({ kind: "refused", file: err.file, rule: err.rule });
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const BUDGET_LABEL = { "hosted default": "hosted endpoint budget", "local default": "local endpoint budget", setting: "budget" } as const;
 const PART_LABEL = { imports: "imports", before: "before the Excerpt", excerpt: "the Excerpt", after: "after the Excerpt" } as const;
 
 /** The report as the text a frontend shows the user before anything is sent. */
@@ -80,7 +81,8 @@ export function formatContextReport(report: ContextReport): string {
     if (dropped.lines > 0) parts.push(`${plural(dropped.lines, "nearby line")} dropped`);
     out.push(`  dropped for budget: ${parts.join("; ")}`);
   }
-  out.push(`  budget: ${report.budget.chars.toLocaleString("en-US")} (${report.budget.source}) characters`);
+  const { chars, source } = report.budget;
+  out.push(`  ${BUDGET_LABEL[source]} ${chars.toLocaleString("en-US")} characters (${source === "setting" ? "setting" : "default"})`);
   if (report.local) {
     out.push(
       "  note: Ollama's context window is small by default; raise it with the app's context-length slider, or start the server with OLLAMA_CONTEXT_LENGTH set, and check with `ollama ps`",

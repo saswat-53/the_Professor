@@ -100,7 +100,7 @@ async function main(): Promise<number> {
     onRequest: values["show-prompt"] ? printRequest : undefined,
   })) {
     if (event.type === "context-report") {
-      process.stderr.write(`${event.text}\n`);
+      process.stderr.write(`${formatContextReport(event.report)}\n`);
     } else if (event.type === "text-delta") {
       process.stdout.write(event.text);
       lastChar = event.text.at(-1) ?? lastChar;

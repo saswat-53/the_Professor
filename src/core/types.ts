@@ -1,5 +1,6 @@
 import type { LearnError } from "./errors.js";
 import type { Level } from "./prompt.js";
+import type { ContextReport } from "./report.js";
 
 export interface ModelRequest {
   baseUrl: string;
@@ -22,7 +23,7 @@ export interface Settings {
 }
 
 export type ExplainEvent =
-  | { type: "context-report"; text: string }
+  | { type: "context-report"; report: ContextReport }
   | { type: "text-delta"; text: string }
   | { type: "done" }
   | { type: "error"; error: LearnError };

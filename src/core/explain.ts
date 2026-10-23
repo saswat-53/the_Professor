@@ -5,7 +5,7 @@ import { BlockedFileError, LearnError, ProviderError, UnexpectedError } from "./
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
-import { type ContextReport, buildContextReport, formatContextReport, refusedReport } from "./report.js";
+import { type ContextReport, buildContextReport, refusedReport } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, isLocalHost } from "./sensitive.js";
 import { parseReference, resolveReference } from "./reference.js";
@@ -82,9 +82,9 @@ export async function* explain(
   try {
     const prepared = await prepareRequest(input);
     request = prepared.request;
-    yield { type: "context-report", text: formatContextReport(prepared.report) };
+    yield { type: "context-report", report: prepared.report };
   } catch (err) {
-    if (err instanceof BlockedFileError) yield { type: "context-report", text: formatContextReport(refusedReport(err)) };
+    if (err instanceof BlockedFileError) yield { type: "context-report", report: refusedReport(err) };
     yield { type: "error", error: local(err) };
     return;
   }

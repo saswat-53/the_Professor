@@ -1,11 +1,12 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { explain, prepareRequest } from "../src/core/explain.js";
-import { formatContextReport } from "../src/core/report.js";
+import { type ContextReport, formatContextReport } from "../src/core/report.js";
 import type { ExplainEvent, LanguageModel } from "../src/core/types.js";
 import { run } from "./support/cli.js";
 
@@ -23,42 +24,37 @@ const numbered = (n: number) => Array.from({ length: n }, (_, i) => `l${String(i
 const model: LanguageModel = { async *stream() { yield "hi"; } };
 
 describe("Context report", () => {
-  // Imports are dropped before any nearby line, so they are never kept alongside a trim: two cases cover the two sides.
-  const listed = (ranges: { start: number; end: number }[]) => ranges.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i));
-  const sentNumbers = (user: string) => [...user.matchAll(/^l(\d\d)$/gm)].map((m) => Number(m[1]) + 1).sort((a, b) => a - b);
-
-  it("matches the request line for line when the imports are kept", async () => {
-    const dir = await project("a.ts", ['import a from "./a";', ...numbered(99)]);
-    const { request, report } = await prepareRequest({ reference: "a.ts:51", cwd: dir, settings: { ...hosted, contextBudget: 400 } });
+  // Every way the report and the request could drift apart. Content lines are `lNN`, at file line NN + the header's length.
+  const bigImport = ["import {", ...Array.from({ length: 28 }, (_, i) => `  n${i},`), '} from "./x";'];
+  const fixedBlock = { name: "fixed", find: () => ({ start: 40, end: 60 }) };
+  const sameData: [string, { header: string[]; at: number; budget: number; finder?: typeof fixedBlock; method: string; parts: string[]; dropped?: object }][] = [
+    ["imports kept", { header: ['import a from "./a";'], at: 51, budget: 400, method: "fallback window", parts: ["imports", "before", "excerpt", "after"] }],
+    ["imports dropped whole, nothing else lost", { header: ['import a from "./a";'], at: 51, budget: 210, method: "fallback window", parts: ["before", "excerpt", "after"], dropped: { imports: true, lines: 0, importTail: 0 } }],
+    ["imports dropped with the tail of the statement inside the window", { header: bigImport, at: 40, budget: 100, method: "fallback window", parts: ["before", "excerpt", "after"], dropped: { imports: true, lines: 50 - 16 - 24, importTail: 16 } }],
+    ["Enclosing block", { header: [], at: 51, budget: 4_000, finder: fixedBlock, method: "heuristic", parts: ["before", "excerpt", "after"] }],
+    ["fallback window", { header: [], at: 51, budget: 4_000, method: "fallback window", parts: ["before", "excerpt", "after"] }],
+    ["nearby lines trimmed", { header: [], at: 51, budget: 40, method: "fallback window", parts: ["before", "excerpt", "after"], dropped: { imports: false, lines: 50 - 9, importTail: 0 } }],
+  ];
+  it.each(sameData)("report and request agree line for line: %s", async (_name, c) => {
+    const dir = await project("a.ts", [...c.header, ...numbered(99)]);
+    const { request, report } = await prepareRequest({
+      reference: `a.ts:${c.at}`,
+      cwd: dir,
+      settings: { ...hosted, contextBudget: c.budget },
+      blockFinder: c.finder,
+    });
     if (report.kind !== "sent") throw new Error("expected a sent report");
-    expect(report.ranges.map((r) => r.part)).toEqual(["imports", "before", "excerpt", "after"]);
-    expect(report.dropped).toBeUndefined();
-    expect(request.user).toContain('import a from "./a";');
-    expect(sentNumbers(request.user)).toEqual(listed(report.ranges.filter((r) => r.part !== "imports")));
-  });
-
-  it("matches the request line for line when nearby lines were dropped, and counts them", async () => {
-    const dir = await project("a.ts", ['import a from "./a";', ...numbered(99)]);
-    const { request, report } = await prepareRequest({ reference: "a.ts:51", cwd: dir, settings: { ...hosted, contextBudget: 80 } });
-    if (report.kind !== "sent") throw new Error("expected a sent report");
-    expect(report.ranges.map((r) => r.part)).toEqual(["before", "excerpt", "after"]);
-    const shown = listed(report.ranges);
-    expect(sentNumbers(request.user)).toEqual(shown);
-    // The window holds 50 lines besides the Excerpt (25 each side); every one not shown is counted.
-    expect(report.dropped).toEqual({ imports: true, lines: 50 - (shown.length - 1), importTail: 0 });
-  });
-
-  it("is built from the same data as the request: its ranges are the ones the request names", async () => {
-    const dir = await project("a.txt", numbered(99));
-    const { request, report } = await prepareRequest({ reference: "a.txt:50-51", cwd: dir, settings: { ...hosted, contextBudget: 60 } });
-    const named = [...request.user.matchAll(/\(a\.txt lines (\d+)-(\d+)\)/g)].map((m) => ({ start: Number(m[1]), end: Number(m[2]) }));
-    expect(report.kind).toBe("sent");
-    if (report.kind !== "sent") return;
-    const ranges = report.ranges.filter((r) => r.part !== "excerpt").map(({ start, end }) => ({ start, end }));
-    expect(ranges).toEqual(named);
-    expect(report.ranges.find((r) => r.part === "excerpt")).toEqual({ part: "excerpt", start: 50, end: 51 });
-    const text = formatContextReport(report);
-    for (const r of report.ranges) expect(text).toContain(`${r.start}-${r.end}`);
+    expect(report.ranges.map((r) => r.part)).toEqual(c.parts);
+    expect(report.method).toBe(c.method);
+    expect(report.dropped).toEqual(c.dropped);
+    // The `lNN` lines the request carries, as file line numbers, are exactly the non-import lines the report lists.
+    const sent = [...request.user.matchAll(/^l(\d\d)$/gm)].map((m) => Number(m[1]) + c.header.length).sort((x, y) => x - y);
+    const listed = report.ranges.filter((r) => r.part !== "imports").flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i));
+    expect(sent).toEqual(listed);
+    // Imports are in the request exactly when the report lists them, over the very lines it names.
+    const imports = report.ranges.find((r) => r.part === "imports");
+    expect(request.user.includes(c.header[0]!)).toBe(c.header.length > 0 && imports !== undefined);
+    if (imports) expect(request.user).toContain(`(a.ts ${imports.start === imports.end ? `line ${imports.start}` : `lines ${imports.start}-${imports.end}`})`);
   });
 
   it("names the method: fallback window without a finder hit, heuristic with one", async () => {
@@ -70,8 +66,8 @@ describe("Context report", () => {
 
   it("names the Budget and where it came from", async () => {
     const dir = await project("a.txt", numbered(5));
-    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: local })).report)).toContain("8,000 (local default)");
-    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: { ...hosted, contextBudget: 500 } })).report)).toContain("500 (setting)");
+    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: local })).report)).toContain("local endpoint budget 8,000 characters (default)");
+    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: { ...hosted, contextBudget: 500 } })).report)).toContain("budget 500 characters (setting)");
   });
 
   it("says what was dropped for budget, including the tail of an import statement inside the window", async () => {
@@ -106,6 +102,10 @@ describe("Context report", () => {
     const events: ExplainEvent[] = [];
     for await (const e of explain({ reference: "a.txt:2", cwd: dir, settings: hosted, model, signal: new AbortController().signal })) events.push(e);
     expect(events.map((e) => e.type)).toEqual(["context-report", "text-delta", "done"]);
+    // Structured data, not rendered text: a frontend decides how to show it.
+    const report = (events[0] as { report: ContextReport }).report;
+    expect(report.kind).toBe("sent");
+    expect(events[0]).not.toHaveProperty("text");
   });
 
   it("shows a refused file as refused, with the rule's name and none of its content", async () => {
@@ -113,7 +113,7 @@ describe("Context report", () => {
     const events: ExplainEvent[] = [];
     for await (const e of explain({ reference: ".env", cwd: dir, settings: hosted, model, signal: new AbortController().signal })) events.push(e);
     expect(events.map((e) => e.type)).toEqual(["context-report", "error"]);
-    const text = (events[0] as { text: string }).text;
+    const text = formatContextReport((events[0] as { report: ContextReport }).report);
     expect(text).toMatch(/refused.*\.env/);
     expect(text).not.toContain("CANARY");
   });
@@ -145,6 +145,81 @@ describe("Context report", () => {
       expect(r.stdout).toContain("REPLY");
     } finally {
       server.close();
+    }
+  });
+});
+
+describe("secret canary (the gate)", () => {
+  const CANARY = "CANARY-9f3a-never-leave";
+  const KEY_CANARY = "sk-CANARY-key-never-leave";
+
+  /** A project inside a temp HOME, with a denylisted file, a gitignored file and an ordinary file, all holding the canary. */
+  async function secretProject() {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "learn-home-")));
+    const repo = join(home, "proj");
+    await mkdir(repo);
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    await writeFile(join(repo, ".env"), `TOKEN=${CANARY}\n`);
+    await writeFile(join(repo, ".gitignore"), "ignored.txt\n");
+    await writeFile(join(repo, "ignored.txt"), `${CANARY}\n`);
+    await writeFile(join(repo, "ok.txt"), "nothing secret here\n");
+    return { home, repo };
+  }
+
+  async function withServer<T>(body: (url: string, received: () => string) => Promise<T>): Promise<T> {
+    let received = "";
+    const server = createServer((req, res) => {
+      req.on("data", (d) => (received += d));
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = { id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
+        res.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      return await body(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, () => received);
+    } finally {
+      server.close();
+    }
+  }
+
+  it.each([
+    [".env", "--dry-run"],
+    ["ignored.txt", "--dry-run"],
+    ["ok.txt", "--dry-run"],
+    [".env", "--show-prompt"],
+    ["ignored.txt", "--show-prompt"],
+    ["ok.txt", "--show-prompt"],
+    [".env", "stream"],
+    ["ignored.txt", "stream"],
+    ["ok.txt", "stream"],
+  ])("%s with %s: no canary and no home path in stdout, stderr or the request body", async (target, mode) => {
+    const { home, repo } = await secretProject();
+    await withServer(async (url, received) => {
+      // Sensitive files are only refused for a non-local endpoint, and a refusal happens before any request, so those runs
+      // use a hosted URL that is never contacted. Only the ordinary file streams, to the local spy.
+      const baseUrl = mode === "stream" && target === "ok.txt" ? url : "https://api.example.com/v1";
+      const args = mode === "stream" ? [target] : [target, mode];
+      const r = await run(args, { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", LEARN_API_KEY: KEY_CANARY, HOME: home }, repo);
+      const everything = r.stdout + r.stderr + received();
+      expect(everything).not.toContain(CANARY);
+      expect(everything).not.toContain(KEY_CANARY);
+      expect(everything).not.toContain(home);
+      if (target === "ok.txt") expect(r.stderr).toContain("Context report");
+      else {
+        expect(r.code).toBe(3);
+        expect(r.stderr).toMatch(/refused: /);
+      }
+    });
+  });
+
+  it("the report events carry no canary either", async () => {
+    const { repo } = await secretProject();
+    for (const reference of [".env", "ignored.txt", "ok.txt"]) {
+      const events: ExplainEvent[] = [];
+      for await (const e of explain({ reference, cwd: repo, settings: hosted, model, signal: new AbortController().signal })) events.push(e);
+      expect(JSON.stringify(events.filter((e) => e.type === "context-report"))).not.toContain(CANARY);
     }
   });
 });
