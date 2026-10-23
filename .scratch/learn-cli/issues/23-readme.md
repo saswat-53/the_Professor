@@ -11,3 +11,7 @@
 - [ ] Explains Sensitive-file refusal, `--allow-sensitive`, and the localhost exemption
 - [ ] Documents `--show-prompt`, `--dry-run`, `--root`, and `--level`
 - [ ] States that the 0.x versions may change before 1.0
+
+## Comments
+
+- From ticket 14: document the Context report on stderr, including the budget line, a format pinned by a test and so safe for scripts to read: `local endpoint budget 8,000 characters (default)`, `hosted endpoint budget 24,000 characters (default)`, `budget N characters (setting)`.

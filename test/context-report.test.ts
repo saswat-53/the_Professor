@@ -64,6 +64,16 @@ describe("Context report", () => {
     expect(formatContextReport((await prepareRequest({ reference: "a.ts:2", cwd: code, settings: hosted })).report)).toContain("heuristic");
   });
 
+  it.each([
+    ["hosted", hosted, "  hosted endpoint budget 24,000 characters (default)"],
+    ["local", local, "  local endpoint budget 8,000 characters (default)"],
+    ["setting", { ...hosted, contextBudget: 500 }, "  budget 500 characters (setting)"],
+  ])("pins the budget line's format (%s), which scripts may read", async (_name, settings, line) => {
+    const dir = await project("a.txt", numbered(5));
+    const lines = formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings })).report).split("\n");
+    expect(lines).toContain(line);
+  });
+
   it("names the Budget and where it came from", async () => {
     const dir = await project("a.txt", numbered(5));
     expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: local })).report)).toContain("local endpoint budget 8,000 characters (default)");
@@ -166,9 +176,11 @@ describe("secret canary (the gate)", () => {
     return { home, repo };
   }
 
-  async function withServer<T>(body: (url: string, received: () => string) => Promise<T>): Promise<T> {
+  async function withServer<T>(body: (url: string, received: () => string, auth: () => string | undefined) => Promise<T>): Promise<T> {
     let received = "";
+    let auth: string | undefined;
     const server = createServer((req, res) => {
+      auth = req.headers.authorization;
       req.on("data", (d) => (received += d));
       req.on("end", () => {
         res.writeHead(200, { "content-type": "text/event-stream" });
@@ -178,7 +190,7 @@ describe("secret canary (the gate)", () => {
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     try {
-      return await body(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, () => received);
+      return await body(`http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, () => received, () => auth);
     } finally {
       server.close();
     }
@@ -196,7 +208,7 @@ describe("secret canary (the gate)", () => {
     ["ok.txt", "stream"],
   ])("%s with %s: no canary and no home path in stdout, stderr or the request body", async (target, mode) => {
     const { home, repo } = await secretProject();
-    await withServer(async (url, received) => {
+    await withServer(async (url, received, auth) => {
       // Sensitive files are only refused for a non-local endpoint, and a refusal happens before any request, so those runs
       // use a hosted URL that is never contacted. Only the ordinary file streams, to the local spy.
       const baseUrl = mode === "stream" && target === "ok.txt" ? url : "https://api.example.com/v1";
@@ -206,6 +218,8 @@ describe("secret canary (the gate)", () => {
       expect(everything).not.toContain(CANARY);
       expect(everything).not.toContain(KEY_CANARY);
       expect(everything).not.toContain(home);
+      // The key really is used when a request goes out (as the Authorization header), and still never printed.
+      if (mode === "stream" && target === "ok.txt") expect(auth()).toBe(`Bearer ${KEY_CANARY}`);
       if (target === "ok.txt") expect(r.stderr).toContain("Context report");
       else {
         expect(r.code).toBe(3);
