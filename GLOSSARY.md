@@ -21,7 +21,7 @@ The smallest function, method, or class that contains an Excerpt.
 _Avoid_: Parent, container, scope
 
 **Block finder**:
-The replaceable component that locates the Enclosing block for an Excerpt, or finds nothing. The built-in one finds nothing, so Context falls back to a fixed window of nearby lines. Real finders for brace languages and Python come later, and a tree-sitter one may follow.
+The replaceable component that locates the Enclosing block for an Excerpt, or finds nothing. The built-in one for brace languages (TypeScript, JavaScript, Java, Kotlin, C-family, C#, Go, Rust, PHP, Swift) scans for balanced braces, skipping strings and comments. When a finder finds nothing, Context falls back to a fixed window of nearby lines. A Python finder comes later, and a tree-sitter one may follow.
 _Avoid_: Parser, scanner, locator
 
 **Line span**:

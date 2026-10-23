@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
-import { type BlockFinder, formatRequest, gatherContext, noBlockFinder } from "./context.js";
+import { braceBlockFinder } from "./brace-block-finder.js";
+import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader } from "./sensitive.js";
@@ -27,7 +28,7 @@ export interface ExplainInput {
   root?: string;
   /** Skips the sensitive-file refusal for this run (`--allow-sensitive`). */
   allowSensitive?: boolean;
-  /** Finds the Enclosing block. Default: one that finds nothing, so the fixed window is used. */
+  /** Finds the Enclosing block. Default: the brace-language finder; other file types use the fixed window. */
   blockFinder?: BlockFinder;
 }
 
@@ -50,7 +51,7 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
-    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? noBlockFinder)),
+    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? braceBlockFinder)),
   };
 }
 
