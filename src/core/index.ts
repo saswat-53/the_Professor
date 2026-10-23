@@ -19,7 +19,7 @@ export {
   UntrustedRepoError,
   UsageError,
 } from "./errors.js";
-export type { FileRefusal } from "./errors.js";
+export type { BlockReason, FileRefusal } from "./errors.js";
 export { parseReference, resolveReference, defaultResolvers } from "./reference.js";
 export type { Excerpt, Reference, Resolver, Resolvers } from "./reference.js";
 export { findRepo, runGit } from "./git.js";

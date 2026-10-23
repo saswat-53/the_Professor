@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { RULE, WRITE_ALLOWLIST, findViolations } from "./support/boundary.js";
+import { READ_ALLOWLIST, RULE, WRITE_ALLOWLIST, findViolations } from "./support/boundary.js";
 
 const CORE = join(import.meta.dirname, "../src/core");
 
@@ -30,6 +30,10 @@ describe("boundary checker catches violations", () => {
     { label: "writeFile import", source: `import { writeFile } from "node:fs/promises";`, rule: RULE.write },
     { label: "createWriteStream call", source: `fs.createWriteStream("x");`, rule: RULE.write },
     { label: "cpSync call", source: `cpSync(a, b);`, rule: RULE.write },
+    { label: "readFile call", source: `const t = await fs.promises.readFile(p, "utf8");`, rule: RULE.read },
+    { label: "readFileSync import", source: `import { readFileSync } from "node:fs";`, rule: RULE.read },
+    { label: "open import", source: `import { open } from "node:fs/promises";`, rule: RULE.read },
+    { label: "createReadStream call", source: `createReadStream(p);`, rule: RULE.read },
   ];
   for (const { label, source, rule } of cases) {
     it(`flags ${label}`, () => {
@@ -58,6 +62,17 @@ describe("boundary checker catches violations", () => {
   it("ignores words in comments and does not flag ../client", () => {
     const src = `// rm and rename and process.stdout\n/* writeFile( */\nimport { c } from "../client.js";`;
     expect(findViolations("clean.ts", src)).toEqual([]);
+  });
+
+  it("reading through the reader or reading metadata is fine", () => {
+    const src = `import { stat, realpath } from "node:fs/promises";\nconst t = await reader.read(p);\nconst x = readTextFile(p);\nhandle.read(buf, 0, 1, 0);\nreadFile?: (p: string) => void;`;
+    expect(findViolations("f.ts", src)).toEqual([]);
+  });
+
+  it("only the file-reading module may open files", () => {
+    expect(READ_ALLOWLIST).toEqual(["read-file.ts"]);
+    expect(findViolations("read-file.ts", `const h = await open(path, "r");`)).toEqual([]);
+    expect(findViolations("explain.ts", `const h = await open(path, "r");`).map((v) => v.rule)).toEqual([RULE.read]);
   });
 
   it("allowlist is empty until the notes writer (ticket 36) lands", () => {

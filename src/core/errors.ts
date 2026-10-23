@@ -36,18 +36,36 @@ export class FileRefusedError extends RefusedError {
   }
 }
 
+/**
+ * Why a file counted as sensitive, as data a frontend can branch on. For `gitignore`, the fields
+ * are absent only when git's report could not be read; the file is refused either way.
+ */
+export type BlockReason =
+  | { kind: "denylist"; name: string }
+  | { kind: "gitignore"; source?: string; line?: number; pattern?: string };
+
 /** The file is on the sensitive list and no consent was given. */
 export class BlockedFileError extends RefusedError {
   override name = "BlockedFileError";
-  /** `rule` is data, not prose, so each frontend words its own advice about overriding. */
   constructor(
     readonly file: string,
-    readonly rule: string,
-    /** Where the rule came from when known, such as the ignore file and pattern git matched. */
-    readonly source?: string,
+    readonly reason: BlockReason,
   ) {
-    super(`${file}: blocked because it may hold secrets (rule: ${rule}${source ? `, ${source}` : ""})`);
+    super(`${file}: blocked because it may hold secrets (rule: ${blockedBy(reason)})`);
   }
+  /** Short label for the rule: the denylist entry's name, or "gitignore". */
+  get rule(): string {
+    return this.reason.kind === "denylist" ? this.reason.name : "gitignore";
+  }
+}
+
+function blockedBy(reason: BlockReason): string {
+  if (reason.kind === "denylist") return reason.name;
+  const where =
+    reason.source === undefined
+      ? "ignored by git (details unavailable)"
+      : `ignored by ${reason.source}:${reason.line}, pattern "${reason.pattern}"`;
+  return `gitignore, ${where}`;
 }
 
 /** The material would not fit the model's budget. */

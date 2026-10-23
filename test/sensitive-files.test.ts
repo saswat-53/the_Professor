@@ -50,6 +50,10 @@ beforeAll(async () => {
   await writeFile(join(repo, ".htpasswd"), CANARY);
   await writeFile(join(repo, "a:b.txt"), CANARY);
   await writeFile(join(repo, "my file.txt"), CANARY);
+  await mkdir(join(repo, "gcp"));
+  for (const f of ["gcp/service-account-prod.json", "client_secret_123.json", "credentials.json", "secrets.yml", "secrets.yaml", "app.secret", "token.txt", "ci.token", ".token", "id_token"]) {
+    await writeFile(join(repo, f), CANARY);
+  }
   for (const f of [".envrc", ".vault-token", "vault.kdbx", "x.keystore", "terraform/terraform.tfstate.backup", "excluded.txt", "globally.txt"]) {
     await writeFile(join(repo, f), CANARY);
   }
@@ -102,6 +106,16 @@ describe("sensitive files", () => {
     [".pypirc", ".pypirc"],
     [".htpasswd", ".htpasswd"],
     [".envrc", ".envrc"],
+    ["gcp/service-account-prod.json", "service-account*.json"],
+    ["client_secret_123.json", "secret"],
+    ["credentials.json", "secret"],
+    ["secrets.yml", "secret"],
+    ["secrets.yaml", "secret"],
+    ["app.secret", "secret"],
+    ["token.txt", "token.txt"],
+    ["ci.token", "*.token"],
+    [".token", "*.token"],
+    ["id_token", "id_token"],
     [".vault-token", ".vault-token"],
     ["vault.kdbx", "*.kdbx"],
     ["x.keystore", "*.jks"],
@@ -120,22 +134,27 @@ describe("sensitive files", () => {
     expect(err).toBeInstanceOf(BlockedFileError);
     expect((err as BlockedFileError).exitCode).toBe(3);
     expect((err as BlockedFileError).rule).toBe(rule);
+    expect((err as BlockedFileError).reason.kind).toBe(rule === "gitignore" ? "gitignore" : "denylist");
     expect((err as Error).message).toContain(rule);
     expect((err as Error).message).not.toContain("--allow-sensitive");
     expect((err as Error).message).not.toContain(CANARY);
   });
 
   it.each([
-    ["ignored.txt", ".gitignore:1"],
-    ["pkg/nested.txt", "pkg/.gitignore:1"],
-    ["excluded.txt", ".git/info/exclude:1"],
-    ["globally.txt", "~/.config/git/ignore:1"],
-    ["a:b.txt", 'pattern "a:b.txt"'],
-    ["my file.txt", 'pattern "my file.txt"'],
-  ])("names where the gitignore pattern for %s came from", async (path, where) => {
+    ["ignored.txt", ".gitignore:1", "ignored.txt"],
+    ["pkg/nested.txt", "pkg/.gitignore:1", "nested.txt"],
+    ["excluded.txt", ".git/info/exclude:1", "excluded.txt"],
+    ["globally.txt", "~/.config/git/ignore:1", "globally.txt"],
+    ["a:b.txt", ".gitignore:6", "a:b.txt"],
+    ["my file.txt", ".gitignore:7", "my file.txt"],
+  ])("names where the gitignore pattern for %s came from", async (path, where, pattern) => {
     const err = await reader().read(path).catch((e) => e);
-    expect((err as BlockedFileError).source).toContain(where);
-    expect((err as Error).message).toContain(`ignored by`);
+    const reason = (err as BlockedFileError).reason;
+    expect(reason.kind).toBe("gitignore");
+    if (reason.kind !== "gitignore") return;
+    expect(`${reason.source}:${reason.line}`).toBe(where);
+    expect(reason.pattern).toBe(pattern);
+    expect((err as Error).message).toContain(`ignored by ${where}`);
   });
 
   it("never prints the real home directory", async () => {
@@ -291,15 +310,15 @@ describe("interpreting git check-ignore -v output", () => {
   });
 
   it("splits at the first tab and the first :digits:, so colons and tabs elsewhere are harmless", () => {
-    expect(interpretCheckIgnore(".gitignore:3:a:b:9.txt\ta:1:b\tc.txt\n")).toBe('ignored by .gitignore:3, pattern "a:b:9.txt"');
+    expect(interpretCheckIgnore(".gitignore:3:a:b:9.txt\ta:1:b\tc.txt\n")).toEqual({ kind: "gitignore", source: ".gitignore", line: 3, pattern: "a:b:9.txt" });
   });
 
   it("refuses when git prints more than one line, even if the last is a negation", () => {
-    expect(interpretCheckIgnore(".gitignore:1:*.log\ta.log\nsub/.gitignore:1:!a.log\ta.log\n")).toContain("ignored by git");
+    expect(interpretCheckIgnore(".gitignore:1:*.log\ta.log\nsub/.gitignore:1:!a.log\ta.log\n")).toEqual({ kind: "gitignore" });
   });
 
   it("fails closed: output it cannot parse still counts as ignored", () => {
-    expect(interpretCheckIgnore("garbage without structure")).toContain("ignored by git");
-    expect(interpretCheckIgnore("\t")).toContain("ignored by git");
+    expect(interpretCheckIgnore("garbage without structure")).toEqual({ kind: "gitignore" });
+    expect(interpretCheckIgnore("\t")).toEqual({ kind: "gitignore" });
   });
 });

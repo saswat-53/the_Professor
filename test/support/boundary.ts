@@ -4,6 +4,7 @@ export const RULE = {
   stdio: "core touches stdout, stderr, stdin or argv",
   terminal: "core imports a terminal library",
   write: "core uses a file-write API",
+  read: "core reads a file outside the file reader",
 } as const;
 
 const TERMINAL_LIBS =
@@ -15,6 +16,12 @@ const WRITE_NAMES =
 // from ticket 36 (/save): empty until then, at most one entry, matched by
 // path relative to src/core.
 export const WRITE_ALLOWLIST: string[] = [];
+
+// Opening a file for its content is only allowed in the file-reading module, which
+// `createFileReader` (sensitive-file check) wraps; any other core code must go through the reader.
+// Matched by path relative to src/core.
+export const READ_ALLOWLIST: string[] = ["read-file.ts"];
+const READ_NAMES = "readFile|readFileSync|open|openSync|createReadStream|readSync|opendir|opendirSync|readv";
 
 export interface Violation {
   rule: string;
@@ -53,6 +60,13 @@ export function findViolations(path: string, source: string): Violation[] {
       new RegExp(`\\b(?:${WRITE_NAMES}|write)\\b[^;]*\\bfrom\\s*["'](?:node:)?fs`, "g"),
     ];
     for (const re of writes) for (const m of src.matchAll(re)) add(RULE.write, m.index);
+  }
+  if (!READ_ALLOWLIST.includes(path)) {
+    const reads = [
+      new RegExp(`\\b(?:${READ_NAMES})\\s*\\(`, "g"),
+      new RegExp(`\\b(?:${READ_NAMES})\\b[^;]*\\bfrom\\s*["'](?:node:)?fs`, "g"),
+    ];
+    for (const re of reads) for (const m of src.matchAll(re)) add(RULE.read, m.index);
   }
   return found;
 }

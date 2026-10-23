@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { BlockedFileError } from "./errors.js";
+import type { BlockReason } from "./errors.js";
 import { findRepo, runGit } from "./git.js";
 import { readTextFile } from "./read-file.js";
 import { locateFile } from "./root.js";
@@ -33,6 +34,11 @@ const DENYLIST: Rule[] = [
   named(".git-credentials"),
   named(".pypirc"),
   named(".htpasswd"),
+  // Well-known credential file names, each one a convention in common tools; no broad wildcards.
+  { name: "service-account*.json", test: (_p, b) => /^service[-_]?account.*\.json$/i.test(b) },
+  named("token.txt"),
+  named("id_token"),
+  ext("*.token", /\.token$/i),
   named(".envrc"),
   named(".vault-token"),
   ext("*.kdbx", /\.kdbx$/i),
@@ -70,9 +76,9 @@ export function isLocalHost(baseUrl: string): boolean {
  *
  * `-v` makes git say which pattern in which file matched, as `source:line:pattern<TAB>path`, so a
  * refusal in a cloned repo (or from a global ignore file) can name where it came from.
- * Returns that description, or undefined when the file is not ignored.
+ * Returns why it is ignored, or undefined when the file is not ignored.
  */
-async function ignoredBy(real: string): Promise<string | undefined> {
+async function ignoredBy(real: string): Promise<BlockReason | undefined> {
   const repo = await findRepo(dirname(real));
   if (!repo) return undefined;
   const out = await runGit(repo.root, "check-ignore", { args: ["--no-index", "-v"], paths: [relative(repo.root, real)] });
@@ -82,23 +88,23 @@ async function ignoredBy(real: string): Promise<string | undefined> {
 /**
  * Fail closed: any output means "ignored" unless the first line is positively recognised as a
  * negated (`!`) pattern, which git reports with exit 0 although it un-ignores the file. The parse
- * only words the message; an unparseable line still refuses. Git prints one line per path (the
- * pattern it applied, even when several ignore files match), but if it ever printed more, that
- * is also refused rather than guessing which line wins. The line splits at the first tab
- * (the path after it may hold anything); before it, `source:line:` is the first `:<digits>:` and
- * the pattern is the rest, so a colon inside the pattern is harmless.
+ * only fills in the details; an unparseable line still refuses (with no details). Git prints one
+ * line per path (the pattern it applied, even when several ignore files match), but if it ever
+ * printed more, that is also refused rather than guessing which line wins. The line splits at the
+ * first tab (the path after it may hold anything); before it, `source:line:` is the first
+ * `:<digits>:` and the pattern is the rest, so a colon inside the pattern is harmless.
  */
-export function interpretCheckIgnore(output: string): string | undefined {
+export function interpretCheckIgnore(output: string): BlockReason | undefined {
   if (output === "") return undefined;
   const lines = output.split("\n").filter((l) => l !== "");
-  if (lines.length !== 1) return "ignored by git (details unavailable)";
+  if (lines.length !== 1) return { kind: "gitignore" };
   const line = lines[0] ?? "";
   const tab = line.indexOf("\t");
   const parts = /^(.*?):(\d+):(.*)$/.exec(tab === -1 ? line : line.slice(0, tab));
   const [, source, lineNumber, pattern] = parts ?? [];
   if (pattern?.startsWith("!")) return undefined;
-  if (source === undefined) return "ignored by git (details unavailable)";
-  return `ignored by ${tildeHome(source)}:${lineNumber}, pattern "${pattern}"`;
+  if (source === undefined) return { kind: "gitignore" };
+  return { kind: "gitignore", source: tildeHome(source), line: Number(lineNumber), pattern };
 }
 
 /** Replaces the real home directory with `~`, so the full path (and the username in it) is never printed. */
@@ -135,11 +141,11 @@ export function createFileReader(options: FileReaderOptions): FileReader {
       if (!exempt) {
         // Both names are checked: a harmless-looking link to `.env` and a `.env` link to a harmless file are each caught.
         const rule = denylistRule(real) ?? denylistRule(path);
-        if (rule) throw new BlockedFileError(name, rule);
+        if (rule) throw new BlockedFileError(name, { kind: "denylist", name: rule });
         // Both names again: a link whose own path is ignored, pointing at a file that is not, is the owner's "don't share" too.
         const link = join(await realpath(dirname(resolve(options.cwd, path))), basename(path));
-        const source = (await ignoredBy(real)) ?? (link === real ? undefined : await ignoredBy(link));
-        if (source) throw new BlockedFileError(name, "gitignore", source);
+        const ignored = (await ignoredBy(real)) ?? (link === real ? undefined : await ignoredBy(link));
+        if (ignored) throw new BlockedFileError(name, ignored);
       }
       return { text: await readText(real), name };
     },

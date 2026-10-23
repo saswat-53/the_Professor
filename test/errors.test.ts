@@ -6,7 +6,7 @@ import type { ExplainEvent, LanguageModel } from "../src/core/types.js";
 describe("error exit codes", () => {
   it("maps context-too-long and blocked-file to 3, usage to 2", () => {
     expect(new ContextTooLongError("x").exitCode).toBe(3);
-    expect(new BlockedFileError("x", "r").exitCode).toBe(3);
+    expect(new BlockedFileError("x", { kind: "denylist", name: "r" }).exitCode).toBe(3);
     expect(new UsageError("x").exitCode).toBe(2);
     expect(ExitCode).toEqual({ Runtime: 1, Usage: 2, Refused: 3 });
   });
