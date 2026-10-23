@@ -1,4 +1,5 @@
 import type { LearnError } from "./errors.js";
+import type { Level } from "./prompt.js";
 
 export interface ModelRequest {
   baseUrl: string;
@@ -15,6 +16,7 @@ export interface LanguageModel {
 export interface Settings {
   baseUrl: string;
   model: string;
+  level?: Level;
 }
 
 export type ExplainEvent =

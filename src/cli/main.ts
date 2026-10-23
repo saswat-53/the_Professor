@@ -1,10 +1,12 @@
 import { parseArgs } from "node:util";
-import { LearnError, buildRequest, explain } from "../core/index.js";
+import { DEFAULT_LEVEL, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
+import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
-const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--dry-run]
+const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--level <level>] [--show-prompt] [--dry-run]
 
-Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.`;
+Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
+Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
 async function main(): Promise<number> {
   let parsed;
@@ -14,6 +16,8 @@ async function main(): Promise<number> {
       options: {
         "base-url": { type: "string" },
         model: { type: "string" },
+        level: { type: "string" },
+        "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
       },
     });
@@ -29,14 +33,21 @@ async function main(): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
-  const settings = { baseUrl, model };
+  const level = values.level ?? DEFAULT_LEVEL;
+  if (!isLevel(level)) {
+    process.stderr.write(`invalid --level "${level}"; choose one of: ${LEVELS.join(", ")}\n`);
+    return 2;
+  }
+  const settings = { baseUrl, model, level };
+  const printRequest = (request: ModelRequest) =>
+    process.stderr.write(
+      `base URL: ${request.baseUrl}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
+    );
 
   if (values["dry-run"]) {
     try {
       const request = await buildRequest({ reference, settings });
-      process.stderr.write(
-        `base URL: ${request.baseUrl}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
-      );
+      printRequest(request);
       return 0;
     } catch (err) {
       process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
@@ -48,7 +59,13 @@ async function main(): Promise<number> {
   process.once("SIGINT", () => controller.abort());
   const llm = openAICompatibleModel(process.env.LEARN_API_KEY);
   let lastChar = "\n";
-  for await (const event of explain({ reference, settings, model: llm, signal: controller.signal })) {
+  for await (const event of explain({
+    reference,
+    settings,
+    model: llm,
+    signal: controller.signal,
+    onRequest: values["show-prompt"] ? printRequest : undefined,
+  })) {
     if (event.type === "text-delta") {
       process.stdout.write(event.text);
       lastChar = event.text.at(-1) ?? lastChar;

@@ -1,11 +1,8 @@
 import { readTextFile } from "./read-file.js";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
+import { DEFAULT_LEVEL, buildSystemPrompt, fenceCode } from "./prompt.js";
 import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
-
-// Placeholder until the bundled teaching prompt (ticket 07) replaces it.
-const SYSTEM_PROMPT =
-  "You are a patient teacher. Explain the supplied code: what it does and, above all, why it is written this way.";
 
 /**
  * Local failures (a missing file, a permission error) keep their own message. A failure from the
@@ -29,13 +26,18 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
   return {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
-    system: SYSTEM_PROMPT,
-    user: `File: ${excerpt.label}\n\n${excerpt.text}`,
+    system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
+    user: `File: ${excerpt.label}\n\n${fenceCode(excerpt.text)}`,
   };
 }
 
 export async function* explain(
-  input: ExplainInput & { model: LanguageModel; signal: AbortSignal },
+  input: ExplainInput & {
+    model: LanguageModel;
+    signal: AbortSignal;
+    /** Called with the exact request just before it is sent, so a frontend can show it. */
+    onRequest?: (request: ModelRequest) => void;
+  },
 ): AsyncGenerator<ExplainEvent> {
   let request: ModelRequest;
   try {
@@ -44,6 +46,7 @@ export async function* explain(
     yield { type: "error", error: local(err) };
     return;
   }
+  input.onRequest?.(request);
   try {
     for await (const text of input.model.stream(request, input.signal)) {
       yield { type: "text-delta", text };

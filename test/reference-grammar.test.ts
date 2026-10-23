@@ -16,8 +16,11 @@ beforeAll(async () => {
   await writeFile(file, "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n");
 });
 
-/** The excerpt text sent to the model, without the "File:" header line. */
-const userFor = async (reference: string) => (await buildRequest({ reference, settings })).user.split("\n\n").slice(1).join("\n\n");
+/** The excerpt text sent to the model, without the "File:" header line and the code fence. */
+const userFor = async (reference: string) => {
+  const user = (await buildRequest({ reference, settings })).user;
+  return user.split("\n").slice(3, -1).join("\n");
+};
 
 describe("line and range references", () => {
   it("path:N makes the excerpt that single line", async () => {

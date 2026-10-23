@@ -22,3 +22,5 @@ export { parseReference, resolveReference, defaultResolvers } from "./reference.
 export type { Excerpt, Reference, Resolver, Resolvers } from "./reference.js";
 export { findRepo, runGit } from "./git.js";
 export type { GitOptions, GitRepo, GitSubcommand } from "./git.js";
+export { LEVELS, DEFAULT_LEVEL, isLevel } from "./prompt.js";
+export type { Level } from "./prompt.js";
