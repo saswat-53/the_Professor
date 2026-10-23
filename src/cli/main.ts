@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { BlockedFileError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -11,7 +11,8 @@ Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 /** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
 const describe = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
-  return err instanceof BlockedFileError ? `${message}; pass --allow-sensitive to send it anyway` : message;
+  if (err instanceof BlockedFileError) return `${message}; pass --allow-sensitive to send it anyway`;
+  return err instanceof ContextTooLongError ? `${message}; or raise the limit with --context-budget` : message;
 };
 
 async function main(): Promise<number> {

@@ -51,6 +51,15 @@ describe("trimming to the budget", () => {
     expect(user).toContain("lines 51-54)");
   });
 
+  it("keeps a Context that costs exactly the budget and drops a line when one character short", async () => {
+    const dir = await project("a.txt", [], 99);
+    // Excerpt 3 + ten Context lines at 4 = 43 exactly.
+    const exact = (await buildRequest({ reference: "a.txt:50", cwd: dir, settings: { ...hosted, contextBudget: 43 } })).user;
+    expect(sent(exact)).toHaveLength(11);
+    const short = (await buildRequest({ reference: "a.txt:50", cwd: dir, settings: { ...hosted, contextBudget: 42 } })).user;
+    expect(sent(short)).toHaveLength(10);
+  });
+
   it("changes nothing when the Context fits", async () => {
     const dir = await project("a.txt", [], 99);
     const { user } = await buildRequest({ reference: "a.txt:50", cwd: dir, settings: { ...hosted, contextBudget: 4_000 } });
@@ -135,6 +144,21 @@ describe("Excerpt limit", () => {
       expect(err).toBeInstanceOf(ContextTooLongError);
       expect(err.message).toMatch(/narrow your range/i);
     }
+  });
+
+  it("refuses a minified file at the default budgets, saying which budget and how to raise it", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-budget-"));
+    await mkdir(join(dir, ".git"));
+    await writeFile(join(dir, "app.min.js"), "var a=1;".repeat(2_000));
+    const hostedErr = await buildRequest({ reference: "app.min.js", cwd: dir, settings: hosted }).catch((e) => e);
+    expect(hostedErr).toBeInstanceOf(ContextTooLongError);
+    expect(hostedErr.message).toContain("24,000-character budget (hosted default)");
+    expect(hostedErr.message).toMatch(/narrow your range/i);
+    const localErr = await buildRequest({ reference: "app.min.js", cwd: dir, settings: local }).catch((e) => e);
+    expect(localErr.message).toContain("8,000-character budget (local default)");
+    const r = await run(["app.min.js", "--dry-run"], { LEARN_BASE_URL: local.baseUrl, LEARN_MODEL: "m" }, dir);
+    expect(r.code).toBe(3);
+    expect(r.stderr).toContain("--context-budget");
   });
 
   it("measures the default budget for the endpoint: 5,000 characters pass hosted and fail local", async () => {
