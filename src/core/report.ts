@@ -2,6 +2,7 @@ import { BlockedFileError } from "./errors.js";
 import type { Budget, Dropped } from "./budget.js";
 import type { Context } from "./context.js";
 import type { Excerpt } from "./reference.js";
+import type { SensitiveBypass } from "./sensitive.js";
 
 export interface ReportedRange {
   part: "imports" | "before" | "excerpt" | "after";
@@ -28,10 +29,12 @@ export type ContextReport =
       budget: Budget;
       /** The endpoint is on this machine, so Ollama's context window may matter. */
       local: boolean;
+      /** Sensitive files that were sent anyway, and why. Absent unless a file actually matched a rule. */
+      overrides?: SensitiveBypass[];
     }
   | { kind: "refused"; file: string; rule: string };
 
-export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean): ContextReport {
+export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
   const source = excerpt.source;
   const ranges: ReportedRange[] = [];
   if (source) {
@@ -50,6 +53,7 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
     ...(context?.dropped && { dropped: context.dropped }),
     budget,
     local,
+    ...(bypassed.length > 0 && { overrides: [...bypassed] }),
   };
 }
 
@@ -72,6 +76,13 @@ export function formatContextReport(report: ContextReport): string {
     out.push(`  ${report.path}`);
     for (const r of report.ranges) out.push(`    ${r.start === r.end ? `line ${r.start}` : `lines ${r.start}-${r.end}`}: ${PART_LABEL[r.part]}`);
     if (report.method) out.push(`  Enclosing block found by: ${report.method}${report.finder && report.finder !== "none" ? ` (${report.finder})` : ""}`);
+  }
+  for (const o of report.overrides ?? []) {
+    out.push(
+      o.by === "flag"
+        ? `  overridden: ${o.file} (rule: ${o.rule}) is being sent to ${o.host ?? "the endpoint"} because --allow-sensitive was passed`
+        : `  sensitive-file check skipped: ${o.file} (rule: ${o.rule}); endpoint is local (${o.host ?? "unknown host"})`,
+    );
   }
   const { dropped } = report;
   if (dropped) {

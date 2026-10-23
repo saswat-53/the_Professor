@@ -55,9 +55,12 @@ export class BlockedFileError extends RefusedError {
   }
   /** Short label for the rule: the denylist entry's name, or "gitignore". */
   get rule(): string {
-    return this.reason.kind === "denylist" ? this.reason.name : "gitignore";
+    return ruleName(this.reason);
   }
 }
+
+/** Short label for the rule: the denylist entry's name, or "gitignore". */
+export const ruleName = (reason: BlockReason): string => (reason.kind === "denylist" ? reason.name : "gitignore");
 
 function blockedBy(reason: BlockReason): string {
   if (reason.kind === "denylist") return reason.name;

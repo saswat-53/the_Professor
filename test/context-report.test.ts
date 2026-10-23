@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { explain, prepareRequest } from "../src/core/explain.js";
 import { type ContextReport, formatContextReport } from "../src/core/report.js";
+import { endpointHost, isLocalHost } from "../src/core/sensitive.js";
 import type { ExplainEvent, LanguageModel } from "../src/core/types.js";
 import { run } from "./support/cli.js";
 
@@ -244,6 +245,78 @@ describe("secret canary (the gate)", () => {
       const events: ExplainEvent[] = [];
       for await (const e of explain({ reference, cwd: repo, settings: hosted, model, signal: new AbortController().signal })) events.push(e);
       expect(JSON.stringify(events.filter((e) => e.type === "context-report"))).not.toContain(CANARY);
+    }
+  });
+});
+
+describe("sensitive-file notes in the report", () => {
+  const SECRET = "FAKE_KEY=not-a-real-secret";
+  const notes = async (file: string, settings: { baseUrl: string; model: string }, allowSensitive = false) => {
+    const dir = await project(file, [SECRET]);
+    const { report } = await prepareRequest({ reference: file, cwd: dir, settings, allowSensitive });
+    if (report.kind !== "sent") throw new Error("expected a sent report");
+    return { report, text: formatContextReport(report) };
+  };
+
+  it("--allow-sensitive on a hosted URL: names the file, the rule that would have blocked it, and where it goes", async () => {
+    const { report, text } = await notes(".env", hosted, true);
+    expect(report.overrides).toEqual([{ file: ".env", rule: ".env", by: "flag", host: "api.example.com" }]);
+    expect(text).toContain("overridden: .env (rule: .env) is being sent to api.example.com because --allow-sensitive was passed");
+  });
+
+  it("a local endpoint: says the check was skipped and names the host", async () => {
+    const { report, text } = await notes(".env", { baseUrl: "http://127.0.0.1:1/v1", model: "m" });
+    expect(report.overrides).toEqual([{ file: ".env", rule: ".env", by: "local-endpoint", host: "127.0.0.1" }]);
+    expect(text).toContain("sensitive-file check skipped: .env (rule: .env); endpoint is local (127.0.0.1)");
+  });
+
+  it("the flag wins over the local exemption when both apply, since the user asked for it", async () => {
+    const { report } = await notes(".env", local, true);
+    expect(report.overrides).toEqual([{ file: ".env", rule: ".env", by: "flag", host: "localhost" }]);
+  });
+
+  it("an ordinary file gets neither note, on any endpoint", async () => {
+    for (const settings of [hosted, local]) {
+      const { report, text } = await notes("a.txt", settings, true);
+      expect(report.overrides).toBeUndefined();
+      expect(text).not.toMatch(/overridden|skipped/);
+    }
+  });
+
+  it("decides 'local' and names the host from the same parsed URL", () => {
+    expect(endpointHost("http://localhost@evil.invalid/v1")).toBe("evil.invalid");
+    expect(isLocalHost("http://localhost@evil.invalid/v1")).toBe(false);
+    expect(endpointHost("http://[::1]:1234/v1")).toBe("[::1]");
+    expect(isLocalHost("http://[::1]:1234/v1")).toBe(true);
+    expect(endpointHost("not a url")).toBeUndefined();
+  });
+
+  it("with --allow-sensitive the canary is sent and the report says so, while the API key canary never shows", async () => {
+    const CANARY = "CANARY-allowed-to-travel";
+    const KEY = "sk-CANARY-key-never-leave";
+    const dir = await project(".env", [`TOKEN=${CANARY}`]);
+    let body = "";
+    let auth: string | undefined;
+    const server = createServer((req, res) => {
+      auth = req.headers.authorization;
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = { id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
+        res.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+      const r = await run([".env", "--allow-sensitive"], { LEARN_BASE_URL: url, LEARN_MODEL: "m", LEARN_API_KEY: KEY }, dir);
+      expect(r.code).toBe(0);
+      expect(body).toContain(CANARY);
+      expect(r.stderr).toContain("overridden: .env (rule: .env) is being sent to 127.0.0.1 because --allow-sensitive was passed");
+      expect(auth).toBe(`Bearer ${KEY}`);
+      expect(r.stdout + r.stderr + body).not.toContain(KEY);
+    } finally {
+      server.close();
     }
   });
 });

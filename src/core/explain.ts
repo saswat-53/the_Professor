@@ -63,7 +63,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
       system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
       user: formatRequest(excerpt, context),
     },
-    report: buildContextReport(excerpt, context, budget, isLocalHost(input.settings.baseUrl)),
+    report: buildContextReport(excerpt, context, budget, isLocalHost(input.settings.baseUrl), reader.bypassed),
   };
 }
 

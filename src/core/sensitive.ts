@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
-import { BlockedFileError } from "./errors.js";
+import { BlockedFileError, ruleName } from "./errors.js";
 import type { BlockReason } from "./errors.js";
 import { findRepo, runGit } from "./git.js";
 import { readTextFile } from "./read-file.js";
@@ -59,13 +59,19 @@ export function denylistRule(file: string): string | undefined {
   return rule?.name === "ssh key" ? base : rule?.name;
 }
 
+/** The parsed host of the endpoint (not a string match), or undefined when the URL does not parse. */
+export function endpointHost(baseUrl: string): string | undefined {
+  try {
+    return new URL(baseUrl).hostname;
+  } catch {
+    return undefined;
+  }
+}
+
 /** True for localhost, 127.0.0.1 and ::1 only; the check is on the parsed host, so `localhost.evil.example` is not exempt. */
 export function isLocalHost(baseUrl: string): boolean {
-  try {
-    return ["localhost", "127.0.0.1", "[::1]"].includes(new URL(baseUrl).hostname);
-  } catch {
-    return false;
-  }
+  const host = endpointHost(baseUrl);
+  return host !== undefined && ["localhost", "127.0.0.1", "[::1]"].includes(host);
 }
 
 /**
@@ -124,28 +130,49 @@ export interface FileReaderOptions {
   readText?: (path: string) => Promise<string>;
 }
 
+/** A Sensitive file that was read anyway, and why: for the Context report. */
+export interface SensitiveBypass {
+  file: string;
+  rule: string;
+  /** "flag": `--allow-sensitive` was passed. "local-endpoint": the endpoint is on this machine. */
+  by: "flag" | "local-endpoint";
+  /** Where the content goes: the endpoint's parsed host. */
+  host?: string;
+}
+
 export interface FileReader {
   read(path: string): Promise<{ text: string; name: string }>;
+  /** Every Sensitive file this reader has read despite its rule, once each. */
+  readonly bypassed: readonly SensitiveBypass[];
+}
+
+/** Why the file counts as sensitive, if it does. Both names are checked: a link and its target can each be the one that matches. */
+async function sensitiveReason(real: string, path: string, cwd: string): Promise<BlockReason | undefined> {
+  const rule = denylistRule(real) ?? denylistRule(path);
+  if (rule) return { kind: "denylist", name: rule };
+  const link = join(await realpath(dirname(resolve(cwd, path))), basename(path));
+  return (await ignoredBy(real)) ?? (link === real ? undefined : await ignoredBy(link));
 }
 
 /**
  * The only way core reads user files. Locating (symlinks, project root) and the sensitive-file
- * check both happen here, before any byte is read, so no feature can read around them.
+ * check both happen here, before any byte is read, so no feature can read around them. When the
+ * check does not apply (the flag, or a local endpoint) it still runs, so the Context report can
+ * say what was let through; there a failure to check (git cannot run) just means no note.
  */
 export function createFileReader(options: FileReaderOptions): FileReader {
   const readText = options.readText ?? readTextFile;
-  const exempt = options.allowSensitive === true || (options.baseUrl !== undefined && isLocalHost(options.baseUrl));
+  const by = options.allowSensitive === true ? "flag" : options.baseUrl !== undefined && isLocalHost(options.baseUrl) ? "local-endpoint" : undefined;
+  const host = options.baseUrl === undefined ? undefined : endpointHost(options.baseUrl);
+  const bypassed: SensitiveBypass[] = [];
   return {
+    bypassed,
     async read(path) {
       const { real, name } = await locateFile(options.root, options.cwd, path);
-      if (!exempt) {
-        // Both names are checked: a harmless-looking link to `.env` and a `.env` link to a harmless file are each caught.
-        const rule = denylistRule(real) ?? denylistRule(path);
-        if (rule) throw new BlockedFileError(name, { kind: "denylist", name: rule });
-        // Both names again: a link whose own path is ignored, pointing at a file that is not, is the owner's "don't share" too.
-        const link = join(await realpath(dirname(resolve(options.cwd, path))), basename(path));
-        const ignored = (await ignoredBy(real)) ?? (link === real ? undefined : await ignoredBy(link));
-        if (ignored) throw new BlockedFileError(name, ignored);
+      const reason = by ? await sensitiveReason(real, path, options.cwd).catch(() => undefined) : await sensitiveReason(real, path, options.cwd);
+      if (reason) {
+        if (!by) throw new BlockedFileError(name, reason);
+        if (!bypassed.some((b) => b.file === name)) bypassed.push({ file: name, rule: ruleName(reason), by, ...(host !== undefined && { host }) });
       }
       return { text: await readText(real), name };
     },
