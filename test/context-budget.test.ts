@@ -220,7 +220,7 @@ describe("what was dropped (Context.dropped)", () => {
   it("counts the nearby lines lost to trimming", () => {
     const all = lines(99);
     // The window is 50 lines; budget 40 keeps nine of them.
-    expect(gatherContext(excerptAt(all, 50), noBlockFinder, 40)!.dropped).toEqual({ imports: false, lines: 41 });
+    expect(gatherContext(excerptAt(all, 50), noBlockFinder, 40)!.dropped).toEqual({ imports: false, lines: 41, importTail: 0 });
   });
 
   it("says the imports were dropped, whole, with no lines lost when only they did not fit", () => {
@@ -228,7 +228,15 @@ describe("what was dropped (Context.dropped)", () => {
     // Excerpt 3 + window 50 lines (200) fits in 210; imports (20) on top do not.
     const ctx = gatherContext(excerptAt(all, 51), noBlockFinder, 210)!;
     expect(ctx.imports).toBeUndefined();
-    expect(ctx.dropped).toEqual({ imports: true, lines: 0 });
+    expect(ctx.dropped).toEqual({ imports: true, lines: 0, importTail: 0 });
+  });
+
+  it("counts the lines of a straddling import statement inside the window as importTail, apart from lines", () => {
+    const all = ["import {", ...Array.from({ length: 28 }, (_, i) => `  n${i},`), '} from "./x";', ...lines(60)];
+    // The window is lines 15-65 and the import ends at 30, so 16 window lines are the import's tail.
+    const ctx = gatherContext(excerptAt(all, 40), noBlockFinder, 4_000 - 3_900)!;
+    expect(ctx.imports).toBeUndefined();
+    expect(ctx.dropped).toEqual({ imports: true, lines: expect.any(Number), importTail: 16 });
   });
 
   it("drops non-straddling imports first even with an Enclosing block", () => {
@@ -239,7 +247,7 @@ describe("what was dropped (Context.dropped)", () => {
     expect(ctx.imports).toBeUndefined();
     expect(ctx.before!.start).toBe(40);
     expect(ctx.after!.end).toBe(60);
-    expect(ctx.dropped).toEqual({ imports: true, lines: 0 });
+    expect(ctx.dropped).toEqual({ imports: true, lines: 0, importTail: 0 });
   });
 });
 

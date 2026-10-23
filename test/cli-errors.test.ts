@@ -85,7 +85,8 @@ describe("provider failures", () => {
     const r = await run([file], env());
     expect(r.code).toBe(1);
     expect(r.stdout).toBe("first second");
-    expect(r.stderr).toMatch(/^\n\S/);
+    // The Context report comes first; the error then starts after a blank line, not mid-line.
+    expect(r.stderr).toMatch(/\n\n\S[^\n]*\n$/);
   });
 
   it("adds no extra newline when the streamed text already ended with one", async () => {

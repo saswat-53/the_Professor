@@ -1,12 +1,13 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertExcerptFits, resolveBudget } from "./budget.js";
-import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
+import { BlockedFileError, LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
+import { type ContextReport, buildContextReport, formatContextReport, refusedReport } from "./report.js";
 import { findProjectRoot } from "./root.js";
-import { createFileReader } from "./sensitive.js";
+import { createFileReader, isLocalHost } from "./sensitive.js";
 import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
@@ -33,8 +34,11 @@ export interface ExplainInput {
   blockFinder?: BlockFinder;
 }
 
-/** Turns a reference and settings into the exact request that would be sent. Reads the file and finds the project root, but never contacts the model. */
-export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
+/**
+ * Turns a reference and settings into the exact request that would be sent, with the Context report
+ * built from the same Excerpt and Context. Reads the file and finds the project root, but never contacts the model.
+ */
+export async function prepareRequest(input: ExplainInput): Promise<{ request: ModelRequest; report: ContextReport }> {
   const cwd = input.cwd ?? process.cwd();
   const { root } = await findProjectRoot(cwd, input.root);
   const exists = (path: string) => stat(resolve(cwd, path)).then(() => true, () => false);
@@ -51,13 +55,20 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
   const budget = resolveBudget(input.settings.baseUrl, input.settings.contextBudget);
   assertExcerptFits(excerpt, budget);
   const finder = input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? "");
+  const context = gatherContext(excerpt, finder, budget.chars);
   return {
-    baseUrl: input.settings.baseUrl,
-    model: input.settings.model,
-    system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
-    user: formatRequest(excerpt, gatherContext(excerpt, finder, budget.chars)),
+    request: {
+      baseUrl: input.settings.baseUrl,
+      model: input.settings.model,
+      system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
+      user: formatRequest(excerpt, context),
+    },
+    report: buildContextReport(excerpt, context, budget, isLocalHost(input.settings.baseUrl)),
   };
 }
+
+/** The request alone, for callers that do not show a report. */
+export const buildRequest = async (input: ExplainInput): Promise<ModelRequest> => (await prepareRequest(input)).request;
 
 export async function* explain(
   input: ExplainInput & {
@@ -69,8 +80,11 @@ export async function* explain(
 ): AsyncGenerator<ExplainEvent> {
   let request: ModelRequest;
   try {
-    request = await buildRequest(input);
+    const prepared = await prepareRequest(input);
+    request = prepared.request;
+    yield { type: "context-report", text: formatContextReport(prepared.report) };
   } catch (err) {
+    if (err instanceof BlockedFileError) yield { type: "context-report", text: formatContextReport(refusedReport(err)) };
     yield { type: "error", error: local(err) };
     return;
   }

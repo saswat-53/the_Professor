@@ -29,7 +29,7 @@ A start and end line number in a file, 1-based and inclusive. A one-line span ha
 _Avoid_: Range (a Reference's `N-M` is the user's spelling; a span is the internal value), region
 
 **Context report**:
-The statement shown to the user of exactly what was sent to the model: which files, which lines, which method found the Enclosing block, and what was dropped to fit the budget.
+The statement shown to the user of exactly what was sent to the model: which files, which lines, which method found the Enclosing block, and what was dropped to fit the budget (including the tail of an import statement that sat inside the window). It names the Budget and its source, notes Ollama's small default context window on a local endpoint, and shows a Sensitive file as refused with the rule's name. Printed on stderr before the first streamed output, built from the same data as the request.
 _Avoid_: Manifest, log, summary
 
 **Budget**:

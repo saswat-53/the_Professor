@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel, isValidBudget } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, explain, formatContextReport, prepareRequest, isLevel, isValidBudget } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -76,7 +76,8 @@ async function main(): Promise<number> {
 
   if (values["dry-run"]) {
     try {
-      const request = await buildRequest({ reference, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
+      const { request, report } = await prepareRequest({ reference, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
+      process.stderr.write(`${formatContextReport(report)}\n`);
       printRequest(request);
       return 0;
     } catch (err) {
@@ -97,7 +98,9 @@ async function main(): Promise<number> {
     signal: controller.signal,
     onRequest: values["show-prompt"] ? printRequest : undefined,
   })) {
-    if (event.type === "text-delta") {
+    if (event.type === "context-report") {
+      process.stderr.write(`${event.text}\n`);
+    } else if (event.type === "text-delta") {
       process.stdout.write(event.text);
       lastChar = event.text.at(-1) ?? lastChar;
     } else if (event.type === "error") {

@@ -1,4 +1,4 @@
-export { explain, buildRequest } from "./explain.js";
+export { explain, buildRequest, prepareRequest } from "./explain.js";
 export type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 export {
   BadKeyError,
@@ -34,6 +34,8 @@ export { braceBlockFinder, BRACE_EXTENSIONS } from "./brace-block-finder.js";
 export { pythonBlockFinder, PYTHON_EXTENSIONS } from "./python-block-finder.js";
 export { blockFinderFor } from "./block-finder-for.js";
 export { assertExcerptFits, defaultBudget, isValidBudget, resolveBudget, HOSTED_BUDGET, LOCAL_BUDGET } from "./budget.js";
-export type { Budget, BudgetSource } from "./budget.js";
+export type { Budget, BudgetSource, Dropped } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";
+export { buildContextReport, formatContextReport, refusedReport } from "./report.js";
+export type { ContextReport, ReportedRange } from "./report.js";

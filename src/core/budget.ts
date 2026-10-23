@@ -40,7 +40,10 @@ export function assertExcerptFits(excerpt: Excerpt, { chars, source }: Budget): 
 /** What the budget cost, for the Context report. */
 export interface Dropped {
   imports: boolean;
+  /** Nearby lines lost to trimming. Does not include `importTail`. */
   lines: number;
+  /** Lines of a dropped import statement that sat inside the normal window, so every omitted line is accounted for. */
+  importTail: number;
 }
 
 /**
@@ -69,11 +72,15 @@ export function fitToBudget(
   let span: LineSpan = straddled ? { start: straddled.start, end: normal.end } : { ...normal };
   let imports = separate ?? undefined;
   let droppedImports = false;
+  let importTail = 0;
 
   if ((separate ? cost(separate.start, separate.end) : 0) + nearby(span) > room) {
     droppedImports = separate !== null || straddled !== null;
     imports = undefined;
-    if (straddled) span = { start: Math.min(range.start, Math.max(normal.start, straddled.end + 1)), end: normal.end };
+    if (straddled) {
+      span = { start: Math.min(range.start, Math.max(normal.start, straddled.end + 1)), end: normal.end };
+      importTail = span.start - normal.start;
+    }
   }
 
   const before = span.end - span.start + 1;
@@ -93,5 +100,5 @@ export function fitToBudget(
     span = { start: up, end: down };
   }
   const lost = before - (span.end - span.start + 1);
-  return { ...(imports && { imports }), span, ...((droppedImports || lost > 0) && { dropped: { imports: droppedImports, lines: lost } }) };
+  return { ...(imports && { imports }), span, ...((droppedImports || lost > 0) && { dropped: { imports: droppedImports, lines: lost, importTail } }) };
 }
