@@ -11,7 +11,8 @@ import { run } from "./support/cli.js";
 const CANARY = "CANARY-secret-value";
 let repo: string;
 let fakeHome: string;
-let savedEnv: Record<string, string | undefined>;
+// Captured at load, before any hook can fail, so afterAll can always restore it.
+const savedEnv: Record<string, string | undefined> = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
 
 beforeAll(async () => {
   repo = await realpath(await mkdtemp(join(tmpdir(), "learn-sens-")));
@@ -56,7 +57,6 @@ beforeAll(async () => {
   fakeHome = await mkdtemp(join(tmpdir(), "learn-home-"));
   await mkdir(join(fakeHome, ".config", "git"), { recursive: true });
   await writeFile(join(fakeHome, ".config", "git", "ignore"), "globally.txt\n");
-  savedEnv = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
   process.env.HOME = fakeHome;
   delete process.env.XDG_CONFIG_HOME;
   await symlink(join(repo, ".aws", "credentials"), join(repo, "notes.txt"));
@@ -114,6 +114,17 @@ describe("sensitive files", () => {
     expect((err as Error).message).toContain(rule);
     expect((err as Error).message).not.toContain("--allow-sensitive");
     expect((err as Error).message).not.toContain(CANARY);
+  });
+
+  it.each([
+    ["ignored.txt", ".gitignore:1"],
+    ["pkg/nested.txt", "pkg/.gitignore:1"],
+    ["excluded.txt", ".git/info/exclude:1"],
+    ["globally.txt", "~/.config/git/ignore:1"],
+  ])("names where the gitignore pattern for %s came from", async (path, where) => {
+    const err = await reader().read(path).catch((e) => e);
+    expect((err as BlockedFileError).source).toContain(where);
+    expect((err as Error).message).toContain(`ignored by`);
   });
 
   it("allows ordinary files and a negated (un-ignored) file", async () => {

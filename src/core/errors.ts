@@ -43,8 +43,10 @@ export class BlockedFileError extends RefusedError {
   constructor(
     readonly file: string,
     readonly rule: string,
+    /** Where the rule came from when known, such as the ignore file and pattern git matched. */
+    readonly source?: string,
   ) {
-    super(`${file}: blocked because it may hold secrets (rule: ${rule})`);
+    super(`${file}: blocked because it may hold secrets (rule: ${rule}${source ? `, ${source}` : ""})`);
   }
 }
 
