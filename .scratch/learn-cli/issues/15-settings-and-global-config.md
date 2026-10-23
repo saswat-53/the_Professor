@@ -12,3 +12,7 @@
 - [ ] A missing config file produces a first-run message with an example whose alternative provider lines are marked as alternatives
 - [ ] `~` in the notes directory setting is expanded
 - [ ] Provider and model settings use the same resolution mechanism as level, with no duplicated precedence logic
+
+## Comments
+
+- From ticket 14: the resolved settings should carry the endpoint as one value (`Endpoint` from `resolveEndpoint` in `src/core/sensitive.ts`: parsed host plus `local`). Today `resolveBudget` (`src/core/budget.ts`) calls `isLocalHost(baseUrl)`, a second parse of the same string in a different place, while the file reader and the Context report use the reader's one parse. They cannot disagree today, but make the budget take its "local" from the resolved endpoint too, so one parse decides the budget default, the sensitive-file exemption, the report's `local` flag, and the host named in its notes.
