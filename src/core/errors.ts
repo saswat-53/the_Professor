@@ -39,6 +39,13 @@ export class FileRefusedError extends RefusedError {
 /** The file is on the sensitive list and no consent was given. */
 export class BlockedFileError extends RefusedError {
   override name = "BlockedFileError";
+  /** `rule` is data, not prose, so each frontend words its own advice about overriding. */
+  constructor(
+    readonly file: string,
+    readonly rule: string,
+  ) {
+    super(`${file}: blocked because it may hold secrets (rule: ${rule})`);
+  }
 }
 
 /** The material would not fit the model's budget. */

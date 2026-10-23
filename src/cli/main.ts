@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
+import { BlockedFileError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -7,6 +7,12 @@ const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <
 
 Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
+
+/** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
+const describe = (err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  return err instanceof BlockedFileError ? `${message}; pass --allow-sensitive to send it anyway` : message;
+};
 
 async function main(): Promise<number> {
   let parsed;
@@ -42,7 +48,7 @@ async function main(): Promise<number> {
   }
   const settings = { baseUrl, model, level };
   const fail = (err: unknown) => {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    process.stderr.write(`${describe(err)}\n`);
     return err instanceof LearnError ? err.exitCode : 1;
   };
   try {
@@ -88,7 +94,7 @@ async function main(): Promise<number> {
       lastChar = event.text.at(-1) ?? lastChar;
     } else if (event.type === "error") {
       // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
-      process.stderr.write(`${lastChar === "\n" ? "" : "\n"}${event.error.message}\n`);
+      process.stderr.write(`${lastChar === "\n" ? "" : "\n"}${describe(event.error)}\n`);
       return event.error.exitCode;
     }
   }

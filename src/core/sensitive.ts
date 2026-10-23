@@ -1,4 +1,4 @@
-import { basename, dirname, relative } from "node:path";
+import { basename, dirname, relative, sep } from "node:path";
 import { BlockedFileError } from "./errors.js";
 import { findRepo, runGit } from "./git.js";
 import { readTextFile } from "./read-file.js";
@@ -6,29 +6,46 @@ import { locateFile } from "./root.js";
 
 interface Rule {
   name: string;
-  test: (file: string) => boolean;
+  /** Gets the whole path with `/` separators and its last segment, so a rule can name a directory. */
+  test: (path: string, base: string) => boolean;
 }
 
+const named = (name: string): Rule => ({ name, test: (_p, b) => b.toLowerCase() === name });
+const ext = (name: string, pattern: RegExp): Rule => ({ name, test: (_p, b) => pattern.test(b) });
+const inDir = (name: string): Rule => ({ name, test: (p) => `/${p}`.toLowerCase().endsWith(`/${name}`) });
+
 const DENYLIST: Rule[] = [
-  { name: ".env", test: (f) => f.toLowerCase() === ".env" },
-  { name: ".env.*", test: (f) => f.toLowerCase().startsWith(".env.") },
-  { name: "*.pem", test: (f) => /\.pem$/i.test(f) },
-  { name: "*.key", test: (f) => /\.key$/i.test(f) },
-  { name: "*.p12", test: (f) => /\.(p12|pfx)$/i.test(f) },
-  { name: "*.crt", test: (f) => /\.(crt|cer|der)$/i.test(f) },
-  { name: "*.jks", test: (f) => /\.(jks|keystore)$/i.test(f) },
-  { name: "secret", test: (f) => /(^|[._-])(secrets?|credentials|private[._-]?key)([._-]|$)/i.test(f) },
-  { name: ".netrc", test: (f) => f.toLowerCase() === ".netrc" },
-  { name: ".npmrc", test: (f) => f.toLowerCase() === ".npmrc" },
-  { name: ".pgpass", test: (f) => f.toLowerCase() === ".pgpass" },
+  named(".env"),
+  { name: ".env.*", test: (_p, b) => b.toLowerCase().startsWith(".env.") },
+  ext("*.pem", /\.pem$/i),
+  ext("*.key", /\.key$/i),
+  ext("*.p12", /\.(p12|pfx)$/i),
+  ext("*.crt", /\.(crt|cer|der)$/i),
+  ext("*.jks", /\.(jks|keystore)$/i),
+  ext("*.tfstate", /\.tfstate(\.backup)?$/i),
+  ext("*.tfvars", /\.tfvars(\.json)?$/i),
+  { name: "ssh key", test: (_p, b) => /^id_(rsa|dsa|ecdsa|ed25519)$/i.test(b) },
+  named(".netrc"),
+  named(".npmrc"),
+  named(".pgpass"),
+  named(".git-credentials"),
+  named(".pypirc"),
+  named(".htpasswd"),
+  inDir(".aws/credentials"),
+  inDir(".docker/config.json"),
+  inDir(".kube/config"),
+  inDir(".git/config"),
+  // Last, so the specific rules above name themselves first.
+  { name: "secret", test: (_p, b) => /(^|[._-])(secrets?|credentials|private[._-]?key)([._-]|$)/i.test(b) },
 ];
 
-/** The name of the first denylist rule that matches the file's own name, if any. */
+/** The name of the first denylist rule that matches the path, if any. */
 export function denylistRule(file: string): string | undefined {
-  const name = basename(file);
-  // SSH private keys: report the exact name (the public `.pub` halves are fine).
-  if (/^id_(rsa|dsa|ecdsa|ed25519)$/i.test(name)) return name;
-  return DENYLIST.find((rule) => rule.test(name))?.name;
+  const path = file.split(sep).join("/");
+  const base = basename(file);
+  const rule = DENYLIST.find((r) => r.test(path, base));
+  // An SSH key is reported by its exact name; the public `.pub` halves are fine.
+  return rule?.name === "ssh key" ? base : rule?.name;
 }
 
 /** True for localhost, 127.0.0.1 and ::1 only; the check is on the parsed host, so `localhost.evil.example` is not exempt. */
@@ -40,10 +57,16 @@ export function isLocalHost(baseUrl: string): boolean {
   }
 }
 
+/**
+ * `--no-index` makes git apply ignore rules even to files already tracked: a file committed and
+ * only later gitignored is still a file its owner decided not to share. A file added with
+ * `git add -f` against a matching pattern is refused too. If git cannot run, this throws and the
+ * read is refused (fail closed); the denylist, checked first, does not need git.
+ */
 async function isGitIgnored(real: string): Promise<boolean> {
   const repo = await findRepo(dirname(real));
   if (!repo) return false;
-  return (await runGit(repo.root, "check-ignore", { paths: [relative(repo.root, real)] })).trim() !== "";
+  return (await runGit(repo.root, "check-ignore", { args: ["--no-index"], paths: [relative(repo.root, real)] })).trim() !== "";
 }
 
 export interface FileReaderOptions {
@@ -75,9 +98,7 @@ export function createFileReader(options: FileReaderOptions): FileReader {
         // Both names are checked: a harmless-looking link to `.env` and a `.env` link to a harmless file are each caught.
         const rule = denylistRule(real) ?? denylistRule(path) ?? ((await isGitIgnored(real)) ? "gitignore" : undefined);
         if (rule) {
-          throw new BlockedFileError(
-            `${name}: blocked because it may hold secrets (rule: ${rule}); pass --allow-sensitive to send it anyway`,
-          );
+          throw new BlockedFileError(name, rule);
         }
       }
       return { text: await readText(real), name };

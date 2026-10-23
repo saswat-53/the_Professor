@@ -18,4 +18,9 @@
 
 - Only the Excerpt read goes through `createFileReader` so far; Context gathering (ticket 10+) and `@file` (33) / diff (38) must use the same reader and add their own canary tests.
 - Template env files (`.env.example`) are blocked too: no exemption, `--allow-sensitive` is the escape hatch.
-- Tracked files that match a gitignore pattern are not reported by `git check-ignore`, so they pass the gitignore rule.
+- The gitignore check uses `git check-ignore --no-index`, so a file committed and only later ignored is still refused (tested); so is one added with `git add -f`.
+- Decision: if git cannot run, the gitignore half fails closed (the read is refused with the git error). The denylist needs no git and is checked first; a directory that is not a repo just has no gitignore rules.
+- Decision: the localhost exemption is the parsed URL host, exactly `localhost`, `127.0.0.1` or `[::1]` (case-insensitive). `localhost.`, `0.0.0.0`, `127.0.0.2` and `::ffff:127.0.0.1` are not exempt.
+- `--allow-sensitive` is a flag only (no env var, not implied by `--root`).
+- `BlockedFileError` carries `file` and `rule`; the CLI adds the `--allow-sensitive` advice.
+- Denylist extended with `.git-credentials`, `.pypirc`, `.htpasswd`, `.aws/credentials`, `.docker/config.json`, `.kube/config`, `.git/config`, `*.tfstate`, `*.tfvars`.

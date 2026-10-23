@@ -14,7 +14,7 @@ let repo: string;
 beforeAll(async () => {
   repo = await realpath(await mkdtemp(join(tmpdir(), "learn-sens-")));
   execFileSync("git", ["init", "-q"], { cwd: repo });
-  await writeFile(join(repo, ".gitignore"), "ignored.txt\n");
+  await writeFile(join(repo, ".gitignore"), "ignored.txt\nbuild/\n*.log\n!keep.log\n");
   await writeFile(join(repo, "ok.ts"), "export const ok = 1;\n");
   await writeFile(join(repo, "ignored.txt"), `${CANARY}\n`);
   await writeFile(join(repo, ".env"), `KEY=${CANARY}\n`);
@@ -26,6 +26,28 @@ beforeAll(async () => {
   await mkdir(join(repo, "sub"));
   await writeFile(join(repo, "sub", ".env.local"), CANARY);
   await symlink(join(repo, ".env"), join(repo, "innocent.txt"));
+  await mkdir(join(repo, "build"));
+  await writeFile(join(repo, "build", "out.js"), CANARY);
+  await writeFile(join(repo, "debug.log"), CANARY);
+  await writeFile(join(repo, "keep.log"), "fine\n");
+  await mkdir(join(repo, "config"));
+  await writeFile(join(repo, "config", "local.json"), CANARY);
+  await mkdir(join(repo, ".aws"));
+  await writeFile(join(repo, ".aws", "config-x"), "x");
+  for (const dir of [".aws", ".kube", ".docker", "terraform"]) await mkdir(join(repo, dir), { recursive: true });
+  await writeFile(join(repo, ".aws", "credentials"), CANARY);
+  await writeFile(join(repo, ".kube", "config"), CANARY);
+  await writeFile(join(repo, ".docker", "config.json"), CANARY);
+  await writeFile(join(repo, "terraform", "prod.tfstate"), CANARY);
+  await writeFile(join(repo, "terraform", "prod.tfvars"), CANARY);
+  await writeFile(join(repo, ".git-credentials"), CANARY);
+  await writeFile(join(repo, ".pypirc"), CANARY);
+  await writeFile(join(repo, ".htpasswd"), CANARY);
+  await symlink(join(repo, ".aws", "credentials"), join(repo, "notes.txt"));
+  // Commit config/local.json, THEN ignore it: it stays tracked, which is the common real-world state.
+  execFileSync("git", ["add", "config/local.json"], { cwd: repo });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"], { cwd: repo });
+  await writeFile(join(repo, ".gitignore"), "ignored.txt\nbuild/\n*.log\n!keep.log\nconfig/local.json\n");
 });
 
 const reader = (opts: { allowSensitive?: boolean } = {}) => createFileReader({ root: repo, cwd: repo, ...opts });
@@ -39,18 +61,38 @@ describe("sensitive files", () => {
     ["my-secrets.json", "secret"],
     ["id_ed25519", "id_ed25519"],
     ["innocent.txt", ".env"],
+    ["notes.txt", ".aws/credentials"],
+    [".aws/credentials", ".aws/credentials"],
+    [".kube/config", ".kube/config"],
+    [".docker/config.json", ".docker/config.json"],
+    ["terraform/prod.tfstate", "*.tfstate"],
+    ["terraform/prod.tfvars", "*.tfvars"],
+    [".git-credentials", ".git-credentials"],
+    [".pypirc", ".pypirc"],
+    [".htpasswd", ".htpasswd"],
+    ["config/local.json", "gitignore"],
+    ["build/out.js", "gitignore"],
+    ["debug.log", "gitignore"],
     [".env.example", ".env.*"],
     ["private_key.json", "secret"],
   ])("refuses %s and names the rule %s", async (path, rule) => {
     const err = await reader().read(path).catch((e) => e);
     expect(err).toBeInstanceOf(BlockedFileError);
     expect((err as BlockedFileError).exitCode).toBe(3);
+    expect((err as BlockedFileError).rule).toBe(rule);
     expect((err as Error).message).toContain(rule);
+    expect((err as Error).message).not.toContain("--allow-sensitive");
     expect((err as Error).message).not.toContain(CANARY);
   });
 
-  it("allows ordinary files", async () => {
+  it("allows ordinary files and a negated (un-ignored) file", async () => {
     expect((await reader().read("ok.ts")).text).toContain("ok");
+    expect((await reader().read("keep.log")).text).toBe("fine\n");
+  });
+
+  it("refuses matching .env spellings in any letter case", async () => {
+    await writeFile(join(repo, ".ENV"), CANARY);
+    await expect(reader().read(".ENV")).rejects.toBeInstanceOf(BlockedFileError);
   });
 
   it("refuses a second, blocked path asked of the reader directly", async () => {
@@ -76,6 +118,13 @@ describe("sensitive files", () => {
     ["http://127.0.0.1.evil.example/v1", false],
     ["https://api.openai.com/v1", false],
     ["not a url", false],
+    ["http://localhost@evil.com/v1", false],
+    ["http://evil.com/localhost", false],
+    ["http://LOCALHOST:11434/v1", true],
+    ["http://localhost./v1", false],
+    ["http://[::ffff:127.0.0.1]/v1", false],
+    ["http://0.0.0.0:8080/v1", false],
+    ["http://127.0.0.2/v1", false],
   ])("isLocalHost(%s) is %s", (url, expected) => {
     expect(isLocalHost(url)).toBe(expected);
   });
@@ -84,6 +133,37 @@ describe("sensitive files", () => {
     await expect(
       buildRequest({ reference: ".env", cwd: repo, settings: { baseUrl: "http://h/v1", model: "m" } }),
     ).rejects.toBeInstanceOf(BlockedFileError);
+  });
+});
+
+describe("without git, or without a repo", () => {
+  it("applies the denylist in a directory that is not a repo, and reads ordinary files", async () => {
+    const plain = await realpath(await mkdtemp(join(tmpdir(), "learn-norepo-")));
+    await writeFile(join(plain, ".env"), CANARY);
+    await writeFile(join(plain, "a.ts"), "x\n");
+    const r = createFileReader({ root: plain, cwd: plain });
+    await expect(r.read(".env")).rejects.toBeInstanceOf(BlockedFileError);
+    expect((await r.read("a.ts")).text).toBe("x\n");
+  });
+
+  // Decision: when git cannot run, the gitignore half cannot be answered, so the read is refused
+  // (fail closed). The denylist needs no git, so it still names its rule.
+  it("fails closed on gitignore but still applies the denylist when git is missing", async () => {
+    const plain = await realpath(await mkdtemp(join(tmpdir(), "learn-nogit-")));
+    await writeFile(join(plain, ".env"), CANARY);
+    await writeFile(join(plain, "a.ts"), "x\n");
+    const savedPath = process.env.PATH;
+    process.env.PATH = plain;
+    try {
+      const r = createFileReader({ root: plain, cwd: plain });
+      await expect(r.read(".env")).rejects.toBeInstanceOf(BlockedFileError);
+      const err = await r.read("a.ts").catch((e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(BlockedFileError);
+      expect(err.exitCode).toBeDefined();
+    } finally {
+      process.env.PATH = savedPath;
+    }
   });
 });
 
@@ -101,6 +181,30 @@ describe("sensitive files through the CLI", () => {
     const r = await run(["ignored.txt", flag], env, repo);
     expect(r.code).toBe(3);
     expect(r.stdout + r.stderr).not.toContain(CANARY);
+  });
+
+  it("ignores LEARN_ALLOW_SENSITIVE: the override is a flag only", async () => {
+    const r = await run([".env", "--dry-run"], { ...env, LEARN_ALLOW_SENSITIVE: "1" }, repo);
+    expect(r.code).toBe(3);
+    expect(r.stderr).not.toContain(CANARY);
+  });
+
+  it("--root does not imply --allow-sensitive, and the reverse", async () => {
+    const withRoot = await run([".env", "--dry-run", "--root", repo], env, repo);
+    expect(withRoot.code).toBe(3);
+    const other = await mkdtemp(join(tmpdir(), "learn-other-"));
+    const outside = await run([join(repo, "ok.ts"), "--allow-sensitive", "--dry-run"], env, other);
+    expect(outside.code).toBe(3);
+    expect(outside.stderr).toContain("outside the project root");
+  });
+
+  it("does not exempt look-alike hosts or userinfo tricks", async () => {
+    for (const url of ["http://localhost@evil.invalid/v1", "http://127.0.0.1.evil.invalid/v1"]) {
+      const r = await run([".env", "--dry-run"], { LEARN_BASE_URL: url, LEARN_MODEL: "m" }, repo);
+      expect(r.code).toBe(3);
+    }
+    const local = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://localhost:1/v1", LEARN_MODEL: "m" }, repo);
+    expect(local.code).toBe(0);
   });
 
   it("--allow-sensitive lets --dry-run through", async () => {
