@@ -46,9 +46,12 @@ describe("context: fixed window fallback", () => {
     expect(user).toContain("after the Excerpt");
   });
 
-  it("calls the window 'Nearby lines', the glossary's word for Context", async () => {
+  it("labels each section with its order and line range, and says omitted lines are omitted", async () => {
     const user = await request(await project("a.txt", [], 100), "a.txt:50");
-    expect(user).toContain("Nearby lines");
+    expect(user).toContain("Lines before the Excerpt (a.txt lines 25-49):");
+    expect(user).toContain("Lines after the Excerpt (a.txt lines 51-75):");
+    expect(user).toContain("lines not shown are omitted");
+    expect(user.indexOf("before the Excerpt")).toBeLessThan(user.indexOf("after the Excerpt"));
     expect(user).not.toMatch(/surround/i);
   });
 
@@ -66,7 +69,7 @@ describe("context: imports", () => {
     const dir = await project("a.ts", ['import fs from "node:fs";', "import {", "  a,", '} from "./a";', ""], 100);
     const user = await request(dir, "a.ts:80");
     expect(user).toContain('import fs from "node:fs";\nimport {\n  a,\n} from "./a";');
-    expect(user).toContain("Imports, a.ts lines 1-4");
+    expect(user).toContain("Imports (a.ts lines 1-4)");
   });
 
   it("never cuts an import block that straddles the window start: the window grows to take it whole", async () => {
@@ -76,43 +79,43 @@ describe("context: imports", () => {
     const user = await request(dir, "a.ts:28");
     expect(user).toContain('import {\n  alpha,\n  beta,\n} from "./x";\nimport fs from "node:fs";');
     expect(user.match(/alpha/g)).toHaveLength(1);
-    expect(user).toContain("Nearby lines, a.ts lines 1-");
+    expect(user).toContain("Lines before the Excerpt (a.ts lines 1-");
   });
 
   it("does not repeat imports that fall inside the window", async () => {
     const dir = await project("a.ts", ['import fs from "node:fs";'], 10);
     const user = await request(dir, "a.ts:5");
     expect(user.match(/import fs/g)).toHaveLength(1);
-    expect(user).not.toContain("Imports,");
+    expect(user).not.toContain("Imports (");
   });
 
   it("is not fooled by brackets inside strings and comments on an import line", async () => {
     const header = ['import x from "a(b"; // note (', 'import y from \'c[\';', "import z from `d{`;"];
     const user = await request(await project("a.ts", header, 100), "a.ts:80");
-    expect(user).toContain("Imports, a.ts lines 1-3");
+    expect(user).toContain("Imports (a.ts lines 1-3)");
   });
 
   it("finds imports after a directive, a shebang and a license header", async () => {
     const header = ["#!/usr/bin/env node", "/*", " * Copyright (c) Someone", " */", "'use strict';", "", 'import a from "./a";'];
     const user = await request(await project("a.js", header, 100), "a.js:90");
-    expect(user).toContain("Imports, a.js line 7");
+    expect(user).toContain("Imports (a.js line 7)");
   });
 
   it("finds imports after a Python module docstring", async () => {
     const header = ['"""Module docs', "spanning lines.", '"""', "import os", "from a import (", "    b,", ")"];
     const user = await request(await project("a.py", header, 100), "a.py:90");
-    expect(user).toContain("Imports, a.py lines 4-7");
+    expect(user).toContain("Imports (a.py lines 4-7)");
   });
 
   it("stops the import block at real code", async () => {
     const header = ['import a from "./a";', "const x = 1;", 'import b from "./b";'];
     const user = await request(await project("a.ts", header, 100), "a.ts:90");
-    expect(user).toContain("Imports, a.ts line 1");
+    expect(user).toContain("Imports (a.ts line 1)");
   });
 
   it("sends no imports section for a file without imports", async () => {
     const dir = await project("a.txt", [], 100);
-    expect(await request(dir, "a.txt:80")).not.toContain("Imports,");
+    expect(await request(dir, "a.txt:80")).not.toContain("Imports (");
   });
 });
 
@@ -155,8 +158,8 @@ describe("context: enclosing block", () => {
       settings,
       blockFinder: { name: "fixed", find: () => ({ start: 45, end: 55 }) },
     }).then((r) => r.user);
-    expect(user).toContain("Enclosing block, a.txt lines 45-49 (before the Excerpt)");
-    expect(user).toContain("a.txt lines 51-55 (after the Excerpt)");
+    expect(user).toContain("Enclosing block, lines before the Excerpt (a.txt lines 45-49)");
+    expect(user).toContain("lines after the Excerpt (a.txt lines 51-55)");
     expect(user).toContain("line 45\n");
     expect(user).not.toContain("line 44\n");
     expect(user).not.toContain("line 56\n");
@@ -170,7 +173,7 @@ describe("context: enclosing block", () => {
       settings,
       blockFinder: { name: "wrong", find: () => ({ start: 1, end: 10 }) },
     }).then((r) => r.user);
-    expect(user).toContain("Nearby lines, a.txt lines 25-49 (before the Excerpt)");
+    expect(user).toContain("Lines before the Excerpt (a.txt lines 25-49)");
   });
 });
 
@@ -196,9 +199,9 @@ describe("context: as received by the model", () => {
     const [head, ...context] = user.split("\n\nContext (");
     expect(head).toBe("File: a.ts:60-61\n\n```\nline 57\nline 58\n```");
     const contextText = context.join("");
-    expect(contextText).toContain('Imports, a.ts lines 1-2:\n\n```\nimport secrets from "./.env";\nimport fs from "node:fs";\n```');
-    expect(contextText).toContain("(before the Excerpt)");
-    expect(contextText).toContain("(after the Excerpt)");
+    expect(contextText).toContain('Imports (a.ts lines 1-2):\n\n```\nimport secrets from "./.env";\nimport fs from "node:fs";\n```');
+    expect(contextText).toContain("before the Excerpt (a.ts");
+    expect(contextText).toContain("after the Excerpt (a.ts");
     expect(contextText).not.toMatch(/line 5[78]\n/);
     // The Context only ever re-uses text from the Excerpt's own, already-checked file.
     expect(user).not.toContain(CANARY);

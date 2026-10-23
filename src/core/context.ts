@@ -127,11 +127,14 @@ export function formatRequest(excerpt: Excerpt, context: Context | null): string
   if (context) {
     const { path } = context;
     const range = (s: LineSpan) => (s.start === s.end ? `line ${s.start}` : `lines ${s.start}-${s.end}`);
-    parts.push("Context (not the code to explain; it is here to make the Excerpt understandable):");
-    if (context.imports) parts.push(`Imports, ${path} ${range(context.imports)}:`, fenceCode(context.imports.text));
-    const what = context.method === "enclosing-block" ? "Enclosing block" : "Nearby lines";
-    if (context.before) parts.push(`${what}, ${path} ${range(context.before)} (before the Excerpt):`, fenceCode(context.before.text));
-    if (context.after) parts.push(`${what}, ${path} ${range(context.after)} (after the Excerpt):`, fenceCode(context.after.text));
+    parts.push(
+      "Context (not the code to explain; it is here to make the Excerpt understandable). Line numbers are the file's own; lines not shown are omitted:",
+    );
+    const where = (s: LineSpan) => `(${path} ${range(s)})`;
+    if (context.imports) parts.push(`Imports ${where(context.imports)}:`, fenceCode(context.imports.text));
+    const lines = context.method === "enclosing-block" ? "Enclosing block, lines" : "Lines";
+    if (context.before) parts.push(`${lines} before the Excerpt ${where(context.before)}:`, fenceCode(context.before.text));
+    if (context.after) parts.push(`${lines} after the Excerpt ${where(context.after)}:`, fenceCode(context.after.text));
   }
   return parts.join("\n\n");
 }

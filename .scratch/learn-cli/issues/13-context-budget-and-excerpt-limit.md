@@ -15,3 +15,5 @@
 ## Comments
 
 - From ticket 10: Context carries `before` and `after` sections (see `src/core/context.ts`), so no line is sent twice and the Excerpt is counted once. Trim each side from the Excerpt outward. Imports are one whole section: drop it entirely or keep it, never cut it.
+
+- From ticket 10: the nearby lines can start above the usual 25-line window when an import block reaches into them (they grow upward to take it whole), so a file with a very long import block gives a large Context. Rule: if keeping the imports whole would exceed the budget, drop the imports whole, shrink the nearby lines back to their normal span, and say so in the Context report. Never send half an import block.
