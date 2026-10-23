@@ -41,6 +41,11 @@ export class ContextTooLongError extends RefusedError {
   override name = "ContextTooLongError";
 }
 
+/** Git refused the repository because another user owns it; learn never overrides that. */
+export class UntrustedRepoError extends RefusedError {
+  override name = "UntrustedRepoError";
+}
+
 /** The provider or the network failed: worth retrying or fixing configuration, not the input. */
 export abstract class RuntimeError extends LearnError {
   readonly exitCode = ExitCode.Runtime;

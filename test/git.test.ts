@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { readFile, utimes } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, symlink, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { UnexpectedError, UsageError } from "../src/core/errors.js";
+import { ContextTooLongError, UnexpectedError, UntrustedRepoError, UsageError } from "../src/core/errors.js";
 import { findRepo, runGit } from "../src/core/git.js";
 
 const git = (cwd: string, ...args: string[]) =>
@@ -98,29 +99,191 @@ describe("argument safety", () => {
   });
 });
 
-describe("external programs", () => {
-  it("runs neither an external diff driver nor a pager", async () => {
+/** A script that records that it ran, so a test can assert it never did. */
+async function spy() {
+  const bin = await tempDir("learn-bin-");
+  const marker = join(bin, "ran");
+  const script = join(bin, "spy.sh");
+  await writeFile(script, `#!/bin/sh\ntouch "${marker}"\ncat\n`);
+  await chmod(script, 0o755);
+  return { script, marker };
+}
+
+const ALL = ["log", "diff", "blame", "show", "rev-parse", "check-ignore"] as const;
+async function runEach(root: string) {
+  for (const sub of ALL) {
+    const opts =
+      sub === "blame" ? { paths: ["a.txt"] }
+      : sub === "check-ignore" ? { paths: ["a.txt"] }
+      : sub === "log" ? { args: ["-p"] }
+      : sub === "rev-parse" ? { args: ["--git-dir"] }
+      : {};
+    await runGit(root, sub, opts);
+  }
+}
+
+// Note: git never starts a pager when its output is piped, so pagers cannot be proven here;
+// they are disabled in config anyway (core.pager, --no-pager).
+describe("programs named by repo config are never run", () => {
+  it("external diff driver and textconv filter", async () => {
     const root = await tempRepo();
-    const bin = await tempDir("learn-bin-");
-    const marker = join(bin, "ran");
-    const script = join(bin, "spy.sh");
-    await writeFile(script, `#!/bin/sh\ntouch "${marker}"\ncat\n`);
-    await chmod(script, 0o755);
+    const { script, marker } = await spy();
     git(root, "config", "diff.external", script);
-    git(root, "config", "core.pager", script);
-    git(root, "config", "pager.diff", script);
-    git(root, "config", "pager.log", script);
-    git(root, "config", "pager.show", script);
     await writeFile(join(root, ".gitattributes"), "*.txt diff=spy\n");
     git(root, "config", "diff.spy.command", script);
     git(root, "config", "diff.spy.textconv", script);
     await writeFile(join(root, "a.txt"), "one\ntwo\n");
-    for (const sub of ["diff", "log", "show"] as const) {
-      const args = sub === "log" ? ["-p"] : [];
-      await runGit(root, sub, { args });
-    }
-    await runGit(root, "blame", { paths: ["a.txt"] });
+    await runEach(root);
     expect(existsSync(marker)).toBe(false);
+  });
+
+  it("core.fsmonitor", async () => {
+    const root = await tempRepo();
+    const { script, marker } = await spy();
+    git(root, "config", "core.fsmonitor", script);
+    await writeFile(join(root, "a.txt"), "one\ntwo\n");
+    await runEach(root);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("core.hooksPath", async () => {
+    const root = await tempRepo();
+    const { script, marker } = await spy();
+    const hooks = await tempDir("learn-hooks-");
+    for (const hook of ["post-index-change", "reference-transaction", "post-checkout", "fsmonitor-watchman"]) {
+      await writeFile(join(hooks, hook), `#!/bin/sh\ntouch "${marker}"\n`);
+      await chmod(join(hooks, hook), 0o755);
+    }
+    git(root, "config", "core.hooksPath", hooks);
+    void script;
+    await writeFile(join(root, "a.txt"), "one\ntwo\n");
+    await runEach(root);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  it("core.attributesFile", async () => {
+    const root = await tempRepo();
+    const { script, marker } = await spy();
+    const attrs = join(await tempDir("learn-attrs-"), "attributes");
+    await writeFile(attrs, "* diff=spy\n");
+    git(root, "config", "core.attributesFile", attrs);
+    git(root, "config", "diff.spy.textconv", script);
+    git(root, "config", "diff.spy.command", script);
+    await writeFile(join(root, "a.txt"), "one\ntwo\n");
+    await runEach(root);
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("environment", () => {
+  it("does not let GIT_EXTERNAL_DIFF, GIT_PAGER or GIT_DIR from our process reach git", async () => {
+    const root = await tempRepo();
+    const other = await tempRepo({ commit: false });
+    const { script, marker } = await spy();
+    await writeFile(join(root, "a.txt"), "one\ntwo\n");
+    const saved = { ...process.env };
+    Object.assign(process.env, { GIT_EXTERNAL_DIFF: script, GIT_PAGER: script, GIT_DIR: join(other, ".git") });
+    try {
+      expect(await runGit(root, "log", { args: ["--format=%s"] })).toBe("first\n");
+      await runGit(root, "diff");
+      expect((await findRepo(root))?.hasCommits).toBe(true);
+    } finally {
+      for (const k of ["GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_DIR"]) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+    expect(existsSync(marker)).toBe(false);
+  });
+});
+
+describe("read-only", () => {
+  it("leaves .git/index byte-identical even when the index is stale", async () => {
+    const root = await tempRepo();
+    git(root, "status", "-s"); // settle the freshly written index so only the touch below is stale
+    // A touched mtime makes git want to refresh (and rewrite) the index.
+    const later = new Date(Date.now() + 60_000);
+    await utimes(join(root, "a.txt"), later, later);
+    const before = await readFile(join(root, ".git/index"));
+    await runEach(root);
+    expect(Buffer.compare(before, await readFile(join(root, ".git/index")))).toBe(0);
+  });
+});
+
+describe("check-ignore", () => {
+  it("lists ignored paths and returns nothing when none are ignored", async () => {
+    const root = await tempRepo();
+    await writeFile(join(root, ".gitignore"), "*.log\n");
+    expect(await runGit(root, "check-ignore", { paths: ["x.log", "a.txt"] })).toBe("x.log\n");
+    expect(await runGit(root, "check-ignore", { paths: ["a.txt"] })).toBe("");
+  });
+
+  it("handles hostile and flag-like paths literally", async () => {
+    const root = await tempRepo();
+    await writeFile(join(root, ".gitignore"), "*\n");
+    const names = ["--stat", "$(touch pwned)", "a b;c", "[x]*?"];
+    const out = await runGit(root, "check-ignore", { paths: names });
+    expect(out.split("\n").filter(Boolean)).toEqual(names);
+    expect(existsSync(join(root, "pwned"))).toBe(false);
+  });
+
+  it("rejects a path outside the root", async () => {
+    const root = await tempRepo();
+    await expect(runGit(root, "check-ignore", { paths: ["../x"] })).rejects.toBeInstanceOf(UsageError);
+  });
+});
+
+describe("paths that exist only in history", () => {
+  it("log and blame accept a file deleted in a later commit", async () => {
+    const root = await tempRepo();
+    await writeFile(join(root, "gone.txt"), "x\n");
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "add gone");
+    git(root, "rm", "-q", "gone.txt");
+    git(root, "commit", "-q", "-m", "remove gone");
+    const out = await runGit(root, "log", { args: ["--format=%s"], paths: ["gone.txt"] });
+    expect(out.trim().split("\n")).toEqual(["remove gone", "add gone"]);
+    await expect(
+      runGit(root, "blame", { refs: ["HEAD~1"], paths: ["gone.txt"] }),
+    ).resolves.toContain("x");
+  });
+
+  it("still rejects a missing path under a symlinked directory that leads outside", async () => {
+    const root = await tempRepo();
+    await symlink(await tempDir(), join(root, "link"));
+    await expect(runGit(root, "log", { paths: ["link/gone.txt"] })).rejects.toBeInstanceOf(UsageError);
+  });
+});
+
+describe("limits and failures", () => {
+  it("fails with ContextTooLongError when output passes the cap, not silent truncation", async () => {
+    const root = await tempRepo();
+    await expect(
+      runGit(root, "log", { args: ["--format=%s%n%s%n%s"], maxOutputBytes: 5 }),
+    ).rejects.toBeInstanceOf(ContextTooLongError);
+  });
+
+  it("kills git that runs past the timeout", async () => {
+    const root = await tempRepo();
+    await expect(runGit(root, "log", { timeoutMs: 1 })).rejects.toThrow(/timed out/);
+  });
+
+  it("maps git's dubious-ownership refusal to a typed error that does not suggest a bypass flag", async () => {
+    const root = await tempRepo();
+    const fake = await tempDir("learn-fakegit-");
+    await writeFile(
+      join(fake, "git"),
+      "#!/bin/sh\necho \"fatal: detected dubious ownership in repository at 'x'\" >&2\nexit 128\n",
+    );
+    await chmod(join(fake, "git"), 0o755);
+    const saved = process.env.PATH;
+    process.env.PATH = fake;
+    try {
+      await expect(findRepo(root)).rejects.toBeInstanceOf(UntrustedRepoError);
+      await expect(runGit(root, "log")).rejects.toBeInstanceOf(UntrustedRepoError);
+    } finally {
+      process.env.PATH = saved;
+    }
   });
 });
 

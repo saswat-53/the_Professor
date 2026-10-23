@@ -14,6 +14,7 @@ export {
   RefusedError,
   RuntimeError,
   UnexpectedError,
+  UntrustedRepoError,
   UsageError,
 } from "./errors.js";
 export type { FileRefusal } from "./errors.js";
