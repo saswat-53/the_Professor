@@ -90,6 +90,19 @@ describe("provider failures", () => {
     expect(r.stderr).toMatch(/^\n\S/);
   });
 
+  it("adds no extra newline when the streamed text already ended with one", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const chunk = (content: string) => ({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
+      res.write(`data: ${JSON.stringify(chunk("first\n"))}\n\n`);
+      res.write(`data: ${JSON.stringify(chunk("second\n"))}\n\n`, () => setTimeout(() => res.destroy(), 50));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("first\nsecond\n");
+    expect(r.stderr).toMatch(/^\S/);
+  });
+
   it("flushes all streamed output before ending when the stream then fails", async () => {
     const big = "x".repeat(200_000);
     respond = (res) => {
