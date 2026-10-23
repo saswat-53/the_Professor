@@ -33,6 +33,7 @@ describe("Context report", () => {
     ["imports dropped with the tail of the statement inside the window", { header: bigImport, at: 40, budget: 100, method: "fallback window", parts: ["before", "excerpt", "after"], dropped: { imports: true, lines: 50 - 16 - 24, importTail: 16 } }],
     ["Enclosing block", { header: [], at: 51, budget: 4_000, finder: fixedBlock, method: "heuristic", parts: ["before", "excerpt", "after"] }],
     ["fallback window", { header: [], at: 51, budget: 4_000, method: "fallback window", parts: ["before", "excerpt", "after"] }],
+    ["Enclosing block, trimmed", { header: [], at: 51, budget: 40, finder: fixedBlock, method: "heuristic", parts: ["before", "excerpt", "after"], dropped: { imports: false, lines: 20 - 9, importTail: 0 } }],
     ["nearby lines trimmed", { header: [], at: 51, budget: 40, method: "fallback window", parts: ["before", "excerpt", "after"], dropped: { imports: false, lines: 50 - 9, importTail: 0 } }],
   ];
   it.each(sameData)("report and request agree line for line: %s", async (_name, c) => {
@@ -53,7 +54,7 @@ describe("Context report", () => {
     expect(sent).toEqual(listed);
     // Imports are in the request exactly when the report lists them, over the very lines it names.
     const imports = report.ranges.find((r) => r.part === "imports");
-    expect(request.user.includes(c.header[0]!)).toBe(c.header.length > 0 && imports !== undefined);
+    if (c.header.length > 0) expect(request.user.includes(c.header[0]!)).toBe(imports !== undefined);
     if (imports) expect(request.user).toContain(`(a.ts ${imports.start === imports.end ? `line ${imports.start}` : `lines ${imports.start}-${imports.end}`})`);
   });
 
@@ -172,7 +173,8 @@ describe("secret canary (the gate)", () => {
     await writeFile(join(repo, ".env"), `TOKEN=${CANARY}\n`);
     await writeFile(join(repo, ".gitignore"), "ignored.txt\n");
     await writeFile(join(repo, "ignored.txt"), `${CANARY}\n`);
-    await writeFile(join(repo, "ok.txt"), "nothing secret here\n");
+    // Ordinary, but it names the secret files, so a Context that followed references would be tempting to build.
+    await writeFile(join(repo, "ok.txt"), 'const secrets = readFileSync(".env");\nconst ignored = readFileSync("ignored.txt");\n');
     return { home, repo };
   }
 
@@ -216,6 +218,7 @@ describe("secret canary (the gate)", () => {
       const r = await run(args, { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", LEARN_API_KEY: KEY_CANARY, HOME: home }, repo);
       const everything = r.stdout + r.stderr + received();
       expect(everything).not.toContain(CANARY);
+      // Only a run that sends a request can leak the key; the others show it stays out of refusals and dry runs.
       expect(everything).not.toContain(KEY_CANARY);
       expect(everything).not.toContain(home);
       // The key really is used when a request goes out (as the Authorization header), and still never printed.

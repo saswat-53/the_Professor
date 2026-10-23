@@ -1,11 +1,11 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertExcerptFits, resolveBudget } from "./budget.js";
-import { BlockedFileError, LearnError, ProviderError, UnexpectedError } from "./errors.js";
+import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
-import { type ContextReport, buildContextReport, refusedReport } from "./report.js";
+import { type ContextReport, buildContextReport, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, isLocalHost } from "./sensitive.js";
 import { parseReference, resolveReference } from "./reference.js";
@@ -84,7 +84,8 @@ export async function* explain(
     request = prepared.request;
     yield { type: "context-report", report: prepared.report };
   } catch (err) {
-    if (err instanceof BlockedFileError) yield { type: "context-report", report: refusedReport(err) };
+    const refused = reportForError(err);
+    if (refused) yield { type: "context-report", report: refused };
     yield { type: "error", error: local(err) };
     return;
   }

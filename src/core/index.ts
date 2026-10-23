@@ -37,5 +37,5 @@ export { assertExcerptFits, defaultBudget, isValidBudget, resolveBudget, HOSTED_
 export type { Budget, BudgetSource, Dropped } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";
-export { buildContextReport, formatContextReport, refusedReport } from "./report.js";
+export { buildContextReport, formatContextReport, reportForError } from "./report.js";
 export type { ContextReport, ReportedRange } from "./report.js";

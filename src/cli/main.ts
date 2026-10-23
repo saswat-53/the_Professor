@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, explain, formatContextReport, prepareRequest, refusedReport, isLevel, isValidBudget } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, explain, formatContextReport, prepareRequest, reportForError, isLevel, isValidBudget } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -81,7 +81,8 @@ async function main(): Promise<number> {
       printRequest(request);
       return 0;
     } catch (err) {
-      if (err instanceof BlockedFileError) process.stderr.write(`${formatContextReport(refusedReport(err))}\n`);
+      const refused = reportForError(err);
+      if (refused) process.stderr.write(`${formatContextReport(refused)}\n`);
       return fail(err);
     }
   }

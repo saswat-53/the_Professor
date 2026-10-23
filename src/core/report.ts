@@ -1,4 +1,4 @@
-import type { BlockedFileError } from "./errors.js";
+import { BlockedFileError } from "./errors.js";
 import type { Budget, Dropped } from "./budget.js";
 import type { Context } from "./context.js";
 import type { Excerpt } from "./reference.js";
@@ -50,7 +50,9 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
   };
 }
 
-export const refusedReport = (err: BlockedFileError): ContextReport => ({ kind: "refused", file: err.file, rule: err.rule });
+/** The report for a run that failed: a refused Sensitive file shows as refused, anything else has none. */
+export const reportForError = (err: unknown): ContextReport | undefined =>
+  err instanceof BlockedFileError ? { kind: "refused", file: err.file, rule: err.rule } : undefined;
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const BUDGET_LABEL = { "hosted default": "hosted endpoint budget", "local default": "local endpoint budget", setting: "budget" } as const;
