@@ -11,6 +11,10 @@
 - Your API key is read from an environment variable (later, the OS keychain). It is never stored in a config file or passed on the command line.
 - No telemetry, no analytics, no update check. The only network connection is to the endpoint you configure, and that endpoint receives the code you ask about.
 
+## Reporting bugs
+
+Error messages can contain file names and paths from your machine (a path outside your home directory is printed in full). Read the text before pasting it into a public issue, and remove anything you don't want shared.
+
 ## Design
 
 - [Spec](.scratch/learn-cli/spec.md)

@@ -81,13 +81,17 @@ async function ignoredBy(real: string): Promise<string | undefined> {
 /**
  * Fail closed: any output means "ignored" unless the first line is positively recognised as a
  * negated (`!`) pattern, which git reports with exit 0 although it un-ignores the file. The parse
- * only words the message; an unparseable line still refuses. The line splits at the first tab
+ * only words the message; an unparseable line still refuses. Git prints one line per path (the
+ * pattern it applied, even when several ignore files match), but if it ever printed more, that
+ * is also refused rather than guessing which line wins. The line splits at the first tab
  * (the path after it may hold anything); before it, `source:line:` is the first `:<digits>:` and
  * the pattern is the rest, so a colon inside the pattern is harmless.
  */
 export function interpretCheckIgnore(output: string): string | undefined {
   if (output === "") return undefined;
-  const line = output.split("\n")[0] ?? "";
+  const lines = output.split("\n").filter((l) => l !== "");
+  if (lines.length !== 1) return "ignored by git (details unavailable)";
+  const line = lines[0] ?? "";
   const tab = line.indexOf("\t");
   const parts = /^(.*?):(\d+):(.*)$/.exec(tab === -1 ? line : line.slice(0, tab));
   const [, source, lineNumber, pattern] = parts ?? [];

@@ -52,6 +52,10 @@ beforeAll(async () => {
     await writeFile(join(repo, f), CANARY);
   }
   // A .gitignore below the root, .git/info/exclude, and a global ignore file reached through HOME.
+  // Two sources match one file and the later, deeper one negates: the file is allowed, as git itself decides.
+  await mkdir(join(repo, "neg"));
+  await writeFile(join(repo, "neg", ".gitignore"), "!kept.log\n");
+  await writeFile(join(repo, "neg", "kept.log"), "fine\n");
   await mkdir(join(repo, "pkg"));
   await writeFile(join(repo, "pkg", ".gitignore"), "nested.txt\n");
   await writeFile(join(repo, "pkg", "nested.txt"), CANARY);
@@ -140,6 +144,7 @@ describe("sensitive files", () => {
   it("allows ordinary files and a negated (un-ignored) file", async () => {
     expect((await reader().read("ok.ts")).text).toContain("ok");
     expect((await reader().read("keep.log")).text).toBe("fine\n");
+    expect((await reader().read("neg/kept.log")).text).toBe("fine\n");
   });
 
   it("refuses matching .env spellings in any letter case", async () => {
@@ -274,6 +279,10 @@ describe("interpreting git check-ignore -v output", () => {
 
   it("splits at the first tab and the first :digits:, so colons and tabs elsewhere are harmless", () => {
     expect(interpretCheckIgnore(".gitignore:3:a:b:9.txt\ta:1:b\tc.txt\n")).toBe('ignored by .gitignore:3, pattern "a:b:9.txt"');
+  });
+
+  it("refuses when git prints more than one line, even if the last is a negation", () => {
+    expect(interpretCheckIgnore(".gitignore:1:*.log\ta.log\nsub/.gitignore:1:!a.log\ta.log\n")).toContain("ignored by git");
   });
 
   it("fails closed: output it cannot parse still counts as ignored", () => {
