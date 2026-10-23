@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
@@ -16,7 +15,6 @@ let respond: (res: import("node:http").ServerResponse) => void;
 let file: string;
 
 beforeAll(async () => {
-  execFileSync("npm", ["run", "build"], { cwd: join(import.meta.dirname, ".."), stdio: "ignore" });
   server = createServer((req, res) => {
     requestCount++;
     req.resume();
@@ -26,7 +24,7 @@ beforeAll(async () => {
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
   file = join(await mkdtemp(join(tmpdir(), "learn-err-")), "a.ts");
   await writeFile(file, "export const a = 1;\n");
-}, 60_000);
+});
 
 afterAll(() => server.close());
 beforeEach(() => {

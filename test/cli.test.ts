@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
@@ -16,7 +15,6 @@ let file: string;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 beforeAll(async () => {
-  execFileSync("npm", ["run", "build"], { cwd: join(import.meta.dirname, ".."), stdio: "ignore" });
   server = createServer(async (req, res) => {
     requestCount++;
     req.resume();
@@ -34,7 +32,7 @@ beforeAll(async () => {
   const dir = await mkdtemp(join(tmpdir(), "learn-cli-"));
   file = join(dir, "sample.ts");
   await writeFile(file, "export const answer = 42;\n");
-}, 60_000);
+});
 
 afterAll(() => server.close());
 
