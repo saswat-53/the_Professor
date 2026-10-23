@@ -11,3 +11,7 @@
 - [ ] The Excerpt is never trimmed; if it exceeds 50% of the active budget the run fails by raising `ContextTooLongError`, exit code 3 (shown by a CLI test), and a "narrow your range" hint
 - [ ] A minified single-line file is refused with that same message
 - [ ] Tests assert the exact lines kept and dropped for a known file
+
+## Comments
+
+- From ticket 10: Context carries `before` and `after` sections (see `src/core/context.ts`), so no line is sent twice and the Excerpt is counted once. Trim each side from the Excerpt outward. Imports are one whole section: drop it entirely or keep it, never cut it.

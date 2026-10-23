@@ -20,6 +20,14 @@ _Avoid_: Surroundings, background, scope
 The smallest function, method, or class that contains an Excerpt.
 _Avoid_: Parent, container, scope
 
+**Block finder**:
+The replaceable component that locates the Enclosing block for an Excerpt, or finds nothing. The built-in one finds nothing, so Context falls back to a fixed window of nearby lines. Real finders for brace languages and Python come later, and a tree-sitter one may follow.
+_Avoid_: Parser, scanner, locator
+
+**Line span**:
+A start and end line number in a file, 1-based and inclusive. A one-line span has the same start and end.
+_Avoid_: Range (a Reference's `N-M` is the user's spelling; a span is the internal value), region
+
 **Context report**:
 The statement shown to the user of exactly what was sent to the model: which files, which lines, which method found the Enclosing block, and what was dropped to fit the budget.
 _Avoid_: Manifest, log, summary

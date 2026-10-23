@@ -11,3 +11,7 @@
 - [ ] The file's import block is included in the Context
 - [ ] Contract tests are written against the interface, not the implementation, covering found, not found, and nested cases, so a future finder can reuse them
 - [ ] The text sent to the fake server shows the Excerpt clearly separated from its Context
+
+## Comments
+
+- Decision: each line is sent once. The Context holds the lines *before* and *after* the Excerpt (inside the Enclosing block or the 25-line window), never the Excerpt again. Imports are all-or-nothing: if the import block reaches into the nearby lines, the nearby lines grow upward to take it whole. Ticket 13 trims farthest-first from the Excerpt over these two sides, and counts the Excerpt once, toward its 50% limit.
