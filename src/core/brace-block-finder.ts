@@ -147,7 +147,8 @@ function findBlocks(lines: readonly string[], ext: string): LineSpan[] | null {
 
     if (ch === "{") {
       const control = goControl;
-      stack.push({ line: headerLine || line, isBlock: isBlockHeader(header, control, ext), parens });
+      stack.push({ line: headerLine || line, // Inside an unclosed `(` the body is an anonymous callback: the named parent is the better block.
+      isBlock: parens === 0 && isBlockHeader(header, control, ext), parens });
       parens = 0;
       reset();
     } else if (ch === "}") {
