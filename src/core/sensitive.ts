@@ -68,18 +68,38 @@ export function isLocalHost(baseUrl: string): boolean {
  * read is refused (fail closed); the denylist, checked first, does not need git.
  *
  * `-v` makes git say which pattern in which file matched, as `source:line:pattern<TAB>path`, so a
- * refusal in a cloned repo (or from a global ignore file) can name where it came from. A pattern
- * starting with `!` is a negation that un-ignored the file, not a match.
+ * refusal in a cloned repo (or from a global ignore file) can name where it came from.
  * Returns that description, or undefined when the file is not ignored.
  */
 async function ignoredBy(real: string): Promise<string | undefined> {
   const repo = await findRepo(dirname(real));
   if (!repo) return undefined;
   const out = await runGit(repo.root, "check-ignore", { args: ["--no-index", "-v"], paths: [relative(repo.root, real)] });
-  const match = /^(.*):(\d+):(.*)\t/.exec(out.split("\n")[0] ?? "");
-  if (!match || match[3]!.startsWith("!")) return undefined;
-  const source = match[1]!.startsWith(homedir()) ? `~${match[1]!.slice(homedir().length)}` : match[1]!;
-  return `ignored by ${source}:${match[2]}, pattern "${match[3]}"`;
+  return interpretCheckIgnore(out);
+}
+
+/**
+ * Fail closed: any output means "ignored" unless the first line is positively recognised as a
+ * negated (`!`) pattern, which git reports with exit 0 although it un-ignores the file. The parse
+ * only words the message; an unparseable line still refuses. The line splits at the first tab
+ * (the path after it may hold anything); before it, `source:line:` is the first `:<digits>:` and
+ * the pattern is the rest, so a colon inside the pattern is harmless.
+ */
+export function interpretCheckIgnore(output: string): string | undefined {
+  if (output === "") return undefined;
+  const line = output.split("\n")[0] ?? "";
+  const tab = line.indexOf("\t");
+  const parts = /^(.*?):(\d+):(.*)$/.exec(tab === -1 ? line : line.slice(0, tab));
+  const [, source, lineNumber, pattern] = parts ?? [];
+  if (pattern?.startsWith("!")) return undefined;
+  if (source === undefined) return "ignored by git (details unavailable)";
+  return `ignored by ${tildeHome(source)}:${lineNumber}, pattern "${pattern}"`;
+}
+
+/** Replaces the real home directory with `~`, so the full path (and the username in it) is never printed. */
+function tildeHome(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
 }
 
 export interface FileReaderOptions {

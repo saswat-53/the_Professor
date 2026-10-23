@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BlockedFileError } from "../src/core/errors.js";
 import { buildRequest } from "../src/core/explain.js";
-import { createFileReader, isLocalHost } from "../src/core/sensitive.js";
+import { createFileReader, interpretCheckIgnore, isLocalHost } from "../src/core/sensitive.js";
 import { run } from "./support/cli.js";
 
 const CANARY = "CANARY-secret-value";
@@ -46,6 +46,8 @@ beforeAll(async () => {
   await writeFile(join(repo, ".git-credentials"), CANARY);
   await writeFile(join(repo, ".pypirc"), CANARY);
   await writeFile(join(repo, ".htpasswd"), CANARY);
+  await writeFile(join(repo, "a:b.txt"), CANARY);
+  await writeFile(join(repo, "my file.txt"), CANARY);
   for (const f of [".envrc", ".vault-token", "vault.kdbx", "x.keystore", "terraform/terraform.tfstate.backup", "excluded.txt", "globally.txt"]) {
     await writeFile(join(repo, f), CANARY);
   }
@@ -63,7 +65,7 @@ beforeAll(async () => {
   // Commit config/local.json, THEN ignore it: it stays tracked, which is the common real-world state.
   execFileSync("git", ["add", "config/local.json"], { cwd: repo });
   execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"], { cwd: repo });
-  await writeFile(join(repo, ".gitignore"), "ignored.txt\nbuild/\n*.log\n!keep.log\nconfig/local.json\n");
+  await writeFile(join(repo, ".gitignore"), "ignored.txt\nbuild/\n*.log\n!keep.log\nconfig/local.json\na:b.txt\nmy file.txt\n");
 });
 
 const reader = (opts: { allowSensitive?: boolean } = {}) => createFileReader({ root: repo, cwd: repo, ...opts });
@@ -121,10 +123,18 @@ describe("sensitive files", () => {
     ["pkg/nested.txt", "pkg/.gitignore:1"],
     ["excluded.txt", ".git/info/exclude:1"],
     ["globally.txt", "~/.config/git/ignore:1"],
+    ["a:b.txt", 'pattern "a:b.txt"'],
+    ["my file.txt", 'pattern "my file.txt"'],
   ])("names where the gitignore pattern for %s came from", async (path, where) => {
     const err = await reader().read(path).catch((e) => e);
     expect((err as BlockedFileError).source).toContain(where);
     expect((err as Error).message).toContain(`ignored by`);
+  });
+
+  it("never prints the real home directory", async () => {
+    const err = await reader().read("globally.txt").catch((e) => e);
+    expect((err as Error).message).not.toContain(fakeHome);
+    expect((err as Error).message).toContain("~/.config/git/ignore");
   });
 
   it("allows ordinary files and a negated (un-ignored) file", async () => {
@@ -253,5 +263,21 @@ describe("sensitive files through the CLI", () => {
     const r = await run([".env", "--dry-run", "--allow-sensitive"], env, repo);
     expect(r.code).toBe(0);
     expect(r.stderr).toContain(CANARY);
+  });
+});
+
+describe("interpreting git check-ignore -v output", () => {
+  it("is not ignored when git printed nothing or a negated pattern", () => {
+    expect(interpretCheckIgnore("")).toBeUndefined();
+    expect(interpretCheckIgnore(".gitignore:2:!keep.log\tkeep.log\n")).toBeUndefined();
+  });
+
+  it("splits at the first tab and the first :digits:, so colons and tabs elsewhere are harmless", () => {
+    expect(interpretCheckIgnore(".gitignore:3:a:b:9.txt\ta:1:b\tc.txt\n")).toBe('ignored by .gitignore:3, pattern "a:b:9.txt"');
+  });
+
+  it("fails closed: output it cannot parse still counts as ignored", () => {
+    expect(interpretCheckIgnore("garbage without structure")).toContain("ignored by git");
+    expect(interpretCheckIgnore("\t")).toContain("ignored by git");
   });
 });
