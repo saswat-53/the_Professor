@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, writeFile, chmod } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, symlink, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { UsageError } from "../src/core/errors.js";
+import { UnexpectedError, UsageError } from "../src/core/errors.js";
 import { findRepo, runGit } from "../src/core/git.js";
 
 const git = (cwd: string, ...args: string[]) =>
@@ -80,6 +80,18 @@ describe("argument safety", () => {
     }
   });
 
+  it("rejects a symlink inside the root that points outside it", async () => {
+    const root = await tempRepo();
+    const outside = await tempDir();
+    await symlink(outside, join(root, "link"));
+    await expect(runGit(root, "log", { paths: ["link"] })).rejects.toBeInstanceOf(UsageError);
+  });
+
+  it("names the git subcommand when git fails", async () => {
+    const root = await tempRepo();
+    await expect(runGit(root, "show", { refs: ["no-such-ref"] })).rejects.toThrow(/^git show failed/);
+  });
+
   it("accepts an absolute path inside the root", async () => {
     const root = await tempRepo();
     await expect(runGit(root, "log", { paths: [join(root, "a.txt")] })).resolves.toContain("first");
@@ -107,6 +119,7 @@ describe("external programs", () => {
       const args = sub === "log" ? ["-p"] : [];
       await runGit(root, sub, { args });
     }
+    await runGit(root, "blame", { paths: ["a.txt"] });
     expect(existsSync(marker)).toBe(false);
   });
 });
@@ -121,6 +134,16 @@ describe("findRepo", () => {
 
   it("reports no repo outside one", async () => {
     expect(await findRepo(await tempDir())).toBeUndefined();
+  });
+
+  it("does not mistake a missing git for no repo", async () => {
+    const saved = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      await expect(findRepo(await tempDir())).rejects.toBeInstanceOf(UnexpectedError);
+    } finally {
+      process.env.PATH = saved;
+    }
   });
 
   it("works in a repo with no commits", async () => {

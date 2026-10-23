@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { UnexpectedError, UsageError } from "./errors.js";
 
@@ -30,6 +31,7 @@ const NO_EXTERNAL_DIFF: Partial<Record<GitSubcommand, string[]>> = {
   diff: ["--no-ext-diff", "--no-textconv"],
   log: ["--no-ext-diff", "--no-textconv"],
   show: ["--no-ext-diff", "--no-textconv"],
+  blame: ["--no-textconv"],
 };
 
 function cleanEnv(): NodeJS.ProcessEnv {
@@ -47,6 +49,9 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Git ran but said no (for example "not a git repository"); anything else is a failure to run git at all. */
+class GitExitError extends UnexpectedError {}
+
 function spawnGit(cwd: string, argv: string[], signal?: AbortSignal): Promise<string> {
   return new Promise((done, fail) => {
     // execFile runs git directly with an argument list: no shell ever sees these strings.
@@ -57,16 +62,29 @@ function spawnGit(cwd: string, argv: string[], signal?: AbortSignal): Promise<st
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr.trim() || error.message;
-          fail(Object.assign(new UnexpectedError(`git ${argv.at(-1) ?? ""} failed: ${detail}`), { cause: error }));
+          const subcommand = argv.find((a) => (ALLOWED as readonly string[]).includes(a)) ?? "";
+          const Failure = typeof error.code === "number" ? GitExitError : UnexpectedError;
+          fail(Object.assign(new Failure(`git ${subcommand} failed: ${detail}`), { cause: error }));
         } else done(stdout);
       },
     );
   });
 }
 
-function insideRoot(root: string, path: string): boolean {
-  const rel = relative(root, resolve(root, path));
+function within(root: string, path: string): boolean {
+  const rel = relative(root, path);
   return rel !== ".." && !rel.startsWith("../") && !isAbsolute(rel);
+}
+
+/** Lexical check, then again on the real path so a symlink inside the root cannot lead outside it. */
+function insideRoot(root: string, path: string): boolean {
+  const full = resolve(root, path);
+  if (!within(root, full)) return false;
+  try {
+    return within(realpathSync(root), realpathSync(full));
+  } catch {
+    return true; // does not exist (for example a deleted file in history): nothing to follow
+  }
 }
 
 /** Runs one read-only git command inside `root`, after checking every argument. */
@@ -91,8 +109,9 @@ export async function findRepo(cwd: string): Promise<GitRepo | undefined> {
   let root: string;
   try {
     root = (await spawnGit(cwd, [...LOCKDOWN, "rev-parse", "--show-toplevel"])).trim();
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (error instanceof GitExitError) return undefined;
+    throw error;
   }
   const shallow = (await runGit(root, "rev-parse", { args: ["--is-shallow-repository"] })).trim() === "true";
   const hasCommits = await runGit(root, "rev-parse", { args: ["--verify", "-q", "HEAD"] }).then(
