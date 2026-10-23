@@ -9,4 +9,5 @@
 - [ ] Only failures with no HTTP status that come from the connection itself (refused, reset, DNS, timeout) become the network error
 - [ ] Any other non-API failure, including a parse error mid-stream, becomes `UnexpectedError` with a generic message that says it is probably a bug in learn
 - [ ] Tests: a fake server sending malformed stream data gives the unexpected message, and a refused connection still gives the network message
-- [ ] Owner: whoever picks up the first provider ticket after 05 (27 Anthropic provider), since a second adapter would otherwise copy the wrong default
+- [ ] Schedule: do this soon, right after 06 or whenever it fits, not in Milestone 2. A mid-stream parse error reading as "could not reach the provider" would mislead debugging during the next tickets
+- [ ] Ticket 27 (Anthropic provider) and 28 (Gemini provider) follow the same classification rule, so a new adapter does not copy the old default
