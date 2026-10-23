@@ -146,7 +146,9 @@ describe("programs named by repo config are never run", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
-  it("core.hooksPath", async () => {
+  // REGRESSION GUARD: passes today even without the `core.hooksPath=/dev/null` override, because
+  // none of our read-only subcommands run hooks. The override is the remaining protection if one ever does.
+  it("regression guard: core.hooksPath hooks are not run", async () => {
     const root = await tempRepo();
     const { script, marker } = await spy();
     const hooks = await tempDir("learn-hooks-");
@@ -161,7 +163,10 @@ describe("programs named by repo config are never run", () => {
     expect(existsSync(marker)).toBe(false);
   });
 
-  it("core.attributesFile", async () => {
+  // REGRESSION GUARD: passes today even without the `core.attributesFile=/dev/null` override, because
+  // --no-textconv (and --no-ext-diff) already stop a routed filter from running. If --no-textconv is
+  // ever removed, this override becomes the only thing between a hostile attributes file and execution.
+  it("regression guard: core.attributesFile filters are not run", async () => {
     const root = await tempRepo();
     const { script, marker } = await spy();
     const attrs = join(await tempDir("learn-attrs-"), "attributes");
@@ -227,6 +232,19 @@ describe("check-ignore", () => {
     expect(existsSync(join(root, "pwned"))).toBe(false);
   });
 
+  it("treats glob characters as literal names, so a glob never widens the answer", async () => {
+    const root = await tempRepo();
+    // check-ignore rejects :(literal) and GIT_LITERAL_PATHSPECS, but it does not expand globs: each
+    // argument is one path name. Real files named like globs prove it.
+    for (const name of ["*.env", "[a].env", "a.env", "b.env"]) await writeFile(join(root, name), "x\n");
+    await writeFile(join(root, ".gitignore"), "a.env\n");
+    const out = await runGit(root, "check-ignore", { paths: ["*.env", "[a].env", "a.env", "b.env"] });
+    expect(out.split("\n").filter(Boolean)).toEqual(["a.env"]);
+    await writeFile(join(root, ".gitignore"), "*.env\n");
+    const widened = await runGit(root, "check-ignore", { paths: ["*.env", "[a].env", "b.env", "c.txt"] });
+    expect(widened.split("\n").filter(Boolean)).toEqual(["*.env", "[a].env", "b.env"]);
+  });
+
   it("rejects a path outside the root", async () => {
     const root = await tempRepo();
     await expect(runGit(root, "check-ignore", { paths: ["../x"] })).rejects.toBeInstanceOf(UsageError);
@@ -260,12 +278,24 @@ describe("limits and failures", () => {
     const root = await tempRepo();
     await expect(
       runGit(root, "log", { args: ["--format=%s%n%s%n%s"], maxOutputBytes: 5 }),
-    ).rejects.toBeInstanceOf(ContextTooLongError);
+    ).rejects.toThrow(/git log output is larger than the 5-byte limit.*not a file.*commits/);
   });
 
   it("kills git that runs past the timeout", async () => {
     const root = await tempRepo();
-    await expect(runGit(root, "log", { timeoutMs: 1 })).rejects.toThrow(/timed out/);
+    const fake = await tempDir("learn-slowgit-");
+    // `exec` makes the sleep the process itself, so killing it closes the output pipe at once.
+    await writeFile(join(fake, "git"), "#!/bin/sh\nexec sleep 30\n");
+    await chmod(join(fake, "git"), 0o755);
+    const saved = process.env.PATH;
+    process.env.PATH = `${fake}:${saved}`;
+    const started = Date.now();
+    try {
+      await expect(runGit(root, "log", { timeoutMs: 200 })).rejects.toThrow(/git log timed out/);
+    } finally {
+      process.env.PATH = saved;
+    }
+    expect(Date.now() - started).toBeLessThan(10_000);
   });
 
   it("maps git's dubious-ownership refusal to a typed error that does not suggest a bypass flag", async () => {

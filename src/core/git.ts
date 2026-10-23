@@ -106,7 +106,13 @@ function spawnGit(cwd: string, subcommand: string, argv: string[], opts: SpawnOp
         const code = (error as { code?: unknown }).code;
         const detail = stderr.trim() || error.message;
         if (code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
-          return fail(new ContextTooLongError(`git ${subcommand} produced more output than learn will read; narrow the request`));
+          const limit = opts.maxOutputBytes ?? DEFAULT_MAX_OUTPUT;
+          return fail(
+            new ContextTooLongError(
+              `git ${subcommand} output is larger than the ${limit}-byte limit (this is git's output, not a file): ` +
+                "narrow the line range, the number of commits, or the paths",
+            ),
+          );
         }
         if ((error as { killed?: boolean }).killed && !opts.signal?.aborted) {
           return fail(new UnexpectedError(`git ${subcommand} timed out`, { cause: error }));
