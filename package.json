@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.75",
-    "ai": "^7.0.148"
+    "ai": "^7.0.148",
+    "smol-toml": "^1.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

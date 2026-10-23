@@ -33,7 +33,7 @@ The statement shown to the user of exactly what was sent to the model: which fil
 _Avoid_: Manifest, log, summary
 
 **Budget**:
-The most characters of Excerpt plus Context sent in one request: 24,000 for hosted endpoints, 8,000 for localhost, 127.0.0.1 and ::1, or whatever `--context-budget` says. Over budget, Context is dropped farthest from the Excerpt first (imports whole, before any nearby line). The Excerpt is never trimmed: one over half the Budget is refused (so on a local endpoint a whole-file Reference over 4,000 characters is). The Budget counts code only: the Excerpt's text and each Context line plus its newline; the fixed prompt text (labels, fences, system prompt) is extra. Length is JavaScript string length, so an emoji counts as 2: an estimate of size, not a token count.
+The most characters of Excerpt plus Context sent in one request: 24,000 for hosted endpoints, 8,000 for localhost, 127.0.0.1 and ::1, or whatever the context-budget setting says (`--context-budget`, `LEARN_CONTEXT_BUDGET`, or `context_budget` in the config file, in that order). Over budget, Context is dropped farthest from the Excerpt first (imports whole, before any nearby line). The Excerpt is never trimmed: one over half the Budget is refused (so on a local endpoint a whole-file Reference over 4,000 characters is). The Budget counts code only: the Excerpt's text and each Context line plus its newline; the fixed prompt text (labels, fences, system prompt) is extra. Length is JavaScript string length, so an emoji counts as 2: an estimate of size, not a token count.
 _Avoid_: Limit, quota, window (the "window" is the fixed lines around an Excerpt)
 
 **Project root**:
@@ -45,7 +45,7 @@ One conversation: the first explanation of a Reference plus its follow-up questi
 _Avoid_: Chat, thread, conversation
 
 **Level**:
-How much background the learner is assumed to have: beginner, intermediate, or expert.
+How much background the learner is assumed to have: beginner, intermediate (the default), or expert. Set by `--level`, `LEARN_LEVEL`, or `level` in the config file, in that order.
 _Avoid_: Mode, difficulty, skill
 
 **Exit code**:

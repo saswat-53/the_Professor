@@ -39,3 +39,5 @@ export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./c
 export type { BlockFinder, Context, LineSpan } from "./context.js";
 export { buildContextReport, formatContextReport, reportForError } from "./report.js";
 export type { ContextReport, ReportedRange } from "./report.js";
+export { EXAMPLE_CONFIG, configPath, firstRunMessage, parseConfig, resolveSettings } from "./settings.js";
+export type { Config, Flags, ResolvedSettings } from "./settings.js";

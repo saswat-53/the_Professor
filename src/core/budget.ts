@@ -1,7 +1,8 @@
 import type { LineSpan } from "./context.js";
 import { ContextTooLongError, UsageError } from "./errors.js";
 import type { Excerpt } from "./reference.js";
-import { isLocalHost } from "./sensitive.js";
+import { resolveEndpoint } from "./sensitive.js";
+import type { Endpoint } from "./sensitive.js";
 
 /**
  * The Budget counts code only: the Excerpt's text, and each Context line plus its newline. The fixed
@@ -18,12 +19,13 @@ export interface Budget {
   source: BudgetSource;
 }
 
-export function resolveBudget(baseUrl: string, setting?: number): Budget {
+/** `endpoint` is the one parse of the base URL (`resolveEndpoint`), shared with the file reader and the report. */
+export function resolveBudget(endpoint: Endpoint, setting?: number): Budget {
   if (setting !== undefined) return { chars: setting, source: "setting" };
-  return isLocalHost(baseUrl) ? { chars: LOCAL_BUDGET, source: "local default" } : { chars: HOSTED_BUDGET, source: "hosted default" };
+  return endpoint.local ? { chars: LOCAL_BUDGET, source: "local default" } : { chars: HOSTED_BUDGET, source: "hosted default" };
 }
 
-export const defaultBudget = (baseUrl: string) => resolveBudget(baseUrl).chars;
+export const defaultBudget = (baseUrl: string) => resolveBudget(resolveEndpoint(baseUrl)).chars;
 
 /** The Excerpt is never trimmed, so one that leaves no room for Context is refused instead. */
 export const isValidBudget = (chars: number) => Number.isInteger(chars) && chars > 0;

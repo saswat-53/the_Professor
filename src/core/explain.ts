@@ -52,7 +52,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
   const excerpt = await resolveReference(await parseReference(input.reference, exists), {
     read: (path) => reader.read(path),
   });
-  const budget = resolveBudget(input.settings.baseUrl, input.settings.contextBudget);
+  const budget = resolveBudget(reader.endpoint, input.settings.contextBudget);
   assertExcerptFits(excerpt, budget);
   const finder = input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? "");
   const context = gatherContext(excerpt, finder, budget.chars);

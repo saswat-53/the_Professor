@@ -1,12 +1,27 @@
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, explain, formatContextReport, prepareRequest, reportForError, isLevel, isValidBudget } from "../core/index.js";
-import type { ModelRequest } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, reportForError, resolveSettings } from "../core/index.js";
+import type { Config, ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
 
-Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
+Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
+then the config file (~/.config/learn/config.toml), then the default.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
+
+/** The per-user config file, or undefined when there is none. The project is never searched. */
+async function readConfig(file: string): Promise<Config | undefined> {
+  let source;
+  try {
+    source = await readFile(file, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new UsageError(`${file}: cannot be read: ${(err as Error).message}`);
+  }
+  return parseConfig(source, file);
+}
 
 /** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
 const describe = (err: unknown) => {
@@ -36,22 +51,27 @@ async function main(): Promise<number> {
     return 2;
   }
   const { values, positionals } = parsed;
-  const baseUrl = values["base-url"] ?? process.env.LEARN_BASE_URL;
-  const model = values.model ?? process.env.LEARN_MODEL;
   const [reference] = positionals;
+  const home = homedir();
+  const file = configPath(process.env, home);
+  let resolved;
+  try {
+    const config = await readConfig(file);
+    resolved = resolveSettings({
+      flags: { level: values.level, model: values.model, baseUrl: values["base-url"], contextBudget: values["context-budget"] },
+      env: process.env,
+      config,
+      home,
+    });
+    for (const warning of resolved.warnings) process.stderr.write(`${warning}\n`);
+    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) process.stderr.write(`${firstRunMessage(file)}\n\n`);
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return err instanceof LearnError ? err.exitCode : 2;
+  }
+  const { baseUrl, model, level, contextBudget } = resolved.settings;
   if (!reference || !baseUrl || !model) {
     process.stderr.write(`${USAGE}\n`);
-    return 2;
-  }
-  const level = values.level ?? DEFAULT_LEVEL;
-  if (!isLevel(level)) {
-    process.stderr.write(`invalid --level "${level}"; choose one of: ${LEVELS.join(", ")}\n`);
-    return 2;
-  }
-  const budgetFlag = values["context-budget"];
-  const contextBudget = budgetFlag === undefined ? undefined : Number(budgetFlag);
-  if (contextBudget !== undefined && !isValidBudget(contextBudget)) {
-    process.stderr.write(`invalid --context-budget "${budgetFlag}"; give a whole number of characters above 0\n`);
     return 2;
   }
   const settings = { baseUrl, model, level, contextBudget };
