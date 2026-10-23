@@ -16,7 +16,9 @@ export interface ReportedRange {
 export type ContextReport =
   | {
       kind: "sent";
-      /** The file the lines came from, or null for input with no file behind it. */
+      /** What was pointed at: a file or other input, as the Excerpt's label names it. */
+      label: string;
+      /** The file the lines came from. Null for a whole-file or other Reference, which gets no Context. */
       path: string | null;
       /** In file order. */
       ranges: ReportedRange[];
@@ -40,6 +42,7 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
   }
   return {
     kind: "sent",
+    label: excerpt.label,
     path: source?.path ?? null,
     ranges,
     method: context ? (context.method === "enclosing-block" ? "heuristic" : "fallback window") : null,
@@ -64,7 +67,7 @@ export function formatContextReport(report: ContextReport): string {
     return `Context report\n  refused: ${report.file} (rule: ${report.rule}); its content is not sent`;
   }
   const out = ["Context report: this is what will be sent"];
-  if (report.path === null) out.push("  the input text only (no file behind it, so no Context)");
+  if (report.path === null) out.push(`  ${report.label}`, "    the whole text, with no surrounding Context");
   else {
     out.push(`  ${report.path}`);
     for (const r of report.ranges) out.push(`    ${r.start === r.end ? `line ${r.start}` : `lines ${r.start}-${r.end}`}: ${PART_LABEL[r.part]}`);

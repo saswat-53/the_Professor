@@ -58,6 +58,13 @@ describe("Context report", () => {
     if (imports) expect(request.user).toContain(`(a.ts ${imports.start === imports.end ? `line ${imports.start}` : `lines ${imports.start}-${imports.end}`})`);
   });
 
+  it("names a whole-file Reference and says it has no surrounding Context", async () => {
+    const dir = await project("a.txt", numbered(5));
+    const text = formatContextReport((await prepareRequest({ reference: "a.txt", cwd: dir, settings: hosted })).report);
+    expect(text).toContain("  a.txt\n    the whole text, with no surrounding Context");
+    expect(text).not.toContain("no file behind it");
+  });
+
   it("names the method: fallback window without a finder hit, heuristic with one", async () => {
     const plain = await project("a.txt", numbered(20));
     expect(formatContextReport((await prepareRequest({ reference: "a.txt:5", cwd: plain, settings: hosted })).report)).toContain("fallback window");
