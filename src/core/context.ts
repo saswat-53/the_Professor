@@ -1,3 +1,4 @@
+import { type Dropped, fitToBudget } from "./budget.js";
 import { fenceCode } from "./prompt.js";
 import type { Excerpt } from "./reference.js";
 
@@ -39,7 +40,7 @@ export interface Context {
   before?: Section;
   after?: Section;
   /** What the budget cost, for the Context report. Absent when everything fit. */
-  dropped?: { imports: boolean; lines: number };
+  dropped?: Dropped;
 }
 export interface Section extends LineSpan {
   text: string;
@@ -108,50 +109,9 @@ export function gatherContext(excerpt: Excerpt, finder: BlockFinder, budget: num
     ? { ...block }
     : { start: Math.max(1, range.start - WINDOW_LINES), end: Math.min(lines.length, range.end + WINDOW_LINES) };
 
-  // Imports are all-or-nothing. One that ends above the nearby lines is sent whole; one that
-  // reaches into them pulls the start up to take it whole, so a statement is never cut in half.
-  const importSpan = findImportBlock(lines);
-  const straddles = importSpan !== null && importSpan.start < span.start && importSpan.end >= span.start;
-  const normalStart = span.start;
-  if (straddles) span.start = importSpan!.start;
-  let imports = importSpan && importSpan.end < span.start ? importSpan : undefined;
-
-  // Over budget, the imports go first (they are farthest from the Excerpt), whole. Dropping ones that
-  // straddled also shrinks the nearby lines back to their normal span, minus the tail of the statement.
-  const room = budget - excerpt.text.length;
-  const cost = (from: number, to: number) => lines.slice(from - 1, to).reduce((n, l) => n + l.length + 1, 0);
-  const nearby = () => cost(span.start, range.start - 1) + cost(range.end + 1, span.end);
-  let droppedImports = false;
-  if ((imports ? cost(imports.start, imports.end) : 0) + nearby() > room) {
-    droppedImports = imports !== undefined || straddles;
-    imports = undefined;
-    if (straddles) span.start = Math.min(range.start, Math.max(normalStart, importSpan!.end + 1));
-  }
-
-  // Still over: keep the lines nearest the Excerpt, one side then the other, so what is dropped is
-  // always the farthest. Each side stays one unbroken run reaching up to the Excerpt.
-  const originalLines = span.end - span.start + 1;
-  if (nearby() > room) {
-    let used = 0;
-    let up = range.start;
-    let down = range.end;
-    while (up > span.start || down < span.end) {
-      // Equal distances when both sides have lines left: ties go to the side before the Excerpt.
-      const takeUp = up > span.start && (down >= span.end || range.start - (up - 1) <= down + 1 - range.end);
-      const line = takeUp ? up - 1 : down + 1;
-      const c = cost(line, line);
-      if (used + c > room) break;
-      used += c;
-      if (takeUp) up--;
-      else down++;
-    }
-    span.start = up;
-    span.end = down;
-  }
-  const lost = originalLines - (span.end - span.start + 1);
-
-  const before = span.start < range.start ? section(lines, { start: span.start, end: range.start - 1 }) : undefined;
-  const after = range.end < span.end ? section(lines, { start: range.end + 1, end: span.end }) : undefined;
+  const { imports, span: kept, dropped } = fitToBudget(lines, range, span, findImportBlock(lines), budget - excerpt.text.length);
+  const before = kept.start < range.start ? section(lines, { start: kept.start, end: range.start - 1 }) : undefined;
+  const after = range.end < kept.end ? section(lines, { start: range.end + 1, end: kept.end }) : undefined;
   return {
     path: source.path,
     method: block ? "enclosing-block" : "window",
@@ -159,7 +119,7 @@ export function gatherContext(excerpt: Excerpt, finder: BlockFinder, budget: num
     ...(imports && { imports: section(lines, imports) }),
     ...(before && { before }),
     ...(after && { after }),
-    ...((droppedImports || lost > 0) && { dropped: { imports: droppedImports, lines: lost } }),
+    ...(dropped && { dropped }),
   };
 }
 

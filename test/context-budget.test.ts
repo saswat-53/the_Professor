@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ContextTooLongError, ExitCode } from "../src/core/errors.js";
 import { buildRequest } from "../src/core/explain.js";
 import { defaultBudget } from "../src/core/budget.js";
+import { gatherContext, noBlockFinder } from "../src/core/context.js";
 import { run } from "./support/cli.js";
 
 const hosted = { baseUrl: "https://api.example.com/v1", model: "m" };
@@ -200,5 +201,62 @@ describe("core validation", () => {
     const dir = await project("a.txt", [], 9);
     const err = await buildRequest({ reference: "a.txt:5", cwd: dir, settings: { ...hosted, contextBudget } }).catch((e) => e);
     expect(err.exitCode).toBe(ExitCode.Usage);
+  });
+});
+
+describe("what was dropped (Context.dropped)", () => {
+  const lines = (n: number) => Array.from({ length: n }, (_, i) => `l${String(i + 1).padStart(2, "0")}`);
+  const excerptAt = (all: string[], line: number) => ({
+    label: `a.ts:${line}`,
+    text: all[line - 1]!,
+    source: { path: "a.ts", text: all.join("\n") + "\n", start: line, end: line },
+  });
+
+  it("is absent when everything fits", () => {
+    const all = lines(99);
+    expect(gatherContext(excerptAt(all, 50), noBlockFinder, 4_000)!.dropped).toBeUndefined();
+  });
+
+  it("counts the nearby lines lost to trimming", () => {
+    const all = lines(99);
+    // The window is 50 lines; budget 40 keeps nine of them.
+    expect(gatherContext(excerptAt(all, 50), noBlockFinder, 40)!.dropped).toEqual({ imports: false, lines: 41 });
+  });
+
+  it("says the imports were dropped, whole, with no lines lost when only they did not fit", () => {
+    const all = ['import a from "./a";', ...lines(99)];
+    // Excerpt 3 + window 50 lines (200) fits in 210; imports (20) on top do not.
+    const ctx = gatherContext(excerptAt(all, 51), noBlockFinder, 210)!;
+    expect(ctx.imports).toBeUndefined();
+    expect(ctx.dropped).toEqual({ imports: true, lines: 0 });
+  });
+
+  it("drops non-straddling imports first even with an Enclosing block", () => {
+    const all = ['import a from "./a";', ...lines(99)];
+    const block = { name: "fixed", find: () => ({ start: 40, end: 60 }) };
+    // Excerpt 3 + block (20 lines, 80) = 83; the imports (20) would make 103.
+    const ctx = gatherContext(excerptAt(all, 51), block, 90)!;
+    expect(ctx.imports).toBeUndefined();
+    expect(ctx.before!.start).toBe(40);
+    expect(ctx.after!.end).toBe(60);
+    expect(ctx.dropped).toEqual({ imports: true, lines: 0 });
+  });
+});
+
+describe("trimming edge cases", () => {
+  it("stops at a line too big for the room, even if a smaller one lies farther out", async () => {
+    const dir = await project("a.txt", [], 99);
+    const body = Array.from({ length: 99 }, (_, i) => (i + 1 === 48 ? "B".repeat(200) : `l${String(i + 1).padStart(2, "0")}`));
+    await writeFile(join(dir, "a.txt"), body.join("\n") + "\n");
+    const { user } = await buildRequest({ reference: "a.txt:50", cwd: dir, settings: { ...hosted, contextBudget: 40 } });
+    // Nearest first: 49, 51, then 48 is too big, so nothing farther on either side is kept.
+    expect(sent(user)).toEqual([49, 50, 51]);
+    expect(user).not.toContain("BBBB");
+  });
+
+  it("keeps an exact fit and names exactly which lines", async () => {
+    const dir = await project("a.txt", [], 99);
+    const { user } = await buildRequest({ reference: "a.txt:50", cwd: dir, settings: { ...hosted, contextBudget: 43 } });
+    expect(sent(user)).toEqual([45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55]);
   });
 });

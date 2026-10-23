@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel, isValidBudget } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -50,7 +50,7 @@ async function main(): Promise<number> {
   }
   const budgetFlag = values["context-budget"];
   const contextBudget = budgetFlag === undefined ? undefined : Number(budgetFlag);
-  if (contextBudget !== undefined && !(Number.isInteger(contextBudget) && contextBudget > 0)) {
+  if (contextBudget !== undefined && !isValidBudget(contextBudget)) {
     process.stderr.write(`invalid --context-budget "${budgetFlag}"; give a whole number of characters above 0\n`);
     return 2;
   }
