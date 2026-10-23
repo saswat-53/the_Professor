@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
-import { defaultBlockFinder } from "./default-block-finder.js";
+import { blockFinderFor } from "./default-block-finder.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { findProjectRoot } from "./root.js";
@@ -51,7 +51,7 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
-    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? defaultBlockFinder)),
+    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? ""))),
   };
 }
 

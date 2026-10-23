@@ -1,17 +1,13 @@
-import { braceBlockFinder } from "./brace-block-finder.js";
-import type { BlockFinder } from "./context.js";
+import { BRACE_EXTENSIONS, braceBlockFinder } from "./brace-block-finder.js";
+import { type BlockFinder, noBlockFinder } from "./context.js";
 import { pythonBlockFinder } from "./python-block-finder.js";
 
-const FINDERS: readonly BlockFinder[] = [pythonBlockFinder, braceBlockFinder];
-
-/** The finder used when none is given: each built-in finder in turn, which only recognises its own extensions. */
-export const defaultBlockFinder: BlockFinder = {
-  name: "builtin",
-  find(file, range) {
-    for (const finder of FINDERS) {
-      const found = finder.find(file, range);
-      if (found) return found;
-    }
-    return null;
-  },
-};
+/**
+ * The built-in finder for a file, chosen by extension before searching so the Context report names
+ * the finder that actually ran. Files no built-in finder understands get the one that finds nothing.
+ */
+export function blockFinderFor(path: string): BlockFinder {
+  const ext = path.includes(".") ? path.slice(path.lastIndexOf(".") + 1).toLowerCase() : "";
+  if (ext === "py") return pythonBlockFinder;
+  return BRACE_EXTENSIONS.has(ext) ? braceBlockFinder : noBlockFinder;
+}

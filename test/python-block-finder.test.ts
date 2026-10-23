@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultBlockFinder } from "../src/core/default-block-finder.js";
+import { blockFinderFor } from "../src/core/default-block-finder.js";
 import { pythonBlockFinder } from "../src/core/python-block-finder.js";
 import { blockFinderContract } from "./support/block-finder-contract.js";
 
@@ -83,15 +83,10 @@ blockFinderContract("python finder", pythonBlockFinder, [
   { name: "upper-case extension", path: "A.PY", text: "def f():\n    pass", range: { start: 2, end: 2 }, expect: { start: 1, end: 2 } },
 ]);
 
-describe("default block finder", () => {
-  const file = (path: string, text: string) => ({ path, lines: text.split("\n") });
-  it("uses the Python finder for .py", () => {
-    expect(defaultBlockFinder.find(file("a.py", "def f():\n    pass"), { start: 2, end: 2 })).toEqual({ start: 1, end: 2 });
-  });
-  it("uses the brace finder for brace languages", () => {
-    expect(defaultBlockFinder.find(file("a.ts", "function f() {\n  1;\n}"), { start: 2, end: 2 })).toEqual({ start: 1, end: 3 });
-  });
-  it("finds nothing for other files", () => {
-    expect(defaultBlockFinder.find(file("a.txt", "def f():\n    pass"), { start: 2, end: 2 })).toBeNull();
+describe("blockFinderFor", () => {
+  it("picks the Python finder for .py", () => expect(blockFinderFor("src/a.py").name).toBe("python"));
+  it("picks the brace finder for brace languages", () => expect(blockFinderFor("a.TS").name).toBe("braces"));
+  it("picks the finder that finds nothing for other files", () => {
+    for (const path of ["a.txt", "Makefile", ".py", ""]) expect(blockFinderFor(path).name).toBe("none");
   });
 });
