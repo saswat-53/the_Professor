@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 (Thin slice: explain a file against a fake server, plus --dry-run)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Only `log`, `diff`, `blame`, `show`, and `rev-parse` can be run; any other subcommand is rejected before anything is spawned
-- [ ] Git is spawned without a shell: a path containing shell metacharacters is handled literally in a real temp repo
-- [ ] Every path argument is preceded by `--`, and a ref starting with `-` is rejected
-- [ ] A repo configured with an external diff driver and a pager runs neither of them
-- [ ] A path outside the project root is rejected
-- [ ] Root detection works from a subdirectory, reports "no repo" outside one, and works in a repo with no commits
-- [ ] A shallow clone is detected and reported as such to callers
-- [ ] All tests use a real temporary git repository
+- [x] Only `log`, `diff`, `blame`, `show`, and `rev-parse` can be run; any other subcommand is rejected before anything is spawned
+- [x] Git is spawned without a shell: a path containing shell metacharacters is handled literally in a real temp repo
+- [x] Every path argument is preceded by `--`, and a ref starting with `-` is rejected
+- [x] A repo configured with an external diff driver and a pager runs neither of them
+- [x] A path outside the project root is rejected
+- [x] Root detection works from a subdirectory, reports "no repo" outside one, and works in a repo with no commits
+- [x] A shallow clone is detected and reported as such to callers
+- [x] All tests use a real temporary git repository
