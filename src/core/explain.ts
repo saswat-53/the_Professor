@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
+import { assertExcerptFits, defaultBudget } from "./budget.js";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
@@ -47,11 +48,14 @@ export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
   const excerpt = await resolveReference(await parseReference(input.reference, exists), {
     read: (path) => reader.read(path),
   });
+  const budget = input.settings.contextBudget ?? defaultBudget(input.settings.baseUrl);
+  assertExcerptFits(excerpt, budget);
+  const finder = input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? "");
   return {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
-    user: formatRequest(excerpt, gatherContext(excerpt, input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? ""))),
+    user: formatRequest(excerpt, gatherContext(excerpt, finder, budget)),
   };
 }
 

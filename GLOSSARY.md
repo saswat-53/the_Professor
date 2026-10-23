@@ -32,6 +32,10 @@ _Avoid_: Range (a Reference's `N-M` is the user's spelling; a span is the intern
 The statement shown to the user of exactly what was sent to the model: which files, which lines, which method found the Enclosing block, and what was dropped to fit the budget.
 _Avoid_: Manifest, log, summary
 
+**Budget**:
+The most characters of Excerpt plus Context sent in one request: 24,000 for hosted endpoints, 8,000 for localhost, 127.0.0.1 and ::1, or whatever `--context-budget` says. Over budget, Context is dropped farthest from the Excerpt first (imports whole, before any nearby line). The Excerpt is never trimmed: one over half the Budget is refused.
+_Avoid_: Limit, quota, window (the "window" is the fixed lines around an Excerpt)
+
 **Project root**:
 The directory learn treats as "the project": the git root above the current directory, else the current directory itself, or the `--root` directory when given. Files must resolve (after symlinks) inside it, and labels are written relative to it. With no repo and no `--root`, a file elsewhere is outside the root and refused.
 _Avoid_: Workspace, base directory

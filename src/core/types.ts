@@ -17,6 +17,8 @@ export interface Settings {
   baseUrl: string;
   model: string;
   level?: Level;
+  /** Most characters of Excerpt plus Context to send. Default: by endpoint, see `defaultBudget`. */
+  contextBudget?: number;
 }
 
 export type ExplainEvent =

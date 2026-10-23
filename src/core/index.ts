@@ -33,5 +33,6 @@ export type { FileReader, FileReaderOptions } from "./sensitive.js";
 export { braceBlockFinder, BRACE_EXTENSIONS } from "./brace-block-finder.js";
 export { pythonBlockFinder, PYTHON_EXTENSIONS } from "./python-block-finder.js";
 export { blockFinderFor } from "./block-finder-for.js";
+export { assertExcerptFits, defaultBudget, HOSTED_BUDGET, LOCAL_BUDGET } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";

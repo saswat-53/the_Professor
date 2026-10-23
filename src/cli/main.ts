@@ -3,7 +3,7 @@ import { BlockedFileError, DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, b
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
-const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--allow-sensitive] [--show-prompt] [--dry-run]
+const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
 
 Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
@@ -24,6 +24,7 @@ async function main(): Promise<number> {
         model: { type: "string" },
         level: { type: "string" },
         root: { type: "string" },
+        "context-budget": { type: "string" },
         "allow-sensitive": { type: "boolean" },
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
@@ -46,7 +47,13 @@ async function main(): Promise<number> {
     process.stderr.write(`invalid --level "${level}"; choose one of: ${LEVELS.join(", ")}\n`);
     return 2;
   }
-  const settings = { baseUrl, model, level };
+  const budgetFlag = values["context-budget"];
+  const contextBudget = budgetFlag === undefined ? undefined : Number(budgetFlag);
+  if (contextBudget !== undefined && !(Number.isInteger(contextBudget) && contextBudget > 0)) {
+    process.stderr.write(`invalid --context-budget "${budgetFlag}"; give a whole number of characters above 0\n`);
+    return 2;
+  }
+  const settings = { baseUrl, model, level, contextBudget };
   const fail = (err: unknown) => {
     process.stderr.write(`${describe(err)}\n`);
     return err instanceof LearnError ? err.exitCode : 1;

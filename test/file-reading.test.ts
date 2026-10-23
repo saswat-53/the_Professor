@@ -12,7 +12,8 @@ beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "learn-read-"));
 });
 
-async function run(reference: string, root = tmpdir()) {
+/** The reading rules are under test here, not the Excerpt limit, so `contextBudget` can be raised to let a huge Excerpt through. */
+async function run(reference: string, root = tmpdir(), contextBudget?: number) {
   const requests: ModelRequest[] = [];
   const model: LanguageModel = {
     async *stream(request) {
@@ -24,7 +25,7 @@ async function run(reference: string, root = tmpdir()) {
   for await (const e of explain({
     reference,
     root,
-    settings: { baseUrl: "http://h/v1", model: "m" },
+    settings: { baseUrl: "http://h/v1", model: "m", contextBudget },
     model,
     signal: new AbortController().signal,
   })) events.push(e);
@@ -80,7 +81,7 @@ describe("file reading rules", () => {
 
   it("accepts a file of exactly 1 MB", async () => {
     const path = await fileWith("limit.txt", "a".repeat(1024 * 1024));
-    const r = await run(path);
+    const r = await run(path, tmpdir(), 4 * 1024 * 1024);
     expect(r.error).toBeUndefined();
   });
 
@@ -115,7 +116,7 @@ describe("file reading rules", () => {
 
   it("reads a minified single-line file without crashing", async () => {
     const path = await fileWith("min.js", "var a=1;".repeat(50_000));
-    const r = await run(path);
+    const r = await run(path, tmpdir(), 1_000_000);
     expect(r.error).toBeUndefined();
     expect(r.requests).toHaveLength(1);
   });
