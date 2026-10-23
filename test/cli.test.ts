@@ -86,6 +86,18 @@ describe("learn CLI", () => {
     expect(r.stderr).toContain("not a regular file");
   });
 
+  it("exits 2 with a clear message for a malformed line reference", async () => {
+    const r = await run([`${file}:0`, "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("start at 1");
+  });
+
+  it("exits 2 saying words are not supported yet", async () => {
+    const r = await run(["debounce"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("not supported yet");
+  });
+
   it("exits 2 with usage when base URL and model are missing", async () => {
     const r = await run([file]);
     expect(r.code).toBe(2);

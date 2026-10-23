@@ -1,4 +1,6 @@
 import { readTextFile } from "./read-file.js";
+import { UsageError } from "./errors.js";
+import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
 // Placeholder until the bundled teaching prompt (ticket 07) replaces it.
@@ -16,12 +18,12 @@ export interface ExplainInput {
 /** Pure: turns a reference and settings into the exact request that would be sent. */
 export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
   const read = input.readFile ?? readTextFile;
-  const content = await read(input.reference);
+  const excerpt = await resolveReference(await parseReference(input.reference), { read });
   return {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,
     system: SYSTEM_PROMPT,
-    user: `File: ${input.reference}\n\n${content}`,
+    user: `File: ${excerpt.label}\n\n${excerpt.text}`,
   };
 }
 
@@ -32,7 +34,7 @@ export async function* explain(
   try {
     request = await buildRequest(input);
   } catch (err) {
-    yield { type: "error", message: errorMessage(err) };
+    yield { type: "error", message: errorMessage(err), ...(err instanceof UsageError && { kind: "usage" as const }) };
     return;
   }
   try {

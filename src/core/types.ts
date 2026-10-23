@@ -19,4 +19,4 @@ export type ExplainEvent =
   | { type: "context-report"; text: string }
   | { type: "text-delta"; text: string }
   | { type: "done" }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; kind?: "usage" };
