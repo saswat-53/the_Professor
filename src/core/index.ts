@@ -28,3 +28,5 @@ export { LEVELS, DEFAULT_LEVEL, isLevel } from "./prompt.js";
 export type { Level } from "./prompt.js";
 export { findProjectRoot, locateFile, isInside } from "./root.js";
 export type { ProjectRoot, LocatedFile } from "./root.js";
+export { createFileReader, denylistRule, isLocalHost } from "./sensitive.js";
+export type { FileReader, FileReaderOptions } from "./sensitive.js";

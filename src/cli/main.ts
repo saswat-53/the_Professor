@@ -3,7 +3,7 @@ import { DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, expla
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
-const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--show-prompt] [--dry-run]
+const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--allow-sensitive] [--show-prompt] [--dry-run]
 
 Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
@@ -18,6 +18,7 @@ async function main(): Promise<number> {
         model: { type: "string" },
         level: { type: "string" },
         root: { type: "string" },
+        "allow-sensitive": { type: "boolean" },
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
       },
@@ -61,7 +62,7 @@ async function main(): Promise<number> {
 
   if (values["dry-run"]) {
     try {
-      const request = await buildRequest({ reference, settings, root: values.root });
+      const request = await buildRequest({ reference, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
       printRequest(request);
       return 0;
     } catch (err) {
@@ -77,6 +78,7 @@ async function main(): Promise<number> {
     reference,
     settings,
     root: values.root,
+    allowSensitive: values["allow-sensitive"],
     model: llm,
     signal: controller.signal,
     onRequest: values["show-prompt"] ? printRequest : undefined,
