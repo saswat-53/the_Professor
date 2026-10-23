@@ -12,3 +12,16 @@
 - [x] The prompt tells the model to say "I can't tell from the provided Context" rather than guess
 - [x] `--show-prompt` prints the exact system prompt and user message on stderr before the request, and they match byte for byte what the fake server received
 - [x] The built bundle, run from a different working directory, still finds the prompt
+
+## Comments
+
+**Done in `5445dce`.**
+
+Concepts to look up: system prompt vs user message, prompt injection, delimiters (a backtick fence longer than any run inside the code, so the code can't close it early), snapshot testing, bundler loaders (tsup/esbuild `text` loader, so the prompt ships inside `dist/cli.js`), the `onRequest` hook (callback), so `--show-prompt` prints exactly what is sent.
+
+Decisions:
+- `--level` resolves flag, then default only. Environment and config precedence belong to the settings ticket (15).
+- The snapshot covers all three levels.
+- No test yet for `--show-prompt` together with a blocked file, because blocked-file checking comes in ticket 09.
+
+Review notes left alone: the prompt says "provided Context" although only the Excerpt is sent until Context assembly (tickets 10 to 13) exists. The tests parse the printed request format, so they need updating if that format changes.
