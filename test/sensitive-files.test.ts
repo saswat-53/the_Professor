@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BlockedFileError } from "../src/core/errors.js";
 import { buildRequest } from "../src/core/explain.js";
 import { createFileReader, isLocalHost } from "../src/core/sensitive.js";
@@ -10,6 +10,8 @@ import { run } from "./support/cli.js";
 
 const CANARY = "CANARY-secret-value";
 let repo: string;
+let fakeHome: string;
+let savedEnv: Record<string, string | undefined>;
 
 beforeAll(async () => {
   repo = await realpath(await mkdtemp(join(tmpdir(), "learn-sens-")));
@@ -43,6 +45,20 @@ beforeAll(async () => {
   await writeFile(join(repo, ".git-credentials"), CANARY);
   await writeFile(join(repo, ".pypirc"), CANARY);
   await writeFile(join(repo, ".htpasswd"), CANARY);
+  for (const f of [".envrc", ".vault-token", "vault.kdbx", "x.keystore", "terraform/terraform.tfstate.backup", "excluded.txt", "globally.txt"]) {
+    await writeFile(join(repo, f), CANARY);
+  }
+  // A .gitignore below the root, .git/info/exclude, and a global ignore file reached through HOME.
+  await mkdir(join(repo, "pkg"));
+  await writeFile(join(repo, "pkg", ".gitignore"), "nested.txt\n");
+  await writeFile(join(repo, "pkg", "nested.txt"), CANARY);
+  await writeFile(join(repo, ".git", "info", "exclude"), "excluded.txt\n");
+  fakeHome = await mkdtemp(join(tmpdir(), "learn-home-"));
+  await mkdir(join(fakeHome, ".config", "git"), { recursive: true });
+  await writeFile(join(fakeHome, ".config", "git", "ignore"), "globally.txt\n");
+  savedEnv = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  process.env.HOME = fakeHome;
+  delete process.env.XDG_CONFIG_HOME;
   await symlink(join(repo, ".aws", "credentials"), join(repo, "notes.txt"));
   // Commit config/local.json, THEN ignore it: it stays tracked, which is the common real-world state.
   execFileSync("git", ["add", "config/local.json"], { cwd: repo });
@@ -51,6 +67,13 @@ beforeAll(async () => {
 });
 
 const reader = (opts: { allowSensitive?: boolean } = {}) => createFileReader({ root: repo, cwd: repo, ...opts });
+
+afterAll(() => {
+  for (const [k, v] of Object.entries(savedEnv)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
 
 describe("sensitive files", () => {
   it.each([
@@ -70,6 +93,14 @@ describe("sensitive files", () => {
     [".git-credentials", ".git-credentials"],
     [".pypirc", ".pypirc"],
     [".htpasswd", ".htpasswd"],
+    [".envrc", ".envrc"],
+    [".vault-token", ".vault-token"],
+    ["vault.kdbx", "*.kdbx"],
+    ["x.keystore", "*.jks"],
+    ["terraform/terraform.tfstate.backup", "*.tfstate"],
+    ["pkg/nested.txt", "gitignore"],
+    ["excluded.txt", "gitignore"],
+    ["globally.txt", "gitignore"],
     ["config/local.json", "gitignore"],
     ["build/out.js", "gitignore"],
     ["debug.log", "gitignore"],

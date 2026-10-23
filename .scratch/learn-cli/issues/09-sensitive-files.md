@@ -24,3 +24,5 @@
 - `--allow-sensitive` is a flag only (no env var, not implied by `--root`).
 - `BlockedFileError` carries `file` and `rule`; the CLI adds the `--allow-sensitive` advice.
 - Denylist extended with `.git-credentials`, `.pypirc`, `.htpasswd`, `.aws/credentials`, `.docker/config.json`, `.kube/config`, `.git/config`, `*.tfstate`, `*.tfvars`.
+- Global ignore: contrary to the assumption, the hardened runner does *not* isolate git from the user's global ignore. It removes `GIT_CONFIG*` overrides but leaves `HOME`, so `~/.config/git/ignore` and `core.excludesFile` are consulted (tested with a fake `HOME`). Nested `.gitignore` files and `.git/info/exclude` work too (tested). Known limit instead: a machine with a global ignore the user didn't intend as a "don't share" signal will see extra refusals; `--allow-sensitive` overrides.
+- Denylist adds `.envrc`, `.vault-token`, `*.kdbx` (`*.keystore` and `terraform.tfstate.backup` were already covered; tested). The `secret` rule matches only whole name parts (`my-secrets.json`), not `*secret*`; no broader wildcards on purpose, to avoid false refusals that push users to `--allow-sensitive`.
