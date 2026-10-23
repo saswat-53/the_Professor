@@ -234,9 +234,10 @@ describe("what was dropped (Context.dropped)", () => {
   it("counts the lines of a straddling import statement inside the window as importTail, apart from lines", () => {
     const all = ["import {", ...Array.from({ length: 28 }, (_, i) => `  n${i},`), '} from "./x";', ...lines(60)];
     // The window is lines 15-65 and the import ends at 30, so 16 window lines are the import's tail.
-    const ctx = gatherContext(excerptAt(all, 40), noBlockFinder, 4_000 - 3_900)!;
+    // Budget 100: the excerpt (3) leaves room for 24 lines of 4; the window has 50 lines minus the 16-line tail left over.
+    const ctx = gatherContext(excerptAt(all, 40), noBlockFinder, 100)!;
     expect(ctx.imports).toBeUndefined();
-    expect(ctx.dropped).toEqual({ imports: true, lines: expect.any(Number), importTail: 16 });
+    expect(ctx.dropped).toEqual({ imports: true, lines: 50 - 16 - 24, importTail: 16 });
   });
 
   it("drops non-straddling imports first even with an Enclosing block", () => {

@@ -23,6 +23,31 @@ const numbered = (n: number) => Array.from({ length: n }, (_, i) => `l${String(i
 const model: LanguageModel = { async *stream() { yield "hi"; } };
 
 describe("Context report", () => {
+  // Imports are dropped before any nearby line, so they are never kept alongside a trim: two cases cover the two sides.
+  const listed = (ranges: { start: number; end: number }[]) => ranges.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i));
+  const sentNumbers = (user: string) => [...user.matchAll(/^l(\d\d)$/gm)].map((m) => Number(m[1]) + 1).sort((a, b) => a - b);
+
+  it("matches the request line for line when the imports are kept", async () => {
+    const dir = await project("a.ts", ['import a from "./a";', ...numbered(99)]);
+    const { request, report } = await prepareRequest({ reference: "a.ts:51", cwd: dir, settings: { ...hosted, contextBudget: 400 } });
+    if (report.kind !== "sent") throw new Error("expected a sent report");
+    expect(report.ranges.map((r) => r.part)).toEqual(["imports", "before", "excerpt", "after"]);
+    expect(report.dropped).toBeUndefined();
+    expect(request.user).toContain('import a from "./a";');
+    expect(sentNumbers(request.user)).toEqual(listed(report.ranges.filter((r) => r.part !== "imports")));
+  });
+
+  it("matches the request line for line when nearby lines were dropped, and counts them", async () => {
+    const dir = await project("a.ts", ['import a from "./a";', ...numbered(99)]);
+    const { request, report } = await prepareRequest({ reference: "a.ts:51", cwd: dir, settings: { ...hosted, contextBudget: 80 } });
+    if (report.kind !== "sent") throw new Error("expected a sent report");
+    expect(report.ranges.map((r) => r.part)).toEqual(["before", "excerpt", "after"]);
+    const shown = listed(report.ranges);
+    expect(sentNumbers(request.user)).toEqual(shown);
+    // The window holds 50 lines besides the Excerpt (25 each side); every one not shown is counted.
+    expect(report.dropped).toEqual({ imports: true, lines: 50 - (shown.length - 1), importTail: 0 });
+  });
+
   it("is built from the same data as the request: its ranges are the ones the request names", async () => {
     const dir = await project("a.txt", numbered(99));
     const { request, report } = await prepareRequest({ reference: "a.txt:50-51", cwd: dir, settings: { ...hosted, contextBudget: 60 } });
@@ -56,8 +81,15 @@ describe("Context report", () => {
     const { request, report } = await prepareRequest({ reference: "a.ts:40", cwd: dir, settings: { ...hosted, contextBudget: 100 } });
     expect(request.user).not.toContain("import {");
     const text = formatContextReport(report);
-    expect(text).toMatch(/imports dropped, including \d+ lines? of the import statement inside the window/);
-    expect(text).toMatch(/\d+ nearby lines? dropped/);
+    if (report.kind !== "sent") throw new Error("expected a sent report");
+    const { importTail, lines } = report.dropped!;
+    expect(report.dropped!.imports).toBe(true);
+    // Window 15-65, import ends at 30: 16 window lines are the import's tail.
+    expect(importTail).toBe(16);
+    expect(text).toContain(`imports dropped, including ${importTail} lines of the import statement inside the window`);
+    // Nearby lines kept: the Excerpt's neighbours that fit; the rest of the window (50 lines, minus tail) is counted.
+    expect(lines).toBe(50 - importTail - (report.ranges.filter((r) => r.part !== "excerpt").reduce((n, r) => n + r.end - r.start + 1, 0)));
+    expect(text).toContain(`${lines} nearby lines dropped`);
   });
 
   it("notes Ollama's small default context window for a local endpoint only", async () => {
@@ -84,6 +116,14 @@ describe("Context report", () => {
     const text = (events[0] as { text: string }).text;
     expect(text).toMatch(/refused.*\.env/);
     expect(text).not.toContain("CANARY");
+  });
+
+  it("shows a refused file under --dry-run too", async () => {
+    const dir = await project(".env", ["CANARY-secret-value"]);
+    const r = await run([".env", "--dry-run"], { LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m" }, dir);
+    expect(r.code).toBe(3);
+    expect(r.stderr).toMatch(/refused: \.env \(rule: \.env\)/);
+    expect(r.stderr).not.toContain("CANARY");
   });
 
   it("goes to stderr before the reply and never to stdout", async () => {
