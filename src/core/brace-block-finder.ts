@@ -19,13 +19,22 @@ const DECLARATION =
   /(?<![.\w])(?:class|interface|struct|enum|trait|impl|namespace|object|record|function|fn|func|fun|init|constructor|union|extension|protocol|actor)\b/;
 /** A header that is the start of a value or expression, not a declaration. */
 const EXPRESSION_TAIL = /(?:[=,(:[]|\breturn)$/;
+/**
+ * A function with nothing binding it to a name: `(x) => {`, `x => {`, `function (x) {`, Go's `go func() {`.
+ * A callback like this is the Excerpt's neighbour, not its owner, so the named function around it wins.
+ */
+const ANONYMOUS_FUNCTION =
+  /^(?:async\s+)?(?:\(.*\)\s*=>$|[\w$]+\s*=>$|function\s*\*?\s*\()|^(?:(?:go|defer)\s+)?func\(|^(?:go|defer)\s+func\b/;
+/** A return type such as `): {a: number}` puts a `{` between the parameters and the body. */
+const RETURN_TYPE_START = /\)\s*:$/;
+
 /** `)` plus whatever may follow a parameter list: a return type, `throws X`, `const`, `-> T`. */
 const AFTER_PARAMS = /\)\s*(?:(?::|->)[^()]*|\b(?:throws|const|override|final|noexcept|where)\b[^()]*)?$/;
 
 /** Decides whether the text before a `{` introduces a function, method or class body. */
 function isBlockHeader(header: string, inGoControl: boolean, ext: string): boolean {
   const h = header.replace(/\s+/g, " ").trim();
-  if (!h || inGoControl || CONTROL.test(h) || EXPRESSION_TAIL.test(h)) return false;
+  if (!h || inGoControl || CONTROL.test(h) || EXPRESSION_TAIL.test(h) || ANONYMOUS_FUNCTION.test(h)) return false;
   return DECLARATION.test(h) || (ARROW_FUNCTIONS.has(ext) && /=>$/.test(h)) || AFTER_PARAMS.test(h);
 }
 
@@ -46,6 +55,8 @@ interface Open {
   isBlock: boolean;
   /** Paren depth outside this `{`, restored when it closes. */
   parens: number;
+  /** The header before this `{`, kept when the braces sit inside a parameter list or return type. */
+  saved?: { header: string; line: number };
 }
 
 /**
@@ -62,7 +73,7 @@ function findBlocks(lines: readonly string[], ext: string): LineSpan[] | null {
   let headerLine = 0;
   let line = 1;
   let parens = 0;
-  let goControl: boolean = false;
+  let goControl: boolean = false; // annotated: closures assign it, which defeats inference
   let lastSignificant = "";
 
   const addCode = (ch: string) => {
@@ -146,9 +157,11 @@ function findBlocks(lines: readonly string[], ext: string): LineSpan[] | null {
     }
 
     if (ch === "{") {
-      const control = goControl;
-      stack.push({ line: headerLine || line, // Inside an unclosed `(` the body is an anonymous callback: the named parent is the better block.
-      isBlock: parens === 0 && isBlockHeader(header, control, ext), parens });
+      // Inside an unclosed `(` the body is an argument, such as a callback: the function around it is the better block.
+      const isBlock = parens === 0 && isBlockHeader(header, goControl, ext);
+      // Braces in a destructured parameter or a return type belong to the header, not to a new statement.
+      const saved = parens > 0 || RETURN_TYPE_START.test(header.trimEnd()) ? { header, line: headerLine } : undefined;
+      stack.push({ line: headerLine || line, isBlock, parens, saved });
       parens = 0;
       reset();
     } else if (ch === "}") {
@@ -157,6 +170,10 @@ function findBlocks(lines: readonly string[], ext: string): LineSpan[] | null {
       if (open.isBlock) blocks.push({ start: open.line, end: line });
       parens = open.parens;
       reset();
+      if (open.saved) {
+        header = `${open.saved.header}{}`;
+        headerLine = open.saved.line;
+      }
     } else if (ch === ";" && parens === 0) {
       // Go's `if x := f(); cond {` keeps its control keyword across the semicolon.
       const keep = ext === "go" && CONTROL.test(header.trim());
@@ -194,7 +211,7 @@ export const braceBlockFinder: BlockFinder = {
   name: "braces",
   find({ path, lines }, range) {
     const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-    if (!BRACE_EXTENSIONS.has(ext) || !path.includes(".")) return null;
+    if (!path.includes(".") || !BRACE_EXTENSIONS.has(ext)) return null;
     const blocks = findBlocks(lines, ext);
     let best: LineSpan | null = null;
     for (const b of blocks ?? []) {

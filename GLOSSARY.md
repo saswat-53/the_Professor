@@ -17,7 +17,7 @@ The material gathered around an Excerpt to make it understandable: nearby lines,
 _Avoid_: Surroundings, background, scope
 
 **Enclosing block**:
-The smallest function, method, or class that contains an Excerpt.
+The smallest named function, method, or class (or class-like declaration such as an interface, struct, or namespace) that contains an Excerpt. An anonymous callback passed as an argument does not count; the named function around it does.
 _Avoid_: Parent, container, scope
 
 **Block finder**:

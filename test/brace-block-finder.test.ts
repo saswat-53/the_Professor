@@ -63,6 +63,13 @@ blockFinderContract("brace-family finder", braceBlockFinder, [
   { name: "an anonymous callback resolves to its named parent function", path: "a.ts", text: ["function load(xs) {", "  return xs.map((x) => {", "    return x + 1;", "  });", "}"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 1, end: 5 } },
   { name: "a callback assigned to a name is a block", path: "a.ts", text: ["function load(xs) {", "  const inc = (x) => {", "    return x + 1;", "  };", "  return xs.map(inc);", "}"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 2, end: 4 } },
   { name: "a method in an object literal passed as an argument is a block", path: "a.ts", text: ["register({", "  run() {", "    go();", "  },", "});"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 2, end: 4 } },
+  { name: "an arrow bound to an object property is a block", path: "a.ts", text: ["button.on({", "  click: () => {", "    go();", "  },", "});"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 2, end: 4 } },
+  { name: "a JSX handler resolves to the component around it", path: "a.tsx", text: ["function App() {", "  return <div onClick={() => {", "    go();", "  }} />;", "}"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 1, end: 5 } },
+  { name: "a destructured parameter does not cut the header", path: "a.ts", text: ["function f(", "  { a, b },", "  c,", ") {", "  return a;", "}"].join("\n"), range: { start: 1, end: 1 }, expect: { start: 1, end: 6 } },
+  { name: "a destructured arrow parameter keeps the header's first line", path: "a.ts", text: ["const f = (", "  { a, b },", ") => {", "  return a;", "};"].join("\n"), range: { start: 4, end: 4 }, expect: { start: 1, end: 5 } },
+  { name: "braces in a return type do not hide the body", path: "a.ts", text: ["function f(): { a: number } {", "  return { a: 1 };", "}"].join("\n"), range: { start: 2, end: 2 }, expect: { start: 1, end: 3 } },
+  { name: "Go go/defer function literals resolve to the named function", path: "a.go", text: ["func run() {", "\tgo func() {", "\t\twork()", "\t}()", "}"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 1, end: 5 } },
+  { name: "Go function literal bound to a name is a block", path: "a.go", text: ["func run() {", "\tf := func() {", "\t\twork()", "\t}", "\tf()", "}"].join("\n"), range: { start: 3, end: 3 }, expect: { start: 2, end: 4 } },
   { name: "other extensions use the fallback window", path: "a.py", text: ["def f():", "  return {1}", "x = {"].join("\n"), range: { start: 2, end: 2 }, expect: null },
   { name: "unbalanced file finds nothing rather than a wrong block", path: "a.ts", text: ["function f() {", "  x;"].join("\n"), range: { start: 2, end: 2 }, expect: null },
 ]);
