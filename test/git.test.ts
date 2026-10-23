@@ -8,8 +8,22 @@ import { describe, expect, it } from "vitest";
 import { ContextTooLongError, UnexpectedError, UntrustedRepoError, UsageError } from "../src/core/errors.js";
 import { findRepo, runGit } from "../src/core/git.js";
 
+// Platform: macOS and Linux only (the Q13 floor). These tests rely on POSIX shell scripts as fake
+// programs, a `git` found through PATH, and `/dev/null`; Windows support would need them reworked.
+
 const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" });
+
+/** Runs `fn` with PATH replaced, and always puts it back, so a fake git never leaks into other tests. */
+async function withPath<T>(path: string, fn: () => Promise<T>): Promise<T> {
+  const saved = process.env.PATH;
+  process.env.PATH = path;
+  try {
+    return await fn();
+  } finally {
+    process.env.PATH = saved;
+  }
+}
 
 async function tempDir(prefix = "learn-git-") {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));
@@ -287,15 +301,11 @@ describe("limits and failures", () => {
     // `exec` makes the sleep the process itself, so killing it closes the output pipe at once.
     await writeFile(join(fake, "git"), "#!/bin/sh\nexec sleep 30\n");
     await chmod(join(fake, "git"), 0o755);
-    const saved = process.env.PATH;
-    process.env.PATH = `${fake}:${saved}`;
     const started = Date.now();
-    try {
-      await expect(runGit(root, "log", { timeoutMs: 200 })).rejects.toThrow(/git log timed out/);
-    } finally {
-      process.env.PATH = saved;
-    }
-    expect(Date.now() - started).toBeLessThan(10_000);
+    await withPath(`${fake}:${process.env.PATH}`, () =>
+      expect(runGit(root, "log", { timeoutMs: 200 })).rejects.toThrow(/git log timed out/),
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
   });
 
   it("maps git's dubious-ownership refusal to a typed error that does not suggest a bypass flag", async () => {
@@ -306,14 +316,10 @@ describe("limits and failures", () => {
       "#!/bin/sh\necho \"fatal: detected dubious ownership in repository at 'x'\" >&2\nexit 128\n",
     );
     await chmod(join(fake, "git"), 0o755);
-    const saved = process.env.PATH;
-    process.env.PATH = fake;
-    try {
+    await withPath(fake, async () => {
       await expect(findRepo(root)).rejects.toBeInstanceOf(UntrustedRepoError);
       await expect(runGit(root, "log")).rejects.toBeInstanceOf(UntrustedRepoError);
-    } finally {
-      process.env.PATH = saved;
-    }
+    });
   });
 });
 
@@ -330,13 +336,8 @@ describe("findRepo", () => {
   });
 
   it("does not mistake a missing git for no repo", async () => {
-    const saved = process.env.PATH;
-    process.env.PATH = "";
-    try {
-      await expect(findRepo(await tempDir())).rejects.toBeInstanceOf(UnexpectedError);
-    } finally {
-      process.env.PATH = saved;
-    }
+    const dir = await tempDir();
+    await withPath("", () => expect(findRepo(dir)).rejects.toBeInstanceOf(UnexpectedError));
   });
 
   it("works in a repo with no commits", async () => {
