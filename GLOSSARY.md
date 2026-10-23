@@ -32,6 +32,10 @@ _Avoid_: Chat, thread, conversation
 How much background the learner is assumed to have: beginner, intermediate, or expert.
 _Avoid_: Mode, difficulty, skill
 
+**Exit code**:
+The number `learn` ends with, promised to script users: 0 success, 1 runtime or provider error, 2 usage or config error, 3 refused (a Sensitive file, a file that fails the reading rules, or an Excerpt over budget).
+_Avoid_: Status code, return code
+
 **Sensitive file**:
 A file whose content must not be sent to a model without explicit consent, because it likely holds secrets.
 _Avoid_: Secret file, protected file, private file

@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] A gitignored file and files matching the built-in denylist (environment files, private-key and certificate files, key-named files) are refused with exit code 3
+- [ ] A gitignored file and files matching the built-in denylist (environment files, private-key and certificate files, key-named files) are refused by raising `BlockedFileError`, which exits 3 (shown by a CLI test asserting the exit code)
 - [ ] The error names the exact rule that blocked the file (for example "gitignore" or a denylist pattern)
 - [ ] Any read of a Sensitive file through the file reader is refused whatever feature asked for it (shown by a test that asks the reader directly for a second, blocked path while the Reference itself is allowed). Features that gather more files repeat this check in their own tickets: `@file` (33) and diff (38)
 - [ ] `--allow-sensitive` overrides the refusal for that run

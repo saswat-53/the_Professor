@@ -1,12 +1,12 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { run } from "./support/cli.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const BIN = join(import.meta.dirname, "../dist/cli.js");
 
 let server: Server;
 let baseUrl: string;
@@ -37,20 +37,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => server.close());
-
-function run(args: string[], env: Record<string, string> = {}) {
-  return new Promise<{ stdoutChunks: string[]; stderr: string; code: number | null }>((resolve) => {
-    const base = { ...process.env };
-    delete base.LEARN_BASE_URL;
-    delete base.LEARN_MODEL;
-    const child = spawn("node", [BIN, ...args], { env: { ...base, ...env } });
-    const stdoutChunks: string[] = [];
-    let stderr = "";
-    child.stdout.on("data", (d) => stdoutChunks.push(String(d)));
-    child.stderr.on("data", (d) => (stderr += d));
-    child.on("close", (code) => resolve({ stdoutChunks, stderr, code }));
-  });
-}
 
 describe("learn CLI", () => {
   it("streams the reply to stdout in more than one chunk", async () => {

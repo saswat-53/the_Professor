@@ -47,10 +47,14 @@ async function main(): Promise<number> {
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
   const llm = openAICompatibleModel(process.env.LEARN_API_KEY);
+  let lastChar = "\n";
   for await (const event of explain({ reference, settings, model: llm, signal: controller.signal })) {
-    if (event.type === "text-delta") process.stdout.write(event.text);
-    else if (event.type === "error") {
-      process.stderr.write(`\n${event.error.message}\n`);
+    if (event.type === "text-delta") {
+      process.stdout.write(event.text);
+      lastChar = event.text.at(-1) ?? lastChar;
+    } else if (event.type === "error") {
+      // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
+      process.stderr.write(`${lastChar === "\n" ? "" : "\n"}${event.error.message}\n`);
       return event.error.exitCode;
     }
   }

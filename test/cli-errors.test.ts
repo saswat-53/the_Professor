@@ -1,12 +1,12 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { run } from "./support/cli.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-const BIN = join(import.meta.dirname, "../dist/cli.js");
 const SENTINEL = "SENTINEL-raw-provider-body";
 
 let server: Server;
@@ -33,20 +33,6 @@ beforeEach(() => {
   requestCount = 0;
 });
 
-function run(args: string[], env: Record<string, string> = {}) {
-  return new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
-    const base = { ...process.env };
-    delete base.LEARN_BASE_URL;
-    delete base.LEARN_MODEL;
-    const child = spawn("node", [BIN, ...args], { env: { ...base, ...env } });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d));
-    child.stderr.on("data", (d) => (stderr += d));
-    child.on("close", (code) => resolve({ stdout, stderr, code }));
-  });
-}
-
 const env = () => ({ LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
 const failWith = (status: number) => (res: import("node:http").ServerResponse) => {
   res.writeHead(status, { "content-type": "application/json" });
@@ -56,7 +42,7 @@ const failWith = (status: number) => (res: import("node:http").ServerResponse) =
 describe("provider failures", () => {
   it.each([
     [401, "API key"],
-    [403, "API key"],
+    [403, "not permitted for this model"],
     [429, "too many requests"],
     [404, "does not know that model"],
     [500, "HTTP 500"],
@@ -82,6 +68,19 @@ describe("provider failures", () => {
     const r = await run([file], { LEARN_BASE_URL: `http://127.0.0.1:${port}/v1`, LEARN_MODEL: "m" });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("could not reach");
+  });
+
+  it("starts the error on a fresh line after partial output, keeping stdout clean", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const chunk = (content: string) => ({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
+      res.write(`data: ${JSON.stringify(chunk("first "))}\n\n`);
+      res.write(`data: ${JSON.stringify(chunk("second"))}\n\n`, () => setTimeout(() => res.destroy(), 50));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe("first second");
+    expect(r.stderr).toMatch(/^\n\S/);
   });
 
   it("flushes all streamed output before ending when the stream then fails", async () => {

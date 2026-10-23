@@ -19,6 +19,6 @@
 
 Review follow-ups (not done here):
 - `AbortError` currently surfaces as a generic provider error; ticket 19 should map it to exit 130.
-- Non-`APICallError` failures are reported as network errors; a mid-stream parse error would read wrongly.
-- Add GLOSSARY entries for the exit-code families once blocked-file (09) and budget (13) tickets raise the refusal errors.
-- `run`/`spawn` helper is duplicated between `test/cli.test.ts` and `test/cli-errors.test.ts`; extract to `test/support/`.
+- Non-`APICallError` failures are reported as network errors: now ticket 41. `Retry-After` on a 429: ticket 40.
+- GLOSSARY entries for the exit-code families: done. README table: ticket 23.
+- Test `run` helper moved to `test/support/cli.ts`.

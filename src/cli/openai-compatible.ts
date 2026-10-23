@@ -14,8 +14,12 @@ export function classifyProviderError(err: unknown): Error {
   if (!APICallError.isInstance(err)) return unreachable;
   switch (err.statusCode) {
     case 401:
-    case 403:
       return new BadKeyError("the provider rejected the API key; check LEARN_API_KEY");
+    case 403:
+      // 403 can also mean the key is fine but not allowed this model or region, so it does not blame the key alone.
+      return new BadKeyError(
+        "the provider rejected the request (key invalid or not permitted for this model); check LEARN_API_KEY and --model",
+      );
     case 429:
       return new RateLimitError("the provider says you are sending too many requests; wait a moment and try again");
     case 404:
