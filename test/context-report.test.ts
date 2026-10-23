@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { explain, prepareRequest } from "../src/core/explain.js";
 import { type ContextReport, formatContextReport } from "../src/core/report.js";
-import { endpointHost, isLocalHost } from "../src/core/sensitive.js";
+import { isLocalHost, resolveEndpoint } from "../src/core/sensitive.js";
 import type { ExplainEvent, LanguageModel } from "../src/core/types.js";
 import { run } from "./support/cli.js";
 
@@ -283,12 +283,31 @@ describe("sensitive-file notes in the report", () => {
     }
   });
 
-  it("decides 'local' and names the host from the same parsed URL", () => {
-    expect(endpointHost("http://localhost@evil.invalid/v1")).toBe("evil.invalid");
-    expect(isLocalHost("http://localhost@evil.invalid/v1")).toBe(false);
-    expect(endpointHost("http://[::1]:1234/v1")).toBe("[::1]");
-    expect(isLocalHost("http://[::1]:1234/v1")).toBe(true);
-    expect(endpointHost("not a url")).toBeUndefined();
+  it("decides 'local' and names the host from one parse, and the report uses that decision", async () => {
+    expect(resolveEndpoint("http://localhost@evil.invalid/v1")).toEqual({ host: "evil.invalid", local: false });
+    expect(resolveEndpoint("http://[::1]:1234/v1")).toEqual({ host: "::1", local: true });
+    expect(resolveEndpoint("http://127.0.0.1:1/v1")).toEqual({ host: "127.0.0.1", local: true });
+    expect(resolveEndpoint("not a url")).toEqual({ local: false });
+    expect(isLocalHost("http://localhost.evil.example/v1")).toBe(false);
+    for (const baseUrl of ["http://127.0.0.1:1/v1", "http://[::1]:1/v1", "https://api.example.com/v1"]) {
+      const endpoint = resolveEndpoint(baseUrl);
+      const { report } = await notes(".env", { baseUrl, model: "m" }, !endpoint.local);
+      expect(report.local).toBe(endpoint.local);
+      expect(report.overrides?.[0]?.host).toBe(endpoint.host);
+      expect(report.overrides?.[0]?.by).toBe(endpoint.local ? "local-endpoint" : "flag");
+    }
+  });
+
+  it("names the gitignore rule when a gitignored file is let through, by flag and by local endpoint", async () => {
+    const dir = await project("ignored.txt", [SECRET]);
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    await writeFile(join(dir, ".gitignore"), "ignored.txt\n");
+    const flagged = (await prepareRequest({ reference: "ignored.txt", cwd: dir, settings: hosted, allowSensitive: true })).report;
+    const viaLocal = (await prepareRequest({ reference: "ignored.txt", cwd: dir, settings: { baseUrl: "http://[::1]:1/v1", model: "m" } })).report;
+    if (flagged.kind !== "sent" || viaLocal.kind !== "sent") throw new Error("expected sent reports");
+    expect(flagged.overrides).toEqual([{ file: "ignored.txt", rule: "gitignore", by: "flag", host: "api.example.com" }]);
+    expect(viaLocal.overrides).toEqual([{ file: "ignored.txt", rule: "gitignore", by: "local-endpoint", host: "::1" }]);
+    expect(formatContextReport(viaLocal)).toContain("endpoint is local (::1)");
   });
 
   it("with --allow-sensitive the canary is sent and the report says so, while the API key canary never shows", async () => {

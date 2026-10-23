@@ -7,7 +7,7 @@ import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { type ContextReport, buildContextReport, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
-import { createFileReader, isLocalHost } from "./sensitive.js";
+import { createFileReader } from "./sensitive.js";
 import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
@@ -63,7 +63,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
       system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
       user: formatRequest(excerpt, context),
     },
-    report: buildContextReport(excerpt, context, budget, isLocalHost(input.settings.baseUrl), reader.bypassed),
+    report: buildContextReport(excerpt, context, budget, reader.endpoint.local, reader.bypassed),
   };
 }
 

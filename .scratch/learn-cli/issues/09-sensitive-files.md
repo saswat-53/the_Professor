@@ -19,7 +19,7 @@
 - Only the Excerpt read goes through `createFileReader` so far; Context gathering (ticket 10+) and `@file` (33) / diff (38) must use the same reader and add their own canary tests.
 - Template env files (`.env.example`) are blocked too: no exemption, `--allow-sensitive` is the escape hatch.
 - The gitignore check uses `git check-ignore --no-index`, so a file committed and only later ignored is still refused (tested); so is one added with `git add -f`.
-- Decision: if git cannot run, the gitignore half fails closed (the read is refused with the git error). The denylist needs no git and is checked first; a directory that is not a repo just has no gitignore rules.
+- Decision: if git cannot run, the gitignore half fails closed (the read is refused with the git error). Exception, decided in ticket 14: when the check is not enforced (`--allow-sensitive`, or a local endpoint) a failed check reads the file with no note. The denylist needs no git and is checked first; a directory that is not a repo just has no gitignore rules.
 - Decision: the localhost exemption is the parsed URL host, exactly `localhost`, `127.0.0.1` or `[::1]` (case-insensitive), as the parsed host: spellings the URL parser normalises to loopback (`127.1`, `2130706433`, `[0:0:0:0:0:0:0:1]`) are exempt too (tested). `localhost.`, `0.0.0.0`, `127.0.0.2` and `::ffff:127.0.0.1` are not exempt.
 - `--allow-sensitive` is a flag only (no env var, not implied by `--root`).
 - `BlockedFileError` carries `file` and `rule`; the CLI adds the `--allow-sensitive` advice.

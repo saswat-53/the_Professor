@@ -5,3 +5,5 @@ Everything gathered into an Excerpt or Context leaves the machine for a third-pa
 ## Consequences
 
 Piped and clipboard input has no filename, so the filename rules cannot cover it; the Context report says so. Content scanning and redaction is a later step.
+
+The localhost exemption trusts the address, not the destination: 127.0.0.1 can be a tunnel, a port forward or a proxy to another machine, so the Context report says when the check was skipped because the endpoint is local, and names the host. The same goes for `--allow-sensitive`: the report says what was let through and where it went. If the check cannot run, it fails closed when it is enforced and reads without a note when it is not; the two are different on purpose.

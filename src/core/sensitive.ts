@@ -59,20 +59,24 @@ export function denylistRule(file: string): string | undefined {
   return rule?.name === "ssh key" ? base : rule?.name;
 }
 
-/** The parsed host of the endpoint (not a string match), or undefined when the URL does not parse. */
-export function endpointHost(baseUrl: string): string | undefined {
+/** Where the content goes, from one parse of the URL: the host to show, and whether the endpoint is on this machine. */
+export interface Endpoint {
+  /** The parsed host without brackets (so `::1`, not `[::1]`); undefined when the URL does not parse. */
+  host?: string;
+  local: boolean;
+}
+
+/** Local means localhost, 127.0.0.1 and ::1 only, decided on the parsed host, so `localhost.evil.example` is not exempt. */
+export function resolveEndpoint(baseUrl: string): Endpoint {
   try {
-    return new URL(baseUrl).hostname;
+    const hostname = new URL(baseUrl).hostname;
+    return { host: hostname.replace(/^\[|\]$/g, ""), local: ["localhost", "127.0.0.1", "[::1]"].includes(hostname) };
   } catch {
-    return undefined;
+    return { local: false };
   }
 }
 
-/** True for localhost, 127.0.0.1 and ::1 only; the check is on the parsed host, so `localhost.evil.example` is not exempt. */
-export function isLocalHost(baseUrl: string): boolean {
-  const host = endpointHost(baseUrl);
-  return host !== undefined && ["localhost", "127.0.0.1", "[::1]"].includes(host);
-}
+export const isLocalHost = (baseUrl: string): boolean => resolveEndpoint(baseUrl).local;
 
 /**
  * `--no-index` makes git apply ignore rules even to files already tracked: a file committed and
@@ -142,6 +146,8 @@ export interface SensitiveBypass {
 
 export interface FileReader {
   read(path: string): Promise<{ text: string; name: string }>;
+  /** Where the content goes. The exemption and the host in `bypassed` both come from this one parse. */
+  readonly endpoint: Endpoint;
   /** Every Sensitive file this reader has read despite its rule, once each. */
   readonly bypassed: readonly SensitiveBypass[];
 }
@@ -162,10 +168,12 @@ async function sensitiveReason(real: string, path: string, cwd: string): Promise
  */
 export function createFileReader(options: FileReaderOptions): FileReader {
   const readText = options.readText ?? readTextFile;
-  const by = options.allowSensitive === true ? "flag" : options.baseUrl !== undefined && isLocalHost(options.baseUrl) ? "local-endpoint" : undefined;
-  const host = options.baseUrl === undefined ? undefined : endpointHost(options.baseUrl);
+  const endpoint = options.baseUrl === undefined ? { local: false } : resolveEndpoint(options.baseUrl);
+  const by = options.allowSensitive === true ? "flag" : endpoint.local ? "local-endpoint" : undefined;
+  const { host } = endpoint;
   const bypassed: SensitiveBypass[] = [];
   return {
+    endpoint,
     bypassed,
     async read(path) {
       const { real, name } = await locateFile(options.root, options.cwd, path);
