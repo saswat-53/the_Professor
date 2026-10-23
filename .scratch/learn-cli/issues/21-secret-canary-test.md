@@ -10,3 +10,7 @@
 - [ ] A canary API key value never appears in any of those places either
 - [ ] With `--allow-sensitive`, the canary does appear in the request (the override is respected), and the Context report says so
 - [ ] The test runs against a real temp project with a gitignored file and a denylisted file
+
+## Comments
+
+- From ticket 14: the `--allow-sensitive` canary case (canary sent, report says so, API-key canary still absent) is already tested in `test/context-report.test.ts` ("sensitive-file notes in the report"), as are the report-path canaries for refused files under `--dry-run`, `--show-prompt` and streaming. This ticket still owns the rest: the request body for the Context of a file that imports a secret file, and the gate over every other output path.
