@@ -1,6 +1,9 @@
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { readTextFile } from "./read-file.js";
 import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { DEFAULT_LEVEL, buildSystemPrompt, fenceCode } from "./prompt.js";
+import { findProjectRoot, locateFile } from "./root.js";
 import { parseReference, resolveReference } from "./reference.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
@@ -17,12 +20,24 @@ export interface ExplainInput {
   reference: string;
   settings: Settings;
   readFile?: (path: string) => Promise<string>;
+  /** Directory relative paths are resolved from. Default: the process's current directory. */
+  cwd?: string;
+  /** Widens the project root for one run (`--root`). */
+  root?: string;
 }
 
-/** Pure: turns a reference and settings into the exact request that would be sent. */
+/** Turns a reference and settings into the exact request that would be sent. Reads the file and finds the project root, but never contacts the model. */
 export async function buildRequest(input: ExplainInput): Promise<ModelRequest> {
   const read = input.readFile ?? readTextFile;
-  const excerpt = await resolveReference(await parseReference(input.reference), { read });
+  const cwd = input.cwd ?? process.cwd();
+  const { root } = await findProjectRoot(cwd, input.root);
+  const exists = (path: string) => stat(resolve(cwd, path)).then(() => true, () => false);
+  const excerpt = await resolveReference(await parseReference(input.reference, exists), {
+    read: async (path) => {
+      const { real, name } = await locateFile(root, cwd, path);
+      return { text: await read(real), name };
+    },
+  });
   return {
     baseUrl: input.settings.baseUrl,
     model: input.settings.model,

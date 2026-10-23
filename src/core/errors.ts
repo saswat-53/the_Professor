@@ -41,6 +41,11 @@ export class ContextTooLongError extends RefusedError {
   override name = "ContextTooLongError";
 }
 
+/** The file resolves outside the project root; `--root` widens the root for one run. */
+export class PathEscapeError extends RefusedError {
+  override name = "PathEscapeError";
+}
+
 /** Git refused the repository because another user owns it; learn never overrides that. */
 export class UntrustedRepoError extends RefusedError {
   override name = "UntrustedRepoError";

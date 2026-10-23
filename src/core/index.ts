@@ -9,6 +9,7 @@ export {
   LearnError,
   ModelNotFoundError,
   NetworkError,
+  PathEscapeError,
   ProviderError,
   RateLimitError,
   RefusedError,
@@ -24,3 +25,5 @@ export { findRepo, runGit } from "./git.js";
 export type { GitOptions, GitRepo, GitSubcommand } from "./git.js";
 export { LEVELS, DEFAULT_LEVEL, isLevel } from "./prompt.js";
 export type { Level } from "./prompt.js";
+export { findProjectRoot, locateFile, isInside } from "./root.js";
+export type { ProjectRoot, LocatedFile } from "./root.js";

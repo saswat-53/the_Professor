@@ -1,9 +1,9 @@
 import { parseArgs } from "node:util";
-import { DEFAULT_LEVEL, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
+import { DEFAULT_LEVEL, findProjectRoot, LEVELS, LearnError, buildRequest, explain, isLevel } from "../core/index.js";
 import type { ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
-const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--level <level>] [--show-prompt] [--dry-run]
+const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--show-prompt] [--dry-run]
 
 Base URL and model come from flags, or LEARN_BASE_URL and LEARN_MODEL.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
@@ -17,6 +17,7 @@ async function main(): Promise<number> {
         "base-url": { type: "string" },
         model: { type: "string" },
         level: { type: "string" },
+        root: { type: "string" },
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
       },
@@ -39,6 +40,20 @@ async function main(): Promise<number> {
     return 2;
   }
   const settings = { baseUrl, model, level };
+  const fail = (err: unknown) => {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return err instanceof LearnError ? err.exitCode : 1;
+  };
+  try {
+    const project = await findProjectRoot(process.cwd(), values.root);
+    if (project.isHome) {
+      process.stderr.write(
+        "warning: the project root is your home directory, so everything in it is in reach; run learn from inside a project or pass --root\n",
+      );
+    }
+  } catch (err) {
+    return fail(err);
+  }
   const printRequest = (request: ModelRequest) =>
     process.stderr.write(
       `base URL: ${request.baseUrl}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
@@ -46,12 +61,11 @@ async function main(): Promise<number> {
 
   if (values["dry-run"]) {
     try {
-      const request = await buildRequest({ reference, settings });
+      const request = await buildRequest({ reference, settings, root: values.root });
       printRequest(request);
       return 0;
     } catch (err) {
-      process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-      return err instanceof LearnError ? err.exitCode : 1;
+      return fail(err);
     }
   }
 
@@ -62,6 +76,7 @@ async function main(): Promise<number> {
   for await (const event of explain({
     reference,
     settings,
+    root: values.root,
     model: llm,
     signal: controller.signal,
     onRequest: values["show-prompt"] ? printRequest : undefined,

@@ -18,7 +18,7 @@ beforeAll(async () => {
 
 /** The excerpt text sent to the model, without the "File:" header line and the code fence. */
 const userFor = async (reference: string) => {
-  const user = (await buildRequest({ reference, settings })).user;
+  const user = (await buildRequest({ reference, settings, root: tmpdir() })).user;
   return user.split("\n").slice(3, -1).join("\n");
 };
 
@@ -39,7 +39,7 @@ describe("line and range references", () => {
     const old = join(dir, "old-mac.txt");
     await writeFile(old, "a\rb\rc\r");
     expect(await userFor(`${old}:2`)).toBe("b");
-    const err = await buildRequest({ reference: `${old}:4`, settings }).catch((e) => e);
+    const err = await buildRequest({ reference: `${old}:4`, settings, root: tmpdir() }).catch((e) => e);
     expect(err.message).toContain("has 3 lines");
   });
 
@@ -63,7 +63,7 @@ describe("malformed references", () => {
   ];
   for (const [label, ref, message] of cases) {
     it(`rejects ${label} as a usage error`, async () => {
-      const err = await buildRequest({ reference: ref.replace("FILE", file), settings }).catch((e) => e);
+      const err = await buildRequest({ reference: ref.replace("FILE", file), settings, root: tmpdir() }).catch((e) => e);
       expect(err).toBeInstanceOf(UsageError);
       expect(err.message).toMatch(message);
     });
@@ -71,7 +71,7 @@ describe("malformed references", () => {
 
   it("shows the real line count when a line or range is past the end", async () => {
     for (const spec of ["6", "4-9"]) {
-      const err = await buildRequest({ reference: `${file}:${spec}`, settings }).catch((e) => e);
+      const err = await buildRequest({ reference: `${file}:${spec}`, settings, root: tmpdir() }).catch((e) => e);
       expect(err).toBeInstanceOf(UsageError);
       expect(err.message).toContain("has 5 lines");
     }
@@ -86,14 +86,14 @@ describe("file names and words", () => {
   });
 
   it("answers a bare word with a not-supported-yet usage error", async () => {
-    const err = await buildRequest({ reference: "debounce", settings }).catch((e) => e);
+    const err = await buildRequest({ reference: "debounce", settings, root: tmpdir() }).catch((e) => e);
     expect(err).toBeInstanceOf(UsageError);
     expect(err.message).toContain("not found as a file");
     expect(err.message).toContain("not supported yet");
   });
 
   it("a missing path-like file is still a read error, not a word", async () => {
-    const err = await buildRequest({ reference: join(dir, "missing.ts"), settings }).catch((e) => e);
+    const err = await buildRequest({ reference: join(dir, "missing.ts"), settings, root: tmpdir() }).catch((e) => e);
     expect(err).not.toBeInstanceOf(UsageError);
   });
 });
@@ -102,7 +102,7 @@ describe("open reference kinds", () => {
   it("resolves a newly registered kind without changing the caller", async () => {
     const excerpt = await resolveReference(
       { kind: "fake" },
-      { read: async () => "" },
+      { read: async () => ({ text: "", name: "x" }) },
       { ...defaultResolvers, fake: async () => ({ label: "fake", text: "from fake kind" }) },
     );
     expect(excerpt.text).toBe("from fake kind");

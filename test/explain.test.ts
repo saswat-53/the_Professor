@@ -26,6 +26,7 @@ describe("explain", () => {
     const events: ExplainEvent[] = [];
     for await (const e of explain({
       reference: file,
+      root: tmpdir(),
       settings: { baseUrl: "http://h/v1", model: "m" },
       model,
       signal: new AbortController().signal,
@@ -42,6 +43,7 @@ describe("explain", () => {
     const events: ExplainEvent[] = [];
     for await (const e of explain({
       reference: "/nonexistent/file.ts",
+      root: tmpdir(),
       settings: { baseUrl: "http://h/v1", model: "m" },
       model,
       signal: new AbortController().signal,

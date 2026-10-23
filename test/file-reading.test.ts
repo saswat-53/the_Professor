@@ -23,6 +23,7 @@ async function run(reference: string) {
   const events: ExplainEvent[] = [];
   for await (const e of explain({
     reference,
+    root: "/",
     settings: { baseUrl: "http://h/v1", model: "m" },
     model,
     signal: new AbortController().signal,

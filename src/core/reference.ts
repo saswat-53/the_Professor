@@ -26,7 +26,8 @@ export interface Excerpt {
 }
 
 export interface ResolverDeps {
-  read: (path: string) => Promise<string>;
+  /** Reads a file inside the project; `name` is its project-relative path, the only name a label may use. */
+  read: (path: string) => Promise<{ text: string; name: string }>;
 }
 export type Resolver<R extends Reference = Reference> = (ref: R, deps: ResolverDeps) => Promise<Excerpt>;
 export type Resolvers = Record<string, Resolver<any>>;
@@ -80,18 +81,22 @@ export async function parseReference(
 }
 
 export const defaultResolvers: Resolvers = {
-  file: async (ref: FileReference, { read }) => ({ label: ref.path, text: await read(ref.path) }),
+  file: async (ref: FileReference, { read }) => {
+    const { text, name } = await read(ref.path);
+    return { label: name, text };
+  },
   lines: async (ref: LinesReference, { read }) => {
     // A lone CR counts as a line break, as editors show it; CRLF was already normalised by the reader.
-    const lines = (await read(ref.path)).split(/\r\n|\r|\n/);
+    const { text, name } = await read(ref.path);
+    const lines = text.split(/\r\n|\r|\n/);
     const total = lineCount(lines);
     if (ref.end > total) {
       const noun = ref.start === ref.end ? "line" : "lines";
       throw new UsageError(
-        `${ref.path}: ${noun} ${formatRange(ref.start, ref.end)} is past the end of the file, which has ${total} lines`,
+        `${name}: ${noun} ${formatRange(ref.start, ref.end)} is past the end of the file, which has ${total} lines`,
       );
     }
-    return { label: `${ref.path}:${formatRange(ref.start, ref.end)}`, text: lines.slice(ref.start - 1, ref.end).join("\n") };
+    return { label: `${name}:${formatRange(ref.start, ref.end)}`, text: lines.slice(ref.start - 1, ref.end).join("\n") };
   },
   word: async (ref: WordReference) => {
     throw new UsageError(

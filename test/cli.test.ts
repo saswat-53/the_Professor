@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { run } from "./support/cli.js";
@@ -121,7 +122,7 @@ describe("teaching prompt and level", () => {
 
   it("the built bundle finds the prompt from a different working directory", async () => {
     const elsewhere = await mkdtemp(join(tmpdir(), "learn-cwd-"));
-    const r = await run([file, "--dry-run"], env(), elsewhere);
+    const r = await run([file, "--dry-run", "--root", dirname(file)], env(), elsewhere);
     expect(r.code).toBe(0);
     expect(r.stderr).toContain("Common pitfalls");
   });
@@ -181,6 +182,113 @@ describe("teaching prompt and level", () => {
       expect(r.stderr).toContain(url);
     } finally {
       spy.close();
+    }
+  });
+});
+
+describe("project root and path escape", () => {
+  const env = () => ({ LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+  const labelOf = (stderr: string) => /File: (.*)\n/.exec(stderr)?.[1];
+
+  async function project() {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "learn-home-")));
+    const repo = join(home, "proj");
+    await mkdir(join(repo, "sub"), { recursive: true });
+    git(repo, "init", "-q");
+    await writeFile(join(repo, "package.json"), '{\n  "name": "x",\n  "version": "1",\n  "private": true,\n  "type": "module",\n  "bin": "y"\n}\n');
+    return { home, repo };
+  }
+
+  it("labels are relative to the git root, from any subdirectory", async () => {
+    const { home, repo } = await project();
+    const e = { ...env(), HOME: home };
+    for (const [cwd, ref] of [[repo, "package.json:3-6"], [join(repo, "sub"), "../package.json:3-6"], [join(repo, "sub"), join(repo, "package.json:3-6")]] as const) {
+      const r = await run([ref, "--dry-run"], e, cwd);
+      expect(r.code, r.stderr).toBe(0);
+      expect(labelOf(r.stderr)).toBe("package.json:3-6");
+    }
+  });
+
+  it("with no repo the root is the current directory, and the label is relative to it", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "learn-norepo-")));
+    await writeFile(join(dir, "a.txt"), "hi\n");
+    const r = await run(["a.txt", "--dry-run"], { ...env(), HOME: dir + "-nohome" }, dir);
+    expect(labelOf(r.stderr)).toBe("a.txt");
+  });
+
+  it("refuses a file outside the root with exit 3 and mentions --root; --root allows it", async () => {
+    const { home, repo } = await project();
+    await mkdir(join(home, "Downloads"));
+    const outside = join(home, "Downloads", "x.txt");
+    await writeFile(outside, "outside\n");
+    const e = { ...env(), HOME: home };
+    const refused = await run([outside, "--dry-run"], e, repo);
+    expect(refused.code).toBe(3);
+    expect(refused.stderr).toContain("--root");
+    expect(refused.stderr).not.toContain("outside\n");
+    const allowed = await run([outside, "--dry-run", "--root", home], e, repo);
+    expect(allowed.code, allowed.stderr).toBe(0);
+    expect(labelOf(allowed.stderr)).toBe("Downloads/x.txt");
+  });
+
+  it("no repo and a file elsewhere: refused, because the root is only the current directory", async () => {
+    const a = await realpath(await mkdtemp(join(tmpdir(), "learn-a-")));
+    const b = await realpath(await mkdtemp(join(tmpdir(), "learn-b-")));
+    await writeFile(join(b, "x.txt"), "elsewhere\n");
+    const r = await run([join(b, "x.txt"), "--dry-run"], env(), a);
+    expect(r.code).toBe(3);
+  });
+
+  it("a sibling directory sharing a name prefix is not inside the root", async () => {
+    const base = await realpath(await mkdtemp(join(tmpdir(), "learn-sib-")));
+    await mkdir(join(base, "app"));
+    await mkdir(join(base, "app-secrets"));
+    await writeFile(join(base, "app-secrets", "k.txt"), "nope\n");
+    const r = await run(["../app-secrets/k.txt", "--dry-run"], env(), join(base, "app"));
+    expect(r.code).toBe(3);
+  });
+
+  it("a symlink pointing outside is refused; one staying inside works and is read through its target", async () => {
+    const { home, repo } = await project();
+    await writeFile(join(home, "secret.txt"), "top secret\n");
+    await symlink(join(home, "secret.txt"), join(repo, "leak.txt"));
+    await symlink(join(repo, "package.json"), join(repo, "ok.json"));
+    const e = { ...env(), HOME: home };
+    const leak = await run(["leak.txt", "--dry-run"], e, repo);
+    expect(leak.code).toBe(3);
+    expect(leak.stderr).not.toContain("top secret");
+    const ok = await run(["ok.json", "--dry-run"], e, repo);
+    expect(ok.code, ok.stderr).toBe(0);
+    expect(labelOf(ok.stderr)).toBe("package.json");
+  });
+
+  it("ignores LEARN_ROOT and a config file setting; only the flag widens the root", async () => {
+    const { home, repo } = await project();
+    await mkdir(join(home, ".config/learn"), { recursive: true });
+    await writeFile(join(home, ".config/learn/config.toml"), `root = "${home}"\n`);
+    await writeFile(join(home, "x.txt"), "x\n");
+    const r = await run([join(home, "x.txt"), "--dry-run"], { ...env(), HOME: home, LEARN_ROOT: home, XDG_CONFIG_HOME: join(home, ".config") }, repo);
+    expect(r.code).toBe(3);
+  });
+
+  it("warns on stderr when the root is the home directory", async () => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "learn-homeroot-")));
+    await writeFile(join(home, "a.txt"), "hi\n");
+    const r = await run(["a.txt", "--dry-run"], { ...env(), HOME: home }, home);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("warning: the project root is your home directory");
+    const quiet = await run(["a.txt", "--dry-run"], { ...env(), HOME: home + "-other" }, home);
+    expect(quiet.stderr).not.toContain("warning");
+  });
+
+  it("never puts the home directory in the request, including --show-prompt output", async () => {
+    const { home, repo } = await project();
+    const e = { ...env(), HOME: home };
+    for (const args of [["package.json:1-2", "--dry-run"], [join(repo, "package.json"), "--dry-run"], ["package.json", "--show-prompt"]]) {
+      const r = await run(args, e, repo);
+      expect(r.stderr).not.toContain(home);
+      expect(r.stdout).not.toContain(home);
     }
   });
 });
