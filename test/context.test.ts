@@ -165,6 +165,37 @@ describe("context: enclosing block", () => {
     expect(user).not.toContain("line 56\n");
   });
 
+  it("sends the whole Python function, where the window would stop short", async () => {
+    const body = Array.from({ length: 58 }, (_, i) => `    x${i} = ${i}`);
+    const dir = await mkdtemp(join(tmpdir(), "learn-ctx-"));
+    await mkdir(join(dir, ".git"));
+    await writeFile(join(dir, "a.py"), ["z = 0", "def f():", ...body, "y = 1"].join("\n") + "\n");
+    const user = await request(dir, "a.py:30");
+    expect(user).toContain("Enclosing block, lines before the Excerpt (a.py lines 2-29)");
+    expect(user).toContain("lines after the Excerpt (a.py lines 31-60)");
+    expect(user).not.toContain("z = 0");
+    expect(user).not.toContain("y = 1");
+  });
+
+  it("uses the window for a file type with no built-in finder", async () => {
+    const dir = await project("a.txt", [], 100);
+    expect(await request(dir, "a.txt:50")).not.toContain("Enclosing block");
+  });
+
+  it("lets an injected finder override the built-in one for a Python file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-ctx-"));
+    await mkdir(join(dir, ".git"));
+    await writeFile(join(dir, "a.py"), Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join("\n") + "\n");
+    const user = await buildRequest({
+      reference: "a.py:50",
+      cwd: dir,
+      settings,
+      blockFinder: { name: "fixed", find: () => ({ start: 48, end: 52 }) },
+    }).then((r) => r.user);
+    expect(user).toContain("lines before the Excerpt (a.py lines 48-49)");
+    expect(user).not.toContain("line 47\n");
+  });
+
   it("ignores a block that does not contain the Excerpt and falls back to the window", async () => {
     const dir = await project("a.txt", [], 100);
     const user = await buildRequest({

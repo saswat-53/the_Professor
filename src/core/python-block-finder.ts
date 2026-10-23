@@ -1,10 +1,11 @@
 import type { BlockFinder, LineSpan } from "./context.js";
+import { extensionOf } from "./extension.js";
 
 /** A statement as Python reads it: physical lines joined by brackets, backslashes or triple quotes. */
 interface LogicalLine {
   start: number;
   end: number;
-  /** Width of the leading whitespace, tabs counted to the next multiple of 8 like Python does. */
+  /** Width of the leading whitespace, tabs counted to the next multiple of 8 and a form feed resetting it, like Python does. */
   indent: number;
   /** The code with strings blanked and comments dropped. */
   code: string;
@@ -18,14 +19,14 @@ const DEFINITION = /^(?:async\s+def|def|class)\b/;
 
 function indentWidth(whitespace: string): number {
   let width = 0;
-  for (const ch of whitespace) width = ch === "\t" ? width + 8 - (width % 8) : width + 1;
+  for (const ch of whitespace) width = ch === "\t" ? width + 8 - (width % 8) : ch === "\f" ? 0 : width + 1;
   return width;
 }
 
 /**
  * Splits the file into logical lines by scanning once. Strings (including triple-quoted ones) and
- * comments are skipped so their contents cannot look like code. Returns null when a string never
- * closes, because every later line would then be misread.
+ * comments are skipped so their contents cannot look like code. Returns null when a string or bracket
+ * never closes, because every later line would then be misread.
  */
 function logicalLines(lines: readonly string[]): LogicalLine[] | null {
   const text = lines.join("\n");
@@ -40,7 +41,7 @@ function logicalLines(lines: readonly string[]): LogicalLine[] | null {
     if (ch === "\n") {
       line++;
       lineStart = i + 1;
-      if (current && depth === 0 && text[i - 1] !== "\\") {
+      if (current && depth === 0) {
         result.push(current);
         current = null;
       }
@@ -59,6 +60,17 @@ function logicalLines(lines: readonly string[]): LogicalLine[] | null {
       current = { start: line, end: line, indent: indentWidth(text.slice(lineStart, i)), code: "" };
     }
     current.end = line;
+    if (ch === "\\") {
+      // A backslash before the newline continues the statement. A comment ending in one never reaches here.
+      const newline = /^\r?\n/.exec(text.slice(i + 1, i + 3));
+      if (newline) {
+        i += newline[0].length;
+        line++;
+        lineStart = i + 1;
+        current.code += " ";
+        continue;
+      }
+    }
     if (ch === '"' || ch === "'") {
       const quote = text.startsWith(ch.repeat(3), i) ? ch.repeat(3) : ch;
       let j = i + quote.length;
@@ -79,6 +91,7 @@ function logicalLines(lines: readonly string[]): LogicalLine[] | null {
     else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
     current.code += ch;
   }
+  if (depth > 0) return null;
   if (current) result.push(current);
   return result;
 }
@@ -106,8 +119,7 @@ function findBlocks(lines: readonly string[]): LineSpan[] | null {
 export const pythonBlockFinder: BlockFinder = {
   name: "python",
   find({ path, lines }, range) {
-    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-    if (!path.includes(".") || !PYTHON_EXTENSIONS.has(ext)) return null;
+    if (!PYTHON_EXTENSIONS.has(extensionOf(path))) return null;
     let best: LineSpan | null = null;
     // findBlocks returns null when a triple-quoted string never closes; no block is better than a wrong
     // one, so the caller falls back to the fixed window.

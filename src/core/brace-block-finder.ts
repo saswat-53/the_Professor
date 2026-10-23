@@ -1,4 +1,5 @@
 import type { BlockFinder, LineSpan } from "./context.js";
+import { extensionOf } from "./extension.js";
 
 /** File extensions (lower case, no dot) written with braces that this finder understands. */
 export const BRACE_EXTENSIONS: ReadonlySet<string> = new Set(
@@ -210,8 +211,8 @@ function endOfBacktick(text: string, start: number, raw: boolean): number {
 export const braceBlockFinder: BlockFinder = {
   name: "braces",
   find({ path, lines }, range) {
-    const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-    if (!path.includes(".") || !BRACE_EXTENSIONS.has(ext)) return null;
+    const ext = extensionOf(path);
+    if (!BRACE_EXTENSIONS.has(ext)) return null;
     const blocks = findBlocks(lines, ext);
     let best: LineSpan | null = null;
     for (const b of blocks ?? []) {
