@@ -54,6 +54,13 @@ describe("provider failures", () => {
     expect(r.stdout + r.stderr).not.toContain(SENTINEL);
   });
 
+  it("writes no leading blank line and nothing to stdout when no text was streamed", async () => {
+    respond = failWith(429);
+    const r = await run([file], env());
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toMatch(/^\S/);
+  });
+
   it("does not retry after a 429", async () => {
     respond = failWith(429);
     await run([file], env());
