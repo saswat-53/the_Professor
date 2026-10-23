@@ -33,10 +33,12 @@ export type Resolvers = Record<string, Resolver<any>>;
 
 const pathExists = (path: string) => stat(path).then(() => true, () => false);
 
-/** Splits `text` into lines; a final newline does not start a new line. */
+/** A final newline does not start a new line, so "a\n" has one line. */
 function lineCount(lines: string[]) {
   return lines.at(-1) === "" ? lines.length - 1 : lines.length;
 }
+
+const formatRange = (start: number, end: number) => (start === end ? `${start}` : `${start}-${end}`);
 
 /** The range part of `path:SPEC`; every malformed shape gets its own message. */
 function parseSpec(spec: string): { start: number; end: number } {
@@ -76,14 +78,16 @@ export async function parseReference(
 export const defaultResolvers: Resolvers = {
   file: async (ref: FileReference, { read }) => ({ label: ref.path, text: await read(ref.path) }),
   lines: async (ref: LinesReference, { read }) => {
-    const lines = (await read(ref.path)).split("\n");
+    // A lone CR counts as a line break, as editors show it; CRLF was already normalised by the reader.
+    const lines = (await read(ref.path)).split(/\r\n|\r|\n/);
     const total = lineCount(lines);
     if (ref.end > total) {
-      const range = ref.start === ref.end ? `line ${ref.start}` : `lines ${ref.start}-${ref.end}`;
-      throw new UsageError(`${ref.path}: ${range} is past the end of the file, which has ${total} lines`);
+      const noun = ref.start === ref.end ? "line" : "lines";
+      throw new UsageError(
+        `${ref.path}: ${noun} ${formatRange(ref.start, ref.end)} is past the end of the file, which has ${total} lines`,
+      );
     }
-    const label = ref.start === ref.end ? `${ref.path}:${ref.start}` : `${ref.path}:${ref.start}-${ref.end}`;
-    return { label, text: lines.slice(ref.start - 1, ref.end).join("\n") };
+    return { label: `${ref.path}:${formatRange(ref.start, ref.end)}`, text: lines.slice(ref.start - 1, ref.end).join("\n") };
   },
   word: async (ref: WordReference) => {
     throw new UsageError(`word references like "${ref.word}" are not supported yet; use a file or path:N-M`);

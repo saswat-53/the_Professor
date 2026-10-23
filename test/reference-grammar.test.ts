@@ -32,6 +32,14 @@ describe("line and range references", () => {
     expect(user).not.toMatch(/one|five|\r/);
   });
 
+  it("counts a lone CR as a line break, as editors show it", async () => {
+    const old = join(dir, "old-mac.txt");
+    await writeFile(old, "a\rb\rc\r");
+    expect(await userFor(`${old}:2`)).toBe("b");
+    const err = await buildRequest({ reference: `${old}:4`, settings }).catch((e) => e);
+    expect(err.message).toContain("has 3 lines");
+  });
+
   it("accepts a single-line range and the last line", async () => {
     expect(await userFor(`${file}:3-3`)).toContain("three");
     expect(await userFor(`${file}:5`)).toContain("five");

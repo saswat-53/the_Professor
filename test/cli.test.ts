@@ -92,6 +92,15 @@ describe("learn CLI", () => {
     expect(r.stderr).toContain("start at 1");
   });
 
+  it.each([["4-2", "reversed"], ["-3", "positive"], ["1.5", "not a line number"], ["99", "has 1 lines"]])(
+    "exits 2 for %s",
+    async (spec, message) => {
+      const r = await run([`${file}:${spec}`, "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain(message);
+    },
+  );
+
   it("exits 2 saying words are not supported yet", async () => {
     const r = await run(["debounce"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
     expect(r.code).toBe(2);

@@ -21,4 +21,5 @@
 
 - Grammar lives in `src/core/reference.ts`: `parseReference` (an existing file under the literal name wins; then `path:SPEC`; then bare word if no `/`, `\` or `.`), `defaultResolvers` keyed by `kind`, and `resolveReference`. A new kind only adds a resolver entry; `test/reference-grammar.test.ts` registers a fake one.
 - Bad input throws `UsageError` (`src/core/errors.ts`); `explain` tags the error event with `kind: "usage"` and the CLI exits 2. Ticket 05 should fold this into the full typed-error set.
+- A lone `\r` counts as a line break (as editors show it).
 - Excerpt only for now; surrounding context comes in ticket 10.
