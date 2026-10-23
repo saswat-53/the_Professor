@@ -101,6 +101,22 @@ describe("provider failures", () => {
     expect(r.stderr).toMatch(/^\S/);
   });
 
+  // The tracker must look at the last character of the whole stream, not of the first chunk.
+  // An empty chunk is not tested: the SDK never delivers one, so that case is unreachable here.
+  it("counts a newline arriving as its own chunk as the end of the line", async () => {
+    const pieces = ["first", "\n"];
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const chunk = (content: string) => ({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
+      for (const piece of pieces) res.write(`data: ${JSON.stringify(chunk(piece))}\n\n`);
+      res.write("\n", () => setTimeout(() => res.destroy(), 50));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stdout).toBe(pieces.join(""));
+    expect(r.stderr).toMatch(/^\S/);
+  });
+
   it("flushes all streamed output before ending when the stream then fails", async () => {
     const big = "x".repeat(200_000);
     respond = (res) => {
