@@ -128,6 +128,10 @@ const url = (raw: unknown) => {
 const text = (what: string): Def<"model">["parse"] => (raw) =>
   typeof raw === "string" && raw !== "" ? { value: raw } : { error: `${what} must be a non-empty string` };
 
+/** A variable name, not a key: a pasted key would otherwise be echoed back in the "not set" error. */
+const envName = (raw: unknown) =>
+  typeof raw === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(raw) ? { value: raw } : { error: "must be the NAME of an environment variable (letters, digits and underscores), not the key itself" };
+
 const budget = (raw: unknown) => {
   const n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
   return typeof n === "number" && isValidBudget(n) ? { value: n } : { error: "must be a whole number of characters above 0" };
@@ -144,7 +148,7 @@ const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "contextBudget", flag: "contextBudget", flagName: "--context-budget", env: "LEARN_CONTEXT_BUDGET", config: ["context_budget"], parse: budget },
   { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: (raw) => redactUrl(raw, { path: false }) },
   { key: "model", flag: "model", flagName: "--model", env: "LEARN_MODEL", config: ["provider", "model"], parse: text("a model name") },
-  { key: "keyEnv", config: ["provider", "key_env"], parse: text("a variable name") },
+  { key: "keyEnv", config: ["provider", "key_env"], parse: envName },
   { key: "notesDir", config: ["notes_dir"], parse: dir },
 ];
 

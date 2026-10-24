@@ -168,6 +168,14 @@ describe("Context report", () => {
   });
 });
 
+/** XDG_CONFIG_HOME for a config file that names `KEY_VAR` as the API key variable. */
+async function keyVarConfig() {
+  const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+  await mkdir(join(xdg, "learn"));
+  await writeFile(join(xdg, "learn", "config.toml"), '[provider]\nkey_env = "KEY_VAR"\n');
+  return { XDG_CONFIG_HOME: xdg };
+}
+
 describe("secret canary (the gate)", () => {
   const CANARY = "CANARY-9f3a-never-leave";
   const KEY_CANARY = "sk-CANARY-key-never-leave";
@@ -223,7 +231,7 @@ describe("secret canary (the gate)", () => {
       // use a hosted URL that is never contacted. Only the ordinary file streams, to the local spy.
       const baseUrl = mode === "stream" && target === "ok.txt" ? url : "https://api.example.com/v1";
       const args = mode === "stream" ? [target] : [target, mode];
-      const r = await run(args, { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", LEARN_API_KEY: KEY_CANARY, HOME: home }, repo);
+      const r = await run(args, { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", KEY_VAR: KEY_CANARY, HOME: home, ...(await keyVarConfig()) }, repo);
       const everything = r.stdout + r.stderr + received();
       expect(everything).not.toContain(CANARY);
       // Only a run that sends a request can leak the key; the others show it stays out of refusals and dry runs.
@@ -328,7 +336,7 @@ describe("sensitive-file notes in the report", () => {
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     try {
       const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
-      const r = await run([".env", "--allow-sensitive"], { LEARN_BASE_URL: url, LEARN_MODEL: "m", LEARN_API_KEY: KEY }, dir);
+      const r = await run([".env", "--allow-sensitive"], { LEARN_BASE_URL: url, LEARN_MODEL: "m", KEY_VAR: KEY, ...(await keyVarConfig()) }, dir);
       expect(r.code).toBe(0);
       expect(body).toContain(CANARY);
       expect(r.stderr).toContain("overridden: .env (rule: .env) is being sent to 127.0.0.1 because --allow-sensitive was passed");

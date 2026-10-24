@@ -270,3 +270,98 @@ describe("config file safety", () => {
     }
   });
 });
+
+describe("API key", () => {
+  const SENTINEL = "sk-SENTINEL-never-print";
+
+  async function server() {
+    const { createServer } = await import("node:http");
+    let auth: string | undefined;
+    const srv = createServer((req, res) => {
+      auth = req.headers.authorization;
+      req.resume();
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = { id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] };
+        res.end(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+      });
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const port = (srv.address() as { port: number }).port;
+    return { url: `http://127.0.0.1:${port}/v1`, auth: () => auth, close: () => srv.close() };
+  }
+
+  it("a hosted endpoint with the named variable missing exits 2 and names the variable", async () => {
+    const { path: _p, ...env } = await withConfig('[provider]\nbase_url = "https://api.example.com/v1"\nmodel = "m"\nkey_env = "MY_PROVIDER_KEY"\n');
+    const r = await run([file], { ...env, LEARN_API_KEY: SENTINEL });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("MY_PROVIDER_KEY");
+    expect(r.stderr).not.toContain(SENTINEL);
+  });
+
+  it("a hosted endpoint with no key_env exits 2 and points at key_env", async () => {
+    const r = await run([file], { LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m", LEARN_API_KEY: SENTINEL });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("key_env");
+    expect(r.stderr).not.toContain(SENTINEL);
+  });
+
+  it("a localhost endpoint needs no key and sends no Authorization header", async () => {
+    const s = await server();
+    try {
+      const r = await run([file], { LEARN_BASE_URL: s.url, LEARN_MODEL: "m" });
+      expect(r.code).toBe(0);
+      expect(s.auth()).toBeUndefined();
+    } finally {
+      s.close();
+    }
+  });
+
+  it("sends the key from the named variable as a Bearer Authorization header, and prints it nowhere", async () => {
+    const { path: _p, ...env } = await withConfig('[provider]\nkey_env = "MY_PROVIDER_KEY"\n');
+    const s = await server();
+    try {
+      const r = await run([file, "--show-prompt"], { ...env, LEARN_BASE_URL: s.url, LEARN_MODEL: "m", MY_PROVIDER_KEY: SENTINEL, LEARN_API_KEY: "wrong" });
+      expect(r.code).toBe(0);
+      expect(s.auth()).toBe(`Bearer ${SENTINEL}`);
+      expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+      expect(r.stderr.toLowerCase()).not.toContain("authorization");
+    } finally {
+      s.close();
+    }
+  });
+
+  it("--dry-run does not need the key", async () => {
+    const r = await run([file, "--dry-run"], { LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+  });
+
+  it("plain http to a non-local host warns on stderr", async () => {
+    const r = await run([file, "--dry-run"], { LEARN_BASE_URL: "http://models.example.com/v1", LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+    expect(r.stderr).toMatch(/warning: models\.example\.com is reached over plain http/);
+  });
+
+  it("https and localhost http do not warn", async () => {
+    for (const u of ["https://api.example.com/v1", "http://localhost:11434/v1"]) {
+      const r = await run([file, "--dry-run"], { LEARN_BASE_URL: u, LEARN_MODEL: "m" });
+      expect(r.stderr).not.toContain("plain http");
+    }
+  });
+
+  it("a key pasted into key_env is refused without being echoed", async () => {
+    const { path: _p, ...env } = await withConfig(`[provider]\nkey_env = "${SENTINEL}!"\n`);
+    const r = await run([file, "--dry-run"], { ...env, LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("key_env");
+    expect(r.stderr).not.toContain(SENTINEL);
+  });
+
+  it("--dry-run and --show-prompt never print the key", async () => {
+    const { path: _p, ...env } = await withConfig('[provider]\nkey_env = "MY_PROVIDER_KEY"\n');
+    for (const flag of ["--dry-run", "--show-prompt"]) {
+      const r = await run([file, flag], { ...env, LEARN_BASE_URL: "http://localhost:1/v1", LEARN_MODEL: "m", MY_PROVIDER_KEY: SENTINEL });
+      expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    }
+  });
+});

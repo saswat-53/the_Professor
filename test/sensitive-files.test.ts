@@ -259,7 +259,14 @@ describe("without git, or without a repo", () => {
 });
 
 describe("sensitive files through the CLI", () => {
-  const env = { LEARN_BASE_URL: "http://example.invalid/v1", LEARN_MODEL: "m" };
+  // A hosted endpoint needs a key to get as far as the file checks under test, so the config names a variable that holds one.
+  let env: Record<string, string>;
+  beforeAll(async () => {
+    const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+    await mkdir(join(xdg, "learn"));
+    await writeFile(join(xdg, "learn", "config.toml"), '[provider]\nkey_env = "KEY_VAR"\n');
+    env = { LEARN_BASE_URL: "http://example.invalid/v1", LEARN_MODEL: "m", KEY_VAR: "k", XDG_CONFIG_HOME: xdg };
+  });
 
   it("exits 3 and names the rule", async () => {
     const r = await run([".env"], env, repo);

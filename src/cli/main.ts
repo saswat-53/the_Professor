@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveSettings } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -90,7 +90,7 @@ async function main(): Promise<number> {
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
-  const { baseUrl, model, level, contextBudget } = resolved.settings;
+  const { baseUrl, model, level, contextBudget, keyEnv } = resolved.settings;
   if (!baseUrl || !model) {
     if (!baseUrl) process.stderr.write(`${describeMissing("baseUrl", config, file)}\n`);
     if (!model) process.stderr.write(`${describeMissing("model", config, file)}\n`);
@@ -102,6 +102,8 @@ async function main(): Promise<number> {
     return 2;
   }
   const settings = { baseUrl, model, level, contextBudget };
+  const insecure = insecureTransportWarning(baseUrl);
+  if (insecure) process.stderr.write(`${insecure}\n`);
   const fail = (err: unknown) => {
     process.stderr.write(`${describe(err)}\n`);
     return err instanceof LearnError ? err.exitCode : 1;
@@ -136,7 +138,13 @@ async function main(): Promise<number> {
 
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
-  const llm = openAICompatibleModel(process.env.LEARN_API_KEY);
+  let apiKey: string | undefined;
+  try {
+    apiKey = resolveApiKey({ keyEnv, baseUrl, env: process.env });
+  } catch (err) {
+    return fail(err);
+  }
+  const llm = openAICompatibleModel(apiKey);
   let lastChar = "\n";
   for await (const event of explain({
     reference,
