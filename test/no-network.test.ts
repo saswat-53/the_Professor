@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -16,8 +16,6 @@ const FIXTURE = pathToFileURL(join(import.meta.dirname, "support/update-check-fi
 
 let endpoint: Server;
 let elsewhere: Server;
-let endpointHits = 0;
-let elsewhereHits = 0;
 let endpointPort: number;
 let elsewherePort: number;
 let respond: (res: import("node:http").ServerResponse) => void;
@@ -31,12 +29,10 @@ const listen = async (server: Server) => {
 
 beforeAll(async () => {
   endpoint = createServer((req, res) => {
-    endpointHits++;
     req.resume();
     respond(res);
   });
   elsewhere = createServer((req, res) => {
-    elsewhereHits++;
     req.resume();
     res.end();
   });
@@ -53,32 +49,37 @@ afterAll(() => {
 });
 
 /** Runs the CLI under the spy and returns what it did plus every network operation it started. */
-async function spied(args: string[], env: Record<string, string>, extraImports: string[] = []) {
+async function runWithSpy(args: string[], env: Record<string, string>, extraImports: string[] = []) {
   const log = join(dir, `net-${Math.random().toString(36).slice(2)}.log`);
   await writeFile(log, "");
-  const imports = [SPY, ...extraImports].map((url) => `--import=${url}`).join(" ");
-  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: imports });
+  const imports = [SPY, ...extraImports].map((url) => `--import=${url}`);
+  const nodeOptions = [process.env.NODE_OPTIONS, ...imports].filter(Boolean).join(" ");
+  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: nodeOptions });
   const operations = (await readFile(log, "utf8")).split("\n").filter(Boolean);
   return { ...result, operations };
 }
 
-const configured = () => ({ LEARN_BASE_URL: `http://127.0.0.1:${endpointPort}/v1`, LEARN_MODEL: "m" });
-const onlyEndpoint = () => [`connect 127.0.0.1:${endpointPort}`];
+const envFor = (port: number) => ({ LEARN_BASE_URL: `http://127.0.0.1:${port}/v1`, LEARN_MODEL: "m" });
+const configuredEnv = () => envFor(endpointPort);
+
+/** The guard itself: every operation is a connect to `port` on loopback, and nothing else. */
+const expectOnlyConnectionsTo = (operations: string[], port: number) =>
+  expect(new Set(operations)).toEqual(new Set([`connect 127.0.0.1:${port}`]));
 
 describe("no network except the configured endpoint", () => {
   it("opens nothing on a first run with no config", async () => {
-    const r = await spied([file], {});
+    const r = await runWithSpy([file], {});
     expect(r.code).toBe(2);
     expect(r.operations).toEqual([]);
   });
 
   it("opens nothing for --help and --version", async () => {
-    expect((await spied(["--help"], {})).operations).toEqual([]);
-    expect((await spied(["--version"], {})).operations).toEqual([]);
+    expect((await runWithSpy(["--help"], {})).operations).toEqual([]);
+    expect((await runWithSpy(["--version"], {})).operations).toEqual([]);
   });
 
   it("opens nothing for --dry-run, even with an endpoint configured", async () => {
-    const r = await spied([file, "--dry-run"], configured());
+    const r = await runWithSpy([file, "--dry-run"], configuredEnv());
     expect(r.code).toBe(0);
     expect(r.operations).toEqual([]);
   });
@@ -88,18 +89,18 @@ describe("no network except the configured endpoint", () => {
       res.writeHead(500, { "content-type": "application/json" });
       res.end("{}");
     };
-    const r = await spied([file], configured());
+    const r = await runWithSpy([file], configuredEnv());
     expect(r.code).toBe(1);
-    expect(new Set(r.operations)).toEqual(new Set(onlyEndpoint()));
+    expectOnlyConnectionsTo(r.operations, endpointPort);
   });
 
   it("contacts only the endpoint when the connection is refused", async () => {
     const closed = createServer();
     const port = await listen(closed);
     await new Promise((r) => closed.close(r));
-    const r = await spied([file], { LEARN_BASE_URL: `http://127.0.0.1:${port}/v1`, LEARN_MODEL: "m" });
+    const r = await runWithSpy([file], envFor(port));
     expect(r.code).toBe(1);
-    expect(new Set(r.operations)).toEqual(new Set([`connect 127.0.0.1:${port}`]));
+    expectOnlyConnectionsTo(r.operations, port);
   });
 
   it("contacts only the endpoint when the request succeeds", async () => {
@@ -111,19 +112,39 @@ describe("no network except the configured endpoint", () => {
       res.write(chunk({}, "stop"));
       res.end("data: [DONE]\n\n");
     };
-    const r = await spied([file], configured());
+    const r = await runWithSpy([file], configuredEnv());
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("hi");
-    expect(new Set(r.operations)).toEqual(new Set(onlyEndpoint()));
+    expectOnlyConnectionsTo(r.operations, endpointPort);
   });
 
-  it("catches an added update check (the guard's own self-test)", async () => {
-    respond = (res) => res.end("{}");
-    elsewhereHits = 0;
-    const r = await spied([file, "--dry-run"], { ...configured(), GUARD_FIXTURE_URL: `http://127.0.0.1:${elsewherePort}/latest` }, [FIXTURE]);
+  it("contacts only the endpoint for a file:line reference", async () => {
+    respond = (res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end("{}");
+    };
+    const r = await runWithSpy([`${file}:1`], configuredEnv());
+    expect(r.code).toBe(1);
+    expectOnlyConnectionsTo(r.operations, endpointPort);
+  });
+
+  it("contacts only the endpoint when the endpoint comes from the config file", async () => {
+    respond = (res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end("{}");
+    };
+    const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+    await mkdir(join(xdg, "learn"));
+    await writeFile(join(xdg, "learn", "config.toml"), `[provider]\nbase_url = "http://127.0.0.1:${endpointPort}/v1"\nmodel = "m"\n`);
+    const r = await runWithSpy([file], { XDG_CONFIG_HOME: xdg });
+    expect(r.code).toBe(1);
+    expectOnlyConnectionsTo(r.operations, endpointPort);
+  });
+
+  // A negative control: the same guard, run against a build that has an update check added, must fail.
+  it("fails when an update check is added (the guard's own self-test)", async () => {
+    const r = await runWithSpy([file, "--dry-run"], { ...configuredEnv(), GUARD_FIXTURE_URL: `http://127.0.0.1:${elsewherePort}/latest` }, [FIXTURE]);
     expect(r.operations).toContain(`connect 127.0.0.1:${elsewherePort}`);
-    expect(elsewhereHits).toBe(1);
-    // The assertion every other test makes fails on this run, which is the point.
-    expect(r.operations).not.toEqual([]);
+    expect(() => expect(r.operations).toEqual([])).toThrow();
   });
 });
