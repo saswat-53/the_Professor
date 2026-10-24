@@ -174,6 +174,23 @@ describe("secrets never appear in messages", () => {
   });
 });
 
+describe("usual base URLs are accepted exactly as written", () => {
+  it.each([
+    "http://localhost:11434/v1",
+    "https://api.deepseek.com",
+    "https://api.openai.com/v1",
+    "https://generativelanguage.googleapis.com/v1beta/openai/",
+    "http://[::1]:11434/v1",
+    "http://127.0.0.1:1234",
+    "http://my-host.internal:8080/openai/v1",
+  ])("%s", (url) => {
+    for (const source of [{ flags: { baseUrl: url }, env: {} }, { flags: {}, env: { LEARN_BASE_URL: url } }]) {
+      expect(resolveSettings({ ...source, home: "/h" }).settings.baseUrl).toBe(url);
+    }
+    expect(resolve({}, {}, `[provider]\nbase_url = "${url}"\n`).settings.baseUrl).toBe(url);
+  });
+});
+
 describe("safety flags are flags only", () => {
   it("LEARN_ROOT and LEARN_ALLOW_SENSITIVE are ignored, with a warning that names them", () => {
     const { settings, warnings } = resolve({}, { LEARN_ROOT: "/", LEARN_ALLOW_SENSITIVE: "1" });
