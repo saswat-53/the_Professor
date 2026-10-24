@@ -10,6 +10,7 @@
 - [ ] Documents the exit-code table (0 success, 1 runtime or provider error, 2 usage or config error, 3 refused, plus 130/143 once ticket 19 lands), the example config with the alternative lines marked as alternatives, and the supported Node versions
 - [ ] Explains Sensitive-file refusal, `--allow-sensitive`, and the localhost exemption
 - [ ] Documents `--show-prompt`, `--dry-run`, `--root`, and `--level`
+- [ ] Documents `--help`/`-h` and `--version`/`-v` (both print to stdout and exit 0), and says a closed output pipe (`| head`) ends the run quietly with the exit code of any failure already found, else 0
 - [ ] States that the 0.x versions may change before 1.0
 
 ## Comments

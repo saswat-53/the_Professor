@@ -10,10 +10,15 @@ import type { StatusKind } from "./output.js";
 const paint = painter(colorEnabled({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!process.stderr.isTTY, env: process.env }));
 const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, text)}\n`);
 
-// A closed output pipe (`learn f | head`) is the reader being done, not a failure: end without a stack trace.
+/** The exit code the run is heading for. Recorded before the message is written, so a pipe that closes mid-message cannot turn a failure into a success. */
+let exitCode = 0;
+const record = (code: number) => (exitCode = code);
+
+// A closed output pipe (`learn f | head`) is the reader being done, not a failure: end without a stack trace,
+// with the code of any failure already found (0 if none). Exiting at once is deliberate: waiting for a closed pipe to drain can hang.
 for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EPIPE") process.exit(0);
+    if (err.code === "EPIPE") process.exit(exitCode);
     throw err;
   });
 }
@@ -22,7 +27,7 @@ for (const stream of [process.stdout, process.stderr]) {
 declare const __VERSION__: string;
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
-       learn --help | --version
+       learn -h | --help | -v | --version
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
 then the config file (~/.config/learn/config.toml), then the default.
@@ -74,8 +79,9 @@ async function loadSettings(values: Flagged): Promise<Loaded> {
     }
     return { ok: true, resolved, config, file };
   } catch (err) {
+    const code = record(err instanceof LearnError ? err.exitCode : 2);
     status("error", err instanceof Error ? err.message : String(err));
-    return { ok: false, exitCode: err instanceof LearnError ? err.exitCode : 2 };
+    return { ok: false, exitCode: code };
   }
 }
 
@@ -105,6 +111,7 @@ async function main(): Promise<number> {
       },
     });
   } catch (err) {
+    record(2);
     status("error", err instanceof Error ? err.message : String(err));
     process.stderr.write(`${USAGE}\n`);
     return 2;
@@ -125,21 +132,25 @@ async function main(): Promise<number> {
   const { resolved, config, file } = loaded;
   const { baseUrl, model, level, contextBudget, keyEnv } = resolved.settings;
   if (!baseUrl || !model) {
+    record(2);
     if (!baseUrl) status("error", describeMissing("baseUrl", config, file));
     if (!model) status("error", describeMissing("model", config, file));
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
   if (!reference) {
+    record(2);
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
   const settings = { baseUrl, model, level, contextBudget };
   const transportWarning = insecureTransportWarning(baseUrl);
   if (transportWarning) status("warning", transportWarning);
+  const codeFor = (err: unknown) => (err instanceof LearnError ? err.exitCode : 1);
   const fail = (err: unknown) => {
+    const code = record(codeFor(err));
     status("error", describe(err));
-    return err instanceof LearnError ? err.exitCode : 1;
+    return code;
   };
   try {
     const project = await findProjectRoot(process.cwd(), values.root);
@@ -161,6 +172,7 @@ async function main(): Promise<number> {
       printRequest(request);
       return 0;
     } catch (err) {
+      record(codeFor(err));
       const refused = reportForError(err);
       if (refused) status("info", formatContextReport(refused));
       return fail(err);
@@ -192,6 +204,7 @@ async function main(): Promise<number> {
       process.stdout.write(event.text);
       lastChar = event.text.at(-1) ?? lastChar;
     } else if (event.type === "error") {
+      record(event.error.exitCode);
       // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
       if (lastChar !== "\n") process.stderr.write("\n");
       status("error", describe(event.error));

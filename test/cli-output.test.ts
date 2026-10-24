@@ -77,11 +77,33 @@ describe("output modes", () => {
     const code = await new Promise((r) => child.on("close", r));
     expect(code).toBe(0);
   });
+
+  it("keeps a failure's exit code when the pipe closes after it (refused file, exit 3)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-refused-"));
+    const secret = join(dir, ".env");
+    await writeFile(secret, "TOKEN=abc\n");
+    // A non-local endpoint, since the sensitive-file check is skipped for local ones; --dry-run sends nothing.
+    const env = { ...process.env, LEARN_BASE_URL: "https://example.invalid/v1", LEARN_MODEL: "m", HOME: tmpdir() };
+    const child = spawn("node", [BIN, secret, "--dry-run"], { env, cwd: dir });
+    // The reader is gone before the first byte, so every write to stderr hits a closed pipe.
+    child.stderr.destroy();
+    const code = await new Promise((r) => child.on("close", r));
+    expect(code).toBe(3);
+  });
 });
 
 describe("--help and --version", () => {
-  it("--help prints usage to stdout and exits 0", async () => {
+  it("--help prints usage to stdout and exits 0, naming the short flags", async () => {
     const r = await run(["--help"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Usage: learn");
+    expect(r.stdout).toContain("-h");
+    expect(r.stdout).toContain("-v");
+    expect(r.stderr).toBe("");
+  });
+
+  it("--help wins over a file argument and over valid flags", async () => {
+    const r = await run([file, "--dry-run", "--help"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("Usage: learn");
     expect(r.stderr).toBe("");
