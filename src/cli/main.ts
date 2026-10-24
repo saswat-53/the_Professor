@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
+import { createEscapeStripper } from "./escape-stripper.js";
 import { colorEnabled, painter } from "./output.js";
 import type { StatusKind } from "./output.js";
 
@@ -189,6 +190,8 @@ async function main(): Promise<number> {
   }
   const llm = openAICompatibleModel(apiKey, keyEnv);
   let lastChar = "\n";
+  // In a terminal the model's text could carry escape sequences; a pipe is data, so it is left as sent.
+  const safeText = process.stdout.isTTY ? createEscapeStripper() : (text: string) => text;
   for await (const event of explain({
     reference,
     settings,
@@ -201,8 +204,9 @@ async function main(): Promise<number> {
     if (event.type === "context-report") {
       status("info", formatContextReport(event.report));
     } else if (event.type === "text-delta") {
-      process.stdout.write(event.text);
-      lastChar = event.text.at(-1) ?? lastChar;
+      const text = safeText(event.text);
+      process.stdout.write(text);
+      lastChar = text.at(-1) ?? lastChar;
     } else if (event.type === "error") {
       record(event.error.exitCode);
       // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
