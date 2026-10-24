@@ -28,7 +28,7 @@ export { LEVELS, DEFAULT_LEVEL, isLevel } from "./prompt.js";
 export type { Level } from "./prompt.js";
 export { findProjectRoot, locateFile, isInside } from "./root.js";
 export type { ProjectRoot, LocatedFile } from "./root.js";
-export { createFileReader, denylistRule, isLocalHost, resolveEndpoint } from "./sensitive.js";
+export { createFileReader, denylistRule, insecureTransportWarning, isLocalHost, resolveEndpoint } from "./sensitive.js";
 export type { FileReader, Endpoint, FileReaderOptions, SensitiveBypass } from "./sensitive.js";
 export { braceBlockFinder, BRACE_EXTENSIONS } from "./brace-block-finder.js";
 export { pythonBlockFinder, PYTHON_EXTENSIONS } from "./python-block-finder.js";
@@ -41,5 +41,5 @@ export { buildContextReport, formatContextReport, reportForError } from "./repor
 export type { ContextReport, ReportedRange } from "./report.js";
 export { EXAMPLE_CONFIG, configPath, describeMissing, firstRunMessage, parseConfig, redactUrl, HIDDEN, resolveSettings } from "./settings.js";
 export type { Config, Flags, Resolution, ResolvedSettings } from "./settings.js";
-export { insecureTransportWarning, resolveApiKey } from "./api-key.js";
+export { resolveApiKey } from "./api-key.js";
 export { readTextFile } from "./read-file.js";

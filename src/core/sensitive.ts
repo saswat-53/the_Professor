@@ -89,6 +89,13 @@ export function resolveEndpoint(baseUrl: string): Endpoint {
 
 export const isLocalHost = (baseUrl: string): boolean => resolveEndpoint(baseUrl).local;
 
+/** A key sent over plain http to another machine can be read on the way; undefined when the endpoint is https or local. */
+export function insecureTransportWarning(baseUrl: string): string | undefined {
+  const { host, local } = resolveEndpoint(baseUrl);
+  if (local || host === undefined || !/^http:/i.test(baseUrl)) return undefined;
+  return `warning: ${host} is reached over plain http, so the request (and any API key) is not encrypted; use https unless the network is trusted`;
+}
+
 /**
  * `--no-index` makes git apply ignore rules even to files already tracked: a file committed and
  * only later gitignored is still a file its owner decided not to share. A file added with

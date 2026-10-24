@@ -144,7 +144,7 @@ async function main(): Promise<number> {
   } catch (err) {
     return fail(err);
   }
-  const llm = openAICompatibleModel(apiKey);
+  const llm = openAICompatibleModel(apiKey, keyEnv);
   let lastChar = "\n";
   for await (const event of explain({
     reference,

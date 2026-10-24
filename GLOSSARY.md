@@ -60,6 +60,10 @@ _Avoid_: Secret file, protected file, private file
 A setting that widens what is read or sent (`--root`, `--allow-sensitive`) and so can be turned on only by a command-line flag for one run. The same names in an environment variable (`LEARN_ROOT`, `LEARN_ALLOW_SENSITIVE`) or the config file are ignored, with a warning that names them. A persistent file or variable can never silently widen access.
 _Avoid_: Safety setting, override
 
+**Key variable (`key_env`)**:
+The name, set as `key_env` under `[provider]` in the config file, of the environment variable that holds the API key. It is the only place the key can come from: there is no key flag and no key field in the config (`--api-key` is an unknown option; `api_key` in the file is an unknown key, ignored with a warning that names the key, never its value). The value must look like a variable name, so a key pasted there is refused unechoed. Required for a hosted endpoint (missing or empty: exit 2, naming the variable); optional for a local one. `--dry-run` never needs it. Error messages may name the variable, never its value.
+_Avoid_: API key setting, key field
+
 **Base URL**:
 Where requests are sent: an `http` or `https` URL written as `scheme://host[:port][/path]`, with no username, password, query or fragment in it (the key goes in the environment variable named by `key_env`). It is only ever printed through one function, which parses it and shows protocol, host and path, with a note of what was removed (`(removed: credentials, query, fragment)`). A value that does not parse as a web URL, or holds a backslash, whitespace or control character, is shown as `(value hidden)` and none of it is printed. The path is printed as the URL parser normalises it (it identifies the endpoint, so a key must never be put in it), and a key typed as the host prints as a lowercased host. Errors that reject a base URL name only protocol and host; `--dry-run` and `--show-prompt` keep the path, since they show what will be sent.
 _Avoid_: Endpoint (the Endpoint is the parsed host plus whether it is local)

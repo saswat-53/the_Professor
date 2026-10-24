@@ -364,4 +364,62 @@ describe("API key", () => {
       expect(r.stdout + r.stderr).not.toContain(SENTINEL);
     }
   });
+
+  describe("there is no way to give the key except the named variable", () => {
+    it.each([["--api-key", SENTINEL], ["--api-key=" + SENTINEL], ["--key", SENTINEL]])("%s is refused and the value is not printed", async (...args) => {
+      const r = await run([file, ...args, "--dry-run"], { LEARN_BASE_URL: "http://localhost:1/v1", LEARN_MODEL: "m" });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toMatch(/Unknown option '--(api-)?key'/);
+      expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    });
+
+    it.each([`api_key = "${SENTINEL}"\n`, `[provider]\napi_key = "${SENTINEL}"\n`, `[provider]\nkey = "${SENTINEL}"\n`])("a key field in the config is ignored with a warning naming the key, not the value: %#", async (toml) => {
+      const { path: _p, ...env } = await withConfig(toml);
+      const r = await run([file, "--dry-run"], { ...env, LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m" });
+      expect(r.stderr).toMatch(/warning: unknown key "(provider\.)?(api_)?key" in .*; ignored/);
+      expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    });
+
+    it("a key field in the config is never used: a hosted run still fails on the missing key_env", async () => {
+      const { path: _p, ...env } = await withConfig(`[provider]\napi_key = "${SENTINEL}"\n`);
+      const r = await run([file], { ...env, LEARN_BASE_URL: "https://api.example.com/v1", LEARN_MODEL: "m" });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("key_env");
+      expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    });
+  });
+
+  describe("a server that echoes the Authorization header back", () => {
+    async function echoServer(status: number) {
+      const { createServer } = await import("node:http");
+      const srv = createServer((req, res) => {
+        req.resume();
+        req.on("end", () => {
+          const echoed = String(req.headers.authorization);
+          res.writeHead(status, { "content-type": "application/json", "x-echo": echoed });
+          res.end(JSON.stringify({ error: { message: `bad credentials ${echoed}`, authorization: echoed } }));
+        });
+      });
+      await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+      return { url: `http://127.0.0.1:${(srv.address() as { port: number }).port}/v1`, close: () => srv.close() };
+    }
+
+    it.each([401, 403, 500])("HTTP %i: the key appears in no output, error or prompt", async (status) => {
+      const { path: _p, ...env } = await withConfig('[provider]\nkey_env = "MY_PROVIDER_KEY"\n');
+      const s = await echoServer(status);
+      try {
+        for (const flags of [[], ["--show-prompt"]]) {
+          const r = await run([file, ...flags], { ...env, LEARN_BASE_URL: s.url, LEARN_MODEL: "m", MY_PROVIDER_KEY: SENTINEL });
+          expect(r.code).not.toBe(0);
+          expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+          expect(r.stdout + r.stderr).not.toContain("Bearer");
+          if (status !== 500) expect(r.stderr).toContain("$MY_PROVIDER_KEY");
+        }
+        const dry = await run([file, "--dry-run"], { ...env, LEARN_BASE_URL: s.url, LEARN_MODEL: "m", MY_PROVIDER_KEY: SENTINEL });
+        expect(dry.stdout + dry.stderr).not.toContain(SENTINEL);
+      } finally {
+        s.close();
+      }
+    });
+  });
 });

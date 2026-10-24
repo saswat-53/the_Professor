@@ -12,3 +12,9 @@
 - [ ] Plain `http` to a non-local host produces a warning on stderr
 - [ ] The request sent to the fake server carries the key in the standard Authorization header
 - [ ] Re-run the canary test in `test/context-report.test.ts` against the named variable (today the CLI reads `LEARN_API_KEY` directly): the key actually used in a request, seen as the Authorization header at the fake server, never appears in stdout, stderr, `--show-prompt`, `--dry-run`, the request body or the Context report
+
+## Decisions
+
+- On a hosted endpoint a missing key (exit 2) is reported before a blocked-file refusal (exit 3), because the key is resolved before the request is built. Deliberate: a run that cannot send anything fails on setup first. Do not reorder without a reason.
+- `--dry-run` skips the key check (nothing is sent). `key_env` must look like a variable name, so a pasted key is refused without being echoed.
+- The plain-http warning lives next to `isLocalHost` in `src/core/sensitive.ts`; 401/403 errors name the variable (`check $NAME`), never its value.

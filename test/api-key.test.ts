@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
-import { insecureTransportWarning, resolveApiKey } from "../src/core/api-key.js";
+import { resolveApiKey } from "../src/core/api-key.js";
+import { insecureTransportWarning } from "../src/core/sensitive.js";
 
 const HOSTED = "https://api.example.com/v1";
 const LOCAL = "http://localhost:11434/v1";

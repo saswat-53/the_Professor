@@ -1,5 +1,5 @@
 import { UsageError } from "./errors.js";
-import { isLocalHost, resolveEndpoint } from "./sensitive.js";
+import { isLocalHost } from "./sensitive.js";
 
 /**
  * The API key, read from the one environment variable the config names (`key_env`). There is no key
@@ -14,11 +14,4 @@ export function resolveApiKey({ keyEnv, baseUrl, env }: { keyEnv: string | undef
     throw new UsageError('no API key variable is set for this hosted endpoint; name the environment variable that holds the key with key_env under [provider] in the config file, such as key_env = "OPENAI_API_KEY"');
   }
   throw new UsageError(`the environment variable ${keyEnv} (key_env in the config file) is not set or is empty; set it to your API key`);
-}
-
-/** A key sent over plain http to another machine can be read on the way; undefined when the endpoint is https or local. */
-export function insecureTransportWarning(baseUrl: string): string | undefined {
-  const { host, local } = resolveEndpoint(baseUrl);
-  if (local || host === undefined || !/^http:/i.test(baseUrl)) return undefined;
-  return `warning: ${host} is reached over plain http, so the request (and any API key) is not encrypted; use https unless the network is trusted`;
 }
