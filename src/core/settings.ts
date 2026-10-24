@@ -45,9 +45,13 @@ interface Def<K extends keyof ResolvedSettings> {
   show?: (raw: string) => string;
 }
 
-/** `https://user:pass@host` must never be echoed back: userinfo is cut, and anything still holding an "@" is hidden entirely. */
+/**
+ * How a base URL is shown in any message or printed request. `https://user:pass@host/v1?key=abc#x`
+ * must never be echoed whole: userinfo, query and fragment are cut (a base URL needs none of them
+ * to be recognised), and anything still holding an "@" is hidden entirely.
+ */
 export function redactUrl(raw: string): string {
-  const stripped = raw.replace(/(\/\/)[^/?#\s]*@/, "$1");
+  const stripped = raw.replace(/(\/\/)[^/?#\s]*@/, "$1").replace(/[?#].*$/, "");
   return stripped.includes("@") ? "(value hidden)" : stripped;
 }
 
@@ -155,7 +159,7 @@ export function resolveSettings({ flags, env, config, home }: ResolveInput): { s
   }
   const flagOnly = (key: string) => FLAG_ONLY.find((f) => f.key === key);
   const warnings = [
-    ...FLAG_ONLY.filter((f) => env[f.env] !== undefined).map((f) => `warning: ${f.env} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`),
+    ...FLAG_ONLY.filter((f) => env[f.env] !== undefined && env[f.env] !== "").map((f) => `warning: ${f.env} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`),
     ...(config
       ? unknownKeys(config.values).map((k) => {
           const f = flagOnly(k);

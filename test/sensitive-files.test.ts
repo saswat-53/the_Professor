@@ -298,6 +298,11 @@ describe("sensitive files through the CLI", () => {
     expect(local.code).toBe(0);
   });
 
+  it("the file reader's own endpoint parse never exempts a userinfo trick (the CLI refuses such a URL earlier)", () => {
+    const reader = createFileReader({ root: repo, cwd: repo, baseUrl: "http://localhost@evil.invalid/v1" });
+    expect(reader.endpoint).toEqual({ host: "evil.invalid", local: false });
+  });
+
   it("--allow-sensitive lets --dry-run through", async () => {
     const r = await run([".env", "--dry-run", "--allow-sensitive"], env, repo);
     expect(r.code).toBe(0);

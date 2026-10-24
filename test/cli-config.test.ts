@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
+import { EXAMPLE_CONFIG } from "../src/core/settings.js";
 import { run } from "./support/cli.js";
 
 let home: string;
@@ -81,8 +82,7 @@ describe("config file", () => {
     expect(r.stdout).toBe("");
     expect(r.stderr).toContain(join(emptyHomeOf(r.stderr), ".config", "learn", "config.toml"));
     expect(r.stderr).toContain("save this there");
-    expect(r.stderr).toContain("base_url =");
-    expect(r.stderr).toContain("model =");
+    expect(r.stderr).toContain(EXAMPLE_CONFIG);
   });
 
   it("no first-run message when flags or environment already give the base URL and model", async () => {
@@ -93,6 +93,32 @@ describe("config file", () => {
 
 /** The path the message names for the config, found from the output itself. */
 const emptyHomeOf = (stderr: string) => /No config file at (.*)\/\.config\/learn\/config\.toml/.exec(stderr)?.[1] ?? "";
+
+describe("base URL query secrets", () => {
+  it("--dry-run and --show-prompt print the base URL without its query or fragment", async () => {
+    for (const flag of ["--dry-run", "--show-prompt"]) {
+      const r = await run([file, flag, "--base-url", "http://127.0.0.1:9/v1?api_key=SECRET123#f", "--model", "m"]);
+      expect(r.stderr).toContain("base URL: http://127.0.0.1:9/v1\n");
+      expect(r.stdout + r.stderr).not.toContain("SECRET123");
+    }
+  });
+});
+
+describe("precedence through the CLI", () => {
+  it("base URL and context budget: flag beats env beats config", async () => {
+    const env = await withConfig('context_budget = 300\n[provider]\nbase_url = "http://cfg/v1"\nmodel = "m"\n');
+    const seen = async (args: string[], extra: Record<string, string>) => (await run([file, "--dry-run", ...args], { ...env, ...extra })).stderr;
+    let err = await seen([], {});
+    expect(err).toContain("base URL: http://cfg/v1");
+    expect(err).toContain("budget 300 characters (setting)");
+    err = await seen([], { LEARN_BASE_URL: "http://env/v1", LEARN_CONTEXT_BUDGET: "400" });
+    expect(err).toContain("base URL: http://env/v1");
+    expect(err).toContain("budget 400 characters (setting)");
+    err = await seen(["--base-url", "http://flag/v1", "--context-budget", "500"], { LEARN_BASE_URL: "http://env/v1", LEARN_CONTEXT_BUDGET: "400" });
+    expect(err).toContain("base URL: http://flag/v1");
+    expect(err).toContain("budget 500 characters (setting)");
+  });
+});
 
 describe("base URL credentials", () => {
   const CREDS = "http://user:hunter2@127.0.0.1:9/v1";
@@ -167,16 +193,12 @@ describe("config file safety", () => {
     expect(r.stderr).toContain("too large (over 64 KB)");
   });
 
-  it("an unreadable file is a usage error naming the file", async () => {
+  it.skipIf(process.getuid?.() === 0)("an unreadable file is a usage error naming the file", async () => {
     const env = await withEntry((p) => writeFile(p, "level = \"expert\"\n"));
     await chmod(env.path, 0o000);
     const r = await run([file, "--dry-run"], { ...BASE, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME });
-    // Root can read anything; elsewhere this must be refused.
-    if (process.getuid?.() !== 0) {
-      expect(r.code).toBe(2);
-      expect(r.stderr).toContain(env.path);
-      expect(r.stderr).toContain("EACCES");
-    }
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain(`${env.path}: cannot be used as the config file (EACCES)`);
   });
 
   it("a TOML syntax error exits 2 naming the file and line, without echoing the line", async () => {
@@ -209,9 +231,14 @@ describe("config file safety", () => {
     const escaped = await run([join(outside, "x.ts"), "--dry-run"], settings, dir);
     expect(escaped.code).toBe(3);
     expect(escaped.stderr).not.toContain("outsideRoot");
-    for (const r of [blocked, escaped]) {
+    await writeFile(join(dir, "ok.ts"), "const fine = 1;\n");
+    const proceeds = await run(["ok.ts", "--dry-run"], settings, dir);
+    expect(proceeds.code).toBe(0);
+    for (const r of [blocked, escaped, proceeds]) {
       expect(r.stderr).toContain("LEARN_ROOT is ignored");
-      expect(r.stderr).toContain('"allow_sensitive" in');
+      expect(r.stderr).toContain("LEARN_ALLOW_SENSITIVE is ignored");
+      expect(r.stderr).toContain(`"root" in ${env.path} is ignored`);
+      expect(r.stderr).toContain(`"allow_sensitive" in ${env.path} is ignored`);
     }
   });
 });

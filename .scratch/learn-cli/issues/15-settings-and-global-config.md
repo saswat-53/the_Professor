@@ -9,7 +9,7 @@
 - [x] Precedence is flag, then environment (`LEARN_LEVEL`, `LEARN_MODEL`, `LEARN_BASE_URL`, `LEARN_CONTEXT_BUDGET`), then config file, then default, tested for every setting
 - [x] The config is read only from the per-user config location (honouring the standard config-directory variable); a config file in the project is ignored
 - [x] An unknown key produces a warning that names it; an invalid value produces an error naming the key and the file, exit code 2
-- [x] A missing config file produces a first-run message with an example whose alternative provider lines are marked as alternatives
+- [x] A missing config file produces a first-run message (when the base URL or model is also not set by flag or environment) with an example whose alternative provider lines are marked as alternatives
 - [x] `~` in the notes directory setting is expanded
 - [x] Provider and model settings use the same resolution mechanism as level, with no duplicated precedence logic
 
@@ -20,3 +20,4 @@
 - Done: `src/core/settings.ts` (one table, one precedence loop; TOML via `smol-toml`; file read in the CLI so core stays read-free). `resolveBudget` now takes the `Endpoint` from the file reader, so one parse decides the budget default, the exemption and the report. `notes_dir` is resolved (with `~`) but not yet consumed (ticket 36). Concepts: precedence/resolution table, XDG base directories, TOML, pure core with I/O at the edge.
 - Hardening pass: `--root`/`--allow-sensitive` stay flag-only (env and config forms warn by name, never apply); rejected base URLs are echoed without userinfo (`redactUrl`); TOML errors give file, line and column but never the source line; an empty string is "unset" for every setting and source; the config is read with `readTextFile` (regular files only, 64 KB cap) and any failure is exit 2 naming the file. Open for ticket 16: `--dry-run` and `--show-prompt` print the resolved base URL as given, so a URL with userinfo would be printed there.
 - Closed the base URL leak noted above: a base URL with userinfo is refused as a setting (exit 2, "put the key in an environment variable"), since `fetch` rejects such URLs and stripping would send the request without credentials the user thought they gave. `--dry-run` and `--show-prompt` also print the URL through `redactUrl`, the same function the errors use. A missing base URL or model says where it looked.
+- Review follow-up: `redactUrl` also cuts query and fragment; an empty `LEARN_ROOT`/`LEARN_ALLOW_SENSITIVE` does not warn; the empty-value rule is tested for every setting and source. Level and budget values from a flag or variable are still echoed as given in "invalid" errors, on purpose: they hold no credentials and the user needs to see the typo.

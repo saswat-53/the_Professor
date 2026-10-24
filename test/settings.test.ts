@@ -34,6 +34,13 @@ describe("precedence: flag, then environment, then config file, then default (ev
     }
   }
 
+  it("notesDir and keyEnv are config-only: a flag or environment variable of the obvious name changes nothing", () => {
+    const s = resolve({ notesDir: "/f" } as never, { LEARN_NOTES_DIR: "/e", LEARN_KEY_ENV: "E" }, 'notes_dir = "/c"\n[provider]\nkey_env = "C"\n').settings;
+    expect([s.notesDir, s.keyEnv]).toEqual(["/c", "C"]);
+  });
+  it("level: a config value beats the default (the matrix cannot show it, since its config value is the default)", () => {
+    expect(resolve({}, {}, 'level = "expert"\n').settings.level).toBe("expert");
+  });
   it("keyEnv comes from the config file only", () => {
     expect(resolve({}, { LEARN_KEY_ENV: "X" }, '[provider]\nkey_env = "MY_KEY"\n').settings.keyEnv).toBe("MY_KEY");
     expect(resolve().settings.keyEnv).toBeUndefined();
@@ -50,6 +57,17 @@ describe("empty values", () => {
   });
   it("an empty higher source does not hide a lower one", () => {
     expect(resolve({ model: "" }, { LEARN_MODEL: "" }, '[provider]\nmodel = "c"\n').settings.model).toBe("c");
+  });
+  it.each(SETTINGS.flatMap((c) => [["flag", c], ["env", c], ["config", c]] as const))("%s: an empty value for every setting is unset (%#)", (source, c) => {
+    const empty = { flag: { flags: { [c.flag[0]]: "" } }, env: { env: { [c.env[0]]: "" } }, config: { toml: c.cfg[0].replace(/= (".*"|\d+)$/m, '= ""') } }[source];
+    const toml = "toml" in empty ? `${empty.toml}\n` : undefined;
+    const got = resolve("flags" in empty ? empty.flags : {}, "env" in empty ? empty.env : {}, toml);
+    expect((got.settings as unknown as Record<string, unknown>)[c.key]).toBe(c.dflt);
+  });
+  it.each(['[provider]\nkey_env = ""\n', 'notes_dir = ""\n'])("an empty config value is unset: %j", (toml) => {
+    const { settings } = resolve({}, {}, toml);
+    expect(settings.keyEnv).toBeUndefined();
+    expect(settings.notesDir).toBe("/home/u/learn-notes");
   });
   it("applies to every setting, not only model", () => {
     const s = resolve({ level: "" }, { LEARN_CONTEXT_BUDGET: "", LEARN_BASE_URL: "" }, 'context_budget = 5\nnotes_dir = ""\n').settings;
@@ -134,16 +152,27 @@ describe("secrets never appear in messages", () => {
     const run = () => resolve(flags, env, toml);
     expect(run).toThrow(UsageError);
     expect(run).toThrow(/put the key in an environment variable/);
-    if (_n !== "config file") expect(run).toThrow(/host\/v1/);
+    if (_n === "config file") expect(run).toThrow(/"provider\.base_url" in \/home\/u\/\.config\/learn\/config\.toml/);
+    else expect(run).toThrow(/host\/v1/);
     try {
       run();
     } catch (err) {
       expect((err as Error).message).not.toMatch(/:pass@|token@/);
     }
   });
-  it("redactUrl strips userinfo and keeps the rest", () => {
+  it("redactUrl strips userinfo, query and fragment, and keeps the rest", () => {
     expect(redactUrl("ftp://user:pass@host/v1")).toBe("ftp://host/v1");
     expect(redactUrl("http://host/v1")).toBe("http://host/v1");
+    expect(redactUrl("https://host:8080/v1?api_key=abc#frag")).toBe("https://host:8080/v1");
+    expect(redactUrl("https://u:p@host/v1?k=a@b")).toBe("https://host/v1");
+  });
+  it("a rejected base URL with a secret in its query is echoed without it", () => {
+    expect(() => resolve({ baseUrl: "ftp://host/v1?api_key=SECRET123" })).toThrow(/ftp:\/\/host\/v1"/);
+    try {
+      resolve({ baseUrl: "ftp://host/v1?api_key=SECRET123" });
+    } catch (err) {
+      expect((err as Error).message).not.toContain("SECRET123");
+    }
   });
 });
 
@@ -154,6 +183,9 @@ describe("safety flags are flags only", () => {
     expect(Object.keys(settings)).not.toContain("allowSensitive");
     expect(warnings.join("\n")).toContain("LEARN_ROOT is ignored");
     expect(warnings.join("\n")).toContain("LEARN_ALLOW_SENSITIVE is ignored");
+  });
+  it("an empty LEARN_ROOT or LEARN_ALLOW_SENSITIVE is unset, so it does not warn", () => {
+    expect(resolve({}, { LEARN_ROOT: "", LEARN_ALLOW_SENSITIVE: "" }).warnings).toEqual([]);
   });
   it("root and allow_sensitive in the config are ignored, with a warning that names them", () => {
     const { settings, warnings } = resolve({}, {}, 'root = "/"\nallow_sensitive = true\n');
@@ -183,6 +215,7 @@ describe("first-run message", () => {
     expect(m).toContain(FILE);
     expect(m).toMatch(/alternative/i);
     expect(m).toContain("LEARN_BASE_URL");
+    expect(m).toContain(EXAMPLE_CONFIG);
   });
   it("its example is valid as shipped, and each alternative works when uncommented alone", () => {
     const blocks = EXAMPLE_CONFIG.split(/\n(?=# Alternative)/).slice(1);
