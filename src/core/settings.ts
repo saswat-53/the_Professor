@@ -41,7 +41,26 @@ interface Def<K extends keyof ResolvedSettings> {
   config: readonly string[];
   /** Returns the value, or a short reason it is invalid. */
   parse: (raw: unknown, home: string) => { value: ResolvedSettings[K] } | { error: string };
+  /** How a rejected value is echoed back in an error. Default: as given. */
+  show?: (raw: string) => string;
 }
+
+/** `https://user:pass@host` must never be echoed back: userinfo is cut, and anything still holding an "@" is hidden entirely. */
+export function redactUrl(raw: string): string {
+  const stripped = raw.replace(/(\/\/)[^/?#\s]*@/, "$1");
+  return stripped.includes("@") ? "(value hidden)" : stripped;
+}
+
+const url = (raw: unknown) => {
+  if (typeof raw !== "string") return { error: "must be an http or https URL" };
+  try {
+    const { protocol } = new URL(raw);
+    if (protocol === "http:" || protocol === "https:") return { value: raw };
+  } catch {
+    // falls through to the error
+  }
+  return { error: "must be an http or https URL" };
+};
 
 const text = (what: string): Def<"model">["parse"] => (raw) =>
   typeof raw === "string" && raw !== "" ? { value: raw } : { error: `${what} must be a non-empty string` };
@@ -60,7 +79,7 @@ const dir = (raw: unknown, home: string) =>
 const DEFS = [
   { key: "level", flag: "level", flagName: "--level", env: "LEARN_LEVEL", config: ["level"], parse: level },
   { key: "contextBudget", flag: "contextBudget", flagName: "--context-budget", env: "LEARN_CONTEXT_BUDGET", config: ["context_budget"], parse: budget },
-  { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: text("a base URL") },
+  { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: redactUrl },
   { key: "model", flag: "model", flagName: "--model", env: "LEARN_MODEL", config: ["provider", "model"], parse: text("a model name") },
   { key: "keyEnv", config: ["provider", "key_env"], parse: text("a variable name") },
   { key: "notesDir", config: ["notes_dir"], parse: dir },
@@ -71,12 +90,22 @@ export function parseConfig(source: string, file: string): Config {
   try {
     return { file, values: parse(source) };
   } catch (err) {
-    throw new UsageError(`${file}: not valid TOML: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}`);
+    // The parser's full message quotes the offending source line, which could be a secret: only its position and reason are kept.
+    const e = err as { line?: number; column?: number; message?: string };
+    const reason = (e.message ?? "").split("\n")[0]?.replace(/^Invalid TOML document: /, "") ?? "";
+    const where = e.line === undefined ? "" : ` at line ${e.line}, column ${e.column}`;
+    throw new UsageError(`${file}: not valid TOML${where}: ${reason}`);
   }
 }
 
 const at = (values: Record<string, unknown>, path: readonly string[]): unknown =>
   path.reduce<unknown>((v, k) => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>)[k] : undefined), values);
+
+/** Safety flags: they widen what is read or sent, so only a command-line flag may turn them on. */
+const FLAG_ONLY = [
+  { flag: "--root", env: "LEARN_ROOT", key: "root" },
+  { flag: "--allow-sensitive", env: "LEARN_ALLOW_SENSITIVE", key: "allow_sensitive" },
+] as const;
 
 /** Dotted names of config keys that no setting uses. */
 function unknownKeys(values: Record<string, unknown>): string[] {
@@ -109,19 +138,31 @@ export function resolveSettings({ flags, env, config, home }: ResolveInput): { s
   for (const def of DEFS) {
     const candidates: [Where, unknown][] = [];
     if ("flag" in def) candidates.push([{ kind: "flag", label: def.flagName }, flags[def.flag]]);
-    if ("env" in def) candidates.push([{ kind: "env", label: def.env }, env[def.env] === "" ? undefined : env[def.env]]);
+    if ("env" in def) candidates.push([{ kind: "env", label: def.env }, env[def.env]]);
     if (config) candidates.push([{ kind: "config", label: `"${def.config.join(".")}" in ${config.file}` }, at(config.values, def.config)]);
-    const found = candidates.find(([, v]) => v !== undefined);
+    // One rule for every setting and source: an empty string is the same as not set.
+    const found = candidates.find(([, v]) => v !== undefined && v !== "");
     if (!found) continue;
     const [where, raw] = found;
     const result = def.parse(raw, home);
     if ("error" in result) {
-      const subject = where.kind === "config" ? `invalid ${where.label}` : `invalid ${where.label} "${String(raw)}"`;
+      const subject = where.kind === "config" ? `invalid ${where.label}` : `invalid ${where.label} "${"show" in def && typeof raw === "string" ? def.show(raw) : String(raw)}"`;
       throw new UsageError(`${subject}: ${result.error}`);
     }
     out[def.key] = result.value;
   }
-  const warnings = config ? unknownKeys(config.values).map((k) => `warning: unknown key "${k}" in ${config.file}; ignored`) : [];
+  const flagOnly = (key: string) => FLAG_ONLY.find((f) => f.key === key);
+  const warnings = [
+    ...FLAG_ONLY.filter((f) => env[f.env] !== undefined).map((f) => `warning: ${f.env} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`),
+    ...(config
+      ? unknownKeys(config.values).map((k) => {
+          const f = flagOnly(k);
+          return f
+            ? `warning: "${k}" in ${config.file} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`
+            : `warning: unknown key "${k}" in ${config.file}; ignored`;
+        })
+      : []),
+  ];
   return { settings: out as unknown as ResolvedSettings, warnings };
 }
 

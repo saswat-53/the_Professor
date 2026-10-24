@@ -5,6 +5,8 @@ import { FileRefusedError } from "./errors.js";
 const MAX_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 
+const describeSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${bytes / (1024 * 1024)} MB` : `${bytes / 1024} KB`);
+
 /** Reads until end of file or `limit` bytes, whichever comes first; a single read can come back short. */
 async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
   const buffer = Buffer.alloc(limit);
@@ -21,13 +23,13 @@ async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
  * Reads a file the safe way: only ordinary text files of reasonable size are opened.
  *
  * The path is checked with `stat` first because opening a named pipe blocks until a writer
- * appears. After opening, the handle is checked again (`fstat`) so a swap between the two
+ * appears. `maxBytes` caps the size (default 1 MB). After opening, the handle is checked again (`fstat`) so a swap between the two
  * steps is caught, and at most one byte past the limit is ever read.
  */
-export async function readTextFile(path: string): Promise<string> {
+export async function readTextFile(path: string, maxBytes = MAX_BYTES): Promise<string> {
   const pathStat = await stat(path);
   if (!pathStat.isFile()) throw new FileRefusedError("not-regular", `${path}: not a regular file`);
-  if (pathStat.size > MAX_BYTES) throw new FileRefusedError("too-large", `${path}: file too large (over 1 MB)`);
+  if (pathStat.size > maxBytes) throw new FileRefusedError("too-large", `${path}: file too large (over ${describeSize(maxBytes)})`);
 
   const handle = await open(path, "r");
   let bytes: Buffer;
@@ -36,8 +38,8 @@ export async function readTextFile(path: string): Promise<string> {
     if (!handleStat.isFile() || handleStat.dev !== pathStat.dev || handleStat.ino !== pathStat.ino) {
       throw new FileRefusedError("changed", `${path}: changed while being read`);
     }
-    bytes = await readBounded(handle, MAX_BYTES + 1);
-    if (bytes.length > MAX_BYTES) throw new FileRefusedError("too-large", `${path}: file too large (over 1 MB)`);
+    bytes = await readBounded(handle, maxBytes + 1);
+    if (bytes.length > maxBytes) throw new FileRefusedError("too-large", `${path}: file too large (over ${describeSize(maxBytes)})`);
   } finally {
     await handle.close();
   }

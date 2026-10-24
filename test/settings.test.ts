@@ -1,26 +1,60 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
-import { EXAMPLE_CONFIG, configPath, firstRunMessage, parseConfig, resolveSettings } from "../src/core/settings.js";
+import { EXAMPLE_CONFIG, configPath, firstRunMessage, parseConfig, redactUrl, resolveSettings } from "../src/core/settings.js";
 
 const FILE = "/home/u/.config/learn/config.toml";
 const resolve = (flags = {}, env = {}, toml?: string) =>
   resolveSettings({ flags, env, config: toml === undefined ? undefined : parseConfig(toml, FILE), home: "/home/u" });
 
-describe("precedence: flag, then environment, then config file, then default", () => {
-  const cases = [
-    { name: "level", flag: { level: "beginner" }, env: { LEARN_LEVEL: "expert" }, toml: 'level = "intermediate"\n', pick: (s: any) => s.level, want: ["beginner", "expert", "intermediate", "intermediate"] },
-    { name: "model", flag: { model: "f" }, env: { LEARN_MODEL: "e" }, toml: '[provider]\nmodel = "c"\n', pick: (s: any) => s.model, want: ["f", "e", "c", undefined] },
-    { name: "baseUrl", flag: { baseUrl: "http://f/v1" }, env: { LEARN_BASE_URL: "http://e/v1" }, toml: '[provider]\nbase_url = "http://c/v1"\n', pick: (s: any) => s.baseUrl, want: ["http://f/v1", "http://e/v1", "http://c/v1", undefined] },
-    { name: "contextBudget", flag: { contextBudget: "100" }, env: { LEARN_CONTEXT_BUDGET: "200" }, toml: "context_budget = 300\n", pick: (s: any) => s.contextBudget, want: [100, 200, 300, undefined] },
-  ];
-  for (const c of cases) {
-    it(c.name, () => {
-      expect(c.pick(resolve(c.flag, c.env, c.toml).settings)).toBe(c.want[0]);
-      expect(c.pick(resolve({}, c.env, c.toml).settings)).toBe(c.want[1]);
-      expect(c.pick(resolve({}, {}, c.toml).settings)).toBe(c.want[2]);
-      expect(c.pick(resolve().settings)).toBe(c.want[3]);
-    });
+/** Every setting, with the value each source would give it and the default when none is given. */
+const SETTINGS = [
+  { name: "level", key: "level", flag: ["level", "beginner"], env: ["LEARN_LEVEL", "expert"], cfg: ['level = "intermediate"', "intermediate"], expectFlag: "beginner", expectEnv: "expert", expectCfg: "intermediate", dflt: "intermediate" },
+  { name: "model", key: "model", flag: ["model", "f"], env: ["LEARN_MODEL", "e"], cfg: ['[provider]\nmodel = "c"', "c"], expectFlag: "f", expectEnv: "e", expectCfg: "c", dflt: undefined },
+  { name: "baseUrl", key: "baseUrl", flag: ["baseUrl", "http://f/v1"], env: ["LEARN_BASE_URL", "http://e/v1"], cfg: ['[provider]\nbase_url = "http://c/v1"', "http://c/v1"], expectFlag: "http://f/v1", expectEnv: "http://e/v1", expectCfg: "http://c/v1", dflt: undefined },
+  { name: "contextBudget", key: "contextBudget", flag: ["contextBudget", "100"], env: ["LEARN_CONTEXT_BUDGET", "200"], cfg: ["context_budget = 300", 300], expectFlag: 100, expectEnv: 200, expectCfg: 300, dflt: undefined },
+] as const;
+
+describe("precedence: flag, then environment, then config file, then default (every setting, every combination of sources)", () => {
+  for (const c of SETTINGS) {
+    const sources = [
+      { id: "flag", give: { flags: { [c.flag[0]]: c.flag[1] } }, want: c.expectFlag },
+      { id: "env", give: { env: { [c.env[0]]: c.env[1] } }, want: c.expectEnv },
+      { id: "config", give: { toml: c.cfg[0] }, want: c.expectCfg },
+    ];
+    for (let mask = 0; mask < 8; mask++) {
+      const used = sources.filter((_, i) => mask & (1 << i));
+      const label = used.length === 0 ? "none -> default" : `${used.map((u) => u.id).join("+")} -> ${used[0]?.id}`;
+      it(`${c.name}: ${label}`, () => {
+        const flags = Object.assign({}, ...used.map((u) => ("flags" in u.give ? u.give.flags : {})));
+        const env = Object.assign({}, ...used.map((u) => ("env" in u.give ? u.give.env : {})));
+        const toml = used.find((u) => "toml" in u.give);
+        const settings = resolve(flags, env, toml && "toml" in toml.give ? `${toml.give.toml}\n` : undefined).settings as unknown as Record<string, unknown>;
+        expect(settings[c.key]).toBe(used.length === 0 ? c.dflt : used[0]?.want);
+      });
+    }
   }
+
+  it("keyEnv comes from the config file only", () => {
+    expect(resolve({}, { LEARN_KEY_ENV: "X" }, '[provider]\nkey_env = "MY_KEY"\n').settings.keyEnv).toBe("MY_KEY");
+    expect(resolve().settings.keyEnv).toBeUndefined();
+  });
+});
+
+describe("empty values", () => {
+  it.each([
+    ["flag", { model: "" }, {}, undefined],
+    ["environment", {}, { LEARN_MODEL: "" }, undefined],
+    ["config file", {}, {}, '[provider]\nmodel = ""\n'],
+  ])("an empty %s value is the same as not set", (_n, flags, env, toml) => {
+    expect(resolve(flags, env, toml).settings.model).toBeUndefined();
+  });
+  it("an empty higher source does not hide a lower one", () => {
+    expect(resolve({ model: "" }, { LEARN_MODEL: "" }, '[provider]\nmodel = "c"\n').settings.model).toBe("c");
+  });
+  it("applies to every setting, not only model", () => {
+    const s = resolve({ level: "" }, { LEARN_CONTEXT_BUDGET: "", LEARN_BASE_URL: "" }, 'context_budget = 5\nnotes_dir = ""\n').settings;
+    expect([s.level, s.contextBudget, s.baseUrl, s.notesDir]).toEqual(["intermediate", 5, undefined, "/home/u/learn-notes"]);
+  });
 });
 
 describe("validation", () => {
@@ -38,14 +72,80 @@ describe("validation", () => {
   it("rejects a non-integer budget in the config", () => {
     expect(() => resolve({}, {}, 'context_budget = "big"\n')).toThrow(/"context_budget"/);
   });
-  it("names the file for TOML that does not parse", () => {
-    expect(() => parseConfig("level = = 1", FILE)).toThrow(/config\.toml/);
+  it.each([
+    ["context_budget", 'context_budget = "big"\n'],
+    ["context_budget", "context_budget = 1.5\n"],
+    ["context_budget", "context_budget = 0\n"],
+    ["level", "level = 3\n"],
+    ["provider.model", "[provider]\nmodel = 3\n"],
+    ["provider.base_url", '[provider]\nbase_url = "ftp://h/v1"\n'],
+    ["notes_dir", "notes_dir = true\n"],
+  ])("a wrong type or value for %s is an error naming the key and file", (key, toml) => {
+    expect(() => resolve({}, {}, toml)).toThrow(new RegExp(`"${key}" in .*config\\.toml`));
+  });
+  it("a TOML syntax error names the file and the position, and not the offending line", () => {
+    const run = () => parseConfig('a = 1\napi_key = "sk-SECRET123" oops\n', FILE);
+    expect(run).toThrow(UsageError);
+    expect(run).toThrow(/config\.toml: not valid TOML at line 2, column \d+: /);
+    try {
+      run();
+    } catch (err) {
+      expect((err as Error).message).not.toContain("sk-SECRET123");
+      expect((err as Error).message).not.toContain("\n");
+    }
   });
   it("warns on an unknown key, naming it", () => {
     const { warnings } = resolve({}, {}, 'levle = "expert"\n[provider]\nmodle = "x"\n');
     expect(warnings).toHaveLength(2);
     expect(warnings[0]).toContain('"levle"');
     expect(warnings[1]).toContain('"provider.modle"');
+  });
+});
+
+describe("secrets never appear in messages", () => {
+  it("an unknown key's warning names the key, never the value", () => {
+    const { warnings } = resolve({}, {}, 'api_key = "sk-SECRET123"\n');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"api_key"');
+    expect(warnings[0]).not.toContain("sk-SECRET123");
+  });
+  it.each([
+    ["flag", { baseUrl: "https://user:pass@host:notaport/v1" }, {}, undefined],
+    ["environment", {}, { LEARN_BASE_URL: "ftp://user:pass@host/v1" }, undefined],
+    ["config file", {}, {}, '[provider]\nbase_url = "ftp://user:pass@host/v1"\n'],
+    ["scheme-less userinfo", { baseUrl: "user:pass@host/v1" }, {}, undefined],
+  ])("a rejected base URL from the %s is shown without userinfo", (_n, flags, env, toml) => {
+    let message = "";
+    try {
+      resolve(flags, env, toml);
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toMatch(/base/i);
+    expect(message).not.toContain("pass");
+    expect(message).not.toContain("user:");
+  });
+  it("redactUrl strips userinfo and keeps the rest", () => {
+    expect(redactUrl("ftp://user:pass@host/v1")).toBe("ftp://host/v1");
+    expect(redactUrl("http://host/v1")).toBe("http://host/v1");
+  });
+});
+
+describe("safety flags are flags only", () => {
+  it("LEARN_ROOT and LEARN_ALLOW_SENSITIVE are ignored, with a warning that names them", () => {
+    const { settings, warnings } = resolve({}, { LEARN_ROOT: "/", LEARN_ALLOW_SENSITIVE: "1" });
+    expect(Object.keys(settings)).not.toContain("root");
+    expect(Object.keys(settings)).not.toContain("allowSensitive");
+    expect(warnings.join("\n")).toContain("LEARN_ROOT is ignored");
+    expect(warnings.join("\n")).toContain("LEARN_ALLOW_SENSITIVE is ignored");
+  });
+  it("root and allow_sensitive in the config are ignored, with a warning that names them", () => {
+    const { settings, warnings } = resolve({}, {}, 'root = "/"\nallow_sensitive = true\n');
+    expect(Object.keys(settings)).not.toContain("root");
+    expect(Object.keys(settings)).not.toContain("allowSensitive");
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toMatch(/"root".*--root is a flag only/);
+    expect(warnings[1]).toMatch(/"allow_sensitive".*--allow-sensitive is a flag only/);
   });
 });
 

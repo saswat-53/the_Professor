@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, reportForError, resolveSettings } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, reportForError, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -11,14 +10,23 @@ Each setting comes from its flag, then its environment variable (LEARN_BASE_URL,
 then the config file (~/.config/learn/config.toml), then the default.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
-/** The per-user config file, or undefined when there is none. The project is never searched. */
+/** A config file is a few lines; this cap also keeps a wrong file (a log, a dump) from being parsed. */
+const CONFIG_MAX_BYTES = 64 * 1024;
+
+/**
+ * The per-user config file, or undefined when there is none. The project is never searched. It is
+ * read with the same safe reader as source files (regular files only, so a named pipe cannot hang
+ * the run), and any failure is a usage error that names the file.
+ */
 async function readConfig(file: string): Promise<Config | undefined> {
   let source;
   try {
-    source = await readFile(file, "utf8");
+    source = await readTextFile(file, CONFIG_MAX_BYTES);
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw new UsageError(`${file}: cannot be read: ${(err as Error).message}`);
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return undefined;
+    const why = err instanceof FileRefusedError ? err.message.replace(`${file}: `, "") : code ?? "cannot be read";
+    throw new UsageError(`${file}: cannot be used as the config file (${why})`);
   }
   return parseConfig(source, file);
 }
