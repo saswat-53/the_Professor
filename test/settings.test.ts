@@ -1,3 +1,4 @@
+import { stringify } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
 import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, resolveSettings } from "../src/core/settings.js";
@@ -6,29 +7,37 @@ const FILE = "/home/u/.config/learn/config.toml";
 const resolve = (flags = {}, env = {}, toml?: string) =>
   resolveSettings({ flags, env, config: toml === undefined ? undefined : parseConfig(toml, FILE), home: "/home/u" });
 
-/** Every setting, with the value each source would give it and the default when none is given. */
+/** Builds `{ provider: { model: "x" } }` from a path, so a config is assembled as data and serialized, not written as text. */
+const nest = (path: readonly string[], value: unknown): Record<string, unknown> =>
+  path.reduceRight<unknown>((inner, key) => ({ [key]: inner }), value) as Record<string, unknown>;
+const tomlOf = (path: readonly string[], value: unknown) => `${stringify(nest(path, value))}\n`;
+
+/** Every setting: where each source puts it, the value each gives, and the default when none is given. */
 const SETTINGS = [
-  { name: "level", key: "level", flag: ["level", "beginner"], env: ["LEARN_LEVEL", "expert"], cfg: ['level = "intermediate"', "intermediate"], expectFlag: "beginner", expectEnv: "expert", expectCfg: "intermediate", dflt: "intermediate" },
-  { name: "model", key: "model", flag: ["model", "f"], env: ["LEARN_MODEL", "e"], cfg: ['[provider]\nmodel = "c"', "c"], expectFlag: "f", expectEnv: "e", expectCfg: "c", dflt: undefined },
-  { name: "baseUrl", key: "baseUrl", flag: ["baseUrl", "http://f/v1"], env: ["LEARN_BASE_URL", "http://e/v1"], cfg: ['[provider]\nbase_url = "http://c/v1"', "http://c/v1"], expectFlag: "http://f/v1", expectEnv: "http://e/v1", expectCfg: "http://c/v1", dflt: undefined },
-  { name: "contextBudget", key: "contextBudget", flag: ["contextBudget", "100"], env: ["LEARN_CONTEXT_BUDGET", "200"], cfg: ["context_budget = 300", 300], expectFlag: 100, expectEnv: 200, expectCfg: 300, dflt: undefined },
+  { key: "level", flag: ["level", "beginner"], env: ["LEARN_LEVEL", "expert"], cfg: [["level"], "intermediate"], dflt: "intermediate" },
+  { key: "model", flag: ["model", "f"], env: ["LEARN_MODEL", "e"], cfg: [["provider", "model"], "c"], dflt: undefined },
+  { key: "baseUrl", flag: ["baseUrl", "http://f/v1"], env: ["LEARN_BASE_URL", "http://e/v1"], cfg: [["provider", "base_url"], "http://c/v1"], dflt: undefined },
+  { key: "contextBudget", flag: ["contextBudget", "100"], env: ["LEARN_CONTEXT_BUDGET", "200"], cfg: [["context_budget"], 300], dflt: undefined },
 ] as const;
+
+/** What the setting resolves to when its value arrives from that source (a budget flag or variable is text, the resolved value a number). */
+const resolved = (key: string, value: unknown) => (key === "contextBudget" ? Number(value) : value);
 
 describe("precedence: flag, then environment, then config file, then default (every setting, every combination of sources)", () => {
   for (const c of SETTINGS) {
     const sources = [
-      { id: "flag", give: { flags: { [c.flag[0]]: c.flag[1] } }, want: c.expectFlag },
-      { id: "env", give: { env: { [c.env[0]]: c.env[1] } }, want: c.expectEnv },
-      { id: "config", give: { toml: c.cfg[0] }, want: c.expectCfg },
+      { id: "flag", flags: { [c.flag[0]]: c.flag[1] }, env: {}, toml: undefined, want: resolved(c.key, c.flag[1]) },
+      { id: "env", flags: {}, env: { [c.env[0]]: c.env[1] }, toml: undefined, want: resolved(c.key, c.env[1]) },
+      { id: "config", flags: {}, env: {}, toml: tomlOf(c.cfg[0], c.cfg[1]), want: c.cfg[1] },
     ];
     for (let mask = 0; mask < 8; mask++) {
       const used = sources.filter((_, i) => mask & (1 << i));
       const label = used.length === 0 ? "none -> default" : `${used.map((u) => u.id).join("+")} -> ${used[0]?.id}`;
-      it(`${c.name}: ${label}`, () => {
-        const flags = Object.assign({}, ...used.map((u) => ("flags" in u.give ? u.give.flags : {})));
-        const env = Object.assign({}, ...used.map((u) => ("env" in u.give ? u.give.env : {})));
-        const toml = used.find((u) => "toml" in u.give);
-        const settings = resolve(flags, env, toml && "toml" in toml.give ? `${toml.give.toml}\n` : undefined).settings as unknown as Record<string, unknown>;
+      it(`${c.key}: ${label}`, () => {
+        const flags = Object.assign({}, ...used.map((u) => u.flags));
+        const env = Object.assign({}, ...used.map((u) => u.env));
+        const toml = used.find((u) => u.toml !== undefined)?.toml;
+        const settings = resolve(flags, env, toml).settings as unknown as Record<string, unknown>;
         expect(settings[c.key]).toBe(used.length === 0 ? c.dflt : used[0]?.want);
       });
     }
@@ -58,12 +67,15 @@ describe("empty values", () => {
   it("an empty higher source does not hide a lower one", () => {
     expect(resolve({ model: "" }, { LEARN_MODEL: "" }, '[provider]\nmodel = "c"\n').settings.model).toBe("c");
   });
-  it.each(SETTINGS.flatMap((c) => [["flag", c], ["env", c], ["config", c]] as const))("%s: an empty value for every setting is unset (%#)", (source, c) => {
-    const empty = { flag: { flags: { [c.flag[0]]: "" } }, env: { env: { [c.env[0]]: "" } }, config: { toml: c.cfg[0].replace(/= (".*"|\d+)$/m, '= ""') } }[source];
-    const toml = "toml" in empty ? `${empty.toml}\n` : undefined;
-    const got = resolve("flags" in empty ? empty.flags : {}, "env" in empty ? empty.env : {}, toml);
-    expect((got.settings as unknown as Record<string, unknown>)[c.key]).toBe(c.dflt);
-  });
+  it.each(SETTINGS.flatMap((c) => (["flag", "env", "config"] as const).map((source) => [c.key, source, c] as const)))(
+    "%s: an empty %s value is unset",
+    (_key, source, c) => {
+      const flags = source === "flag" ? { [c.flag[0]]: "" } : {};
+      const env = source === "env" ? { [c.env[0]]: "" } : {};
+      const toml = source === "config" ? tomlOf(c.cfg[0], "") : undefined;
+      expect((resolve(flags, env, toml).settings as unknown as Record<string, unknown>)[c.key]).toBe(c.dflt);
+    },
+  );
   it.each(['[provider]\nkey_env = ""\n', 'notes_dir = ""\n'])("an empty config value is unset: %j", (toml) => {
     const { settings } = resolve({}, {}, toml);
     expect(settings.keyEnv).toBeUndefined();
@@ -203,17 +215,21 @@ describe("first-run message", () => {
     expect(m).toContain("LEARN_BASE_URL");
     expect(m).toContain(EXAMPLE_CONFIG);
   });
-  it("its example is valid as shipped, and each alternative works when uncommented alone", () => {
-    const blocks = EXAMPLE_CONFIG.split(/\n(?=# Alternative)/).slice(1);
-    expect(blocks).toHaveLength(2);
-    const base = EXAMPLE_CONFIG.split(/\n(?=# Alternative)/)[0] ?? "";
-    for (const block of blocks) {
-      const live = block.split("\n").map((l) => (l.startsWith("# ") && !l.startsWith("# Alternative") ? l.slice(2) : l)).join("\n");
-      const { warnings, settings } = resolveSettings({ flags: {}, env: {}, config: parseConfig(`${base}\n${live}`, FILE), home: "/h" });
+  it("its example is valid TOML as shipped with no live provider block, and uncommenting any one alternative gives exactly one", () => {
+    const [head, ...alternatives] = EXAMPLE_CONFIG.split(/\n(?=# Alternative)/);
+    expect(alternatives).toHaveLength(2);
+    expect(parseConfig(EXAMPLE_CONFIG, FILE).values.provider).toBeUndefined();
+    for (const alternative of alternatives) {
+      const live = alternative.split("\n").map((l) => (l.startsWith("# ") && !l.startsWith("# Alternative") ? l.slice(2) : l)).join("\n");
+      const text = `${head}\n${live}`;
+      expect(text.match(/^\[provider\]$/gm)).toHaveLength(1);
+      const { values } = parseConfig(text, FILE);
+      expect(Object.keys(values.provider as object).sort()).toEqual(expect.arrayContaining(["base_url", "model"]));
+      const { warnings, settings } = resolveSettings({ flags: {}, env: {}, config: parseConfig(text, FILE), home: "/h" });
       expect(warnings).toEqual([]);
+      expect(settings.baseUrl).toMatch(/^https?:\/\//);
       expect(settings.model).toBeTruthy();
     }
-    expect(resolveSettings({ flags: {}, env: {}, config: parseConfig(EXAMPLE_CONFIG, FILE), home: "/h" }).settings.model).toBeUndefined();
   });
 });
 

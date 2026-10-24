@@ -63,4 +63,3 @@ _Avoid_: Safety setting, override
 **Base URL**:
 Where requests are sent: an `http` or `https` URL with no username or password in it (the key goes in the environment variable named by `key_env`). Anywhere learn shows one, it is printed without userinfo, query or fragment.
 _Avoid_: Endpoint (the Endpoint is the parsed host plus whether it is local)
-

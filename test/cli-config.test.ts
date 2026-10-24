@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { EXAMPLE_CONFIG } from "../src/core/settings.js";
+import { EXAMPLE_CONFIG, parseConfig } from "../src/core/settings.js";
 import { run } from "./support/cli.js";
 
 let home: string;
@@ -83,6 +83,10 @@ describe("config file", () => {
     expect(r.stderr).toContain(join(emptyHomeOf(r.stderr), ".config", "learn", "config.toml"));
     expect(r.stderr).toContain("save this there");
     expect(r.stderr).toContain(EXAMPLE_CONFIG);
+    // The example in the real output is valid TOML as printed, and has no live provider block until the user picks one.
+    const printed = r.stderr.slice(r.stderr.indexOf('level = "intermediate"'), r.stderr.indexOf("no base URL set"));
+    expect(parseConfig(printed, "printed").values.provider).toBeUndefined();
+    expect(printed.match(/^# Alternative \d:/gm)).toHaveLength(2);
   });
 
   it("no first-run message when flags or environment already give the base URL and model", async () => {
@@ -107,6 +111,33 @@ describe("precedence through the CLI", () => {
     err = await seen(["--base-url", "http://flag/v1", "--context-budget", "500"], { LEARN_BASE_URL: "http://env/v1", LEARN_CONTEXT_BUDGET: "400" });
     expect(err).toContain("base URL: http://flag/v1");
     expect(err).toContain("budget 500 characters (setting)");
+  });
+});
+
+describe("precedence through the CLI: model and level", () => {
+  const modelLine = (stderr: string) => /^model: (.*)$/m.exec(stderr)?.[1];
+  it("model: flag beats env beats config", async () => {
+    const env = await withConfig('[provider]\nbase_url = "http://cfg/v1"\nmodel = "cfg-model"\n');
+    expect(modelLine((await run([file, "--dry-run"], env)).stderr)).toBe("cfg-model");
+    expect(modelLine((await run([file, "--dry-run"], { ...env, LEARN_MODEL: "env-model" })).stderr)).toBe("env-model");
+    expect(modelLine((await run([file, "--dry-run", "--model", "flag-model"], { ...env, LEARN_MODEL: "env-model" })).stderr)).toBe("flag-model");
+  });
+  it("level: flag beats env beats config beats default", async () => {
+    const base = { LEARN_BASE_URL: "http://x/v1", LEARN_MODEL: "m" };
+    const env = await withConfig('level = "expert"\n');
+    const level = async (args: string[], extra: Record<string, string>) => /^Level: (\w+)/m.exec((await run([file, "--dry-run", ...args], { ...base, ...extra })).stderr)?.[1];
+    expect(await level([], {})).toBe("intermediate");
+    expect(await level([], env)).toBe("expert");
+    expect(await level([], { ...env, LEARN_LEVEL: "beginner" })).toBe("beginner");
+    expect(await level(["--level", "intermediate"], { ...env, LEARN_LEVEL: "beginner" })).toBe("intermediate");
+  });
+});
+
+describe("empty safety variables", () => {
+  it("an empty LEARN_ROOT and LEARN_ALLOW_SENSITIVE are unset: no warning, and the run goes ahead", async () => {
+    const r = await run([file, "--dry-run"], { LEARN_BASE_URL: "http://x/v1", LEARN_MODEL: "m", LEARN_ROOT: "", LEARN_ALLOW_SENSITIVE: "" });
+    expect(r.code).toBe(0);
+    expect(r.stderr).not.toContain("is ignored");
   });
 });
 

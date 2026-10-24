@@ -32,7 +32,7 @@ async function readConfig(file: string): Promise<Config | undefined> {
 }
 
 /** Where the settings come from, in order: flags, environment, the per-user config file. Returns an exit code when they cannot be resolved. */
-async function loadSettings(values: Flagged): Promise<number | { resolved: ReturnType<typeof resolveSettings>; config: Config | undefined; file: string }> {
+async function loadSettings(values: Flagged): Promise<Loaded> {
   const home = homedir();
   const file = configPath(process.env, home);
   try {
@@ -45,12 +45,15 @@ async function loadSettings(values: Flagged): Promise<number | { resolved: Retur
     });
     for (const warning of resolved.warnings) process.stderr.write(`${warning}\n`);
     if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) process.stderr.write(`${firstRunMessage(file)}\n\n`);
-    return { resolved, config, file };
+    return { ok: true, resolved, config, file };
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    return err instanceof LearnError ? err.exitCode : 2;
+    return { ok: false, exitCode: err instanceof LearnError ? err.exitCode : 2 };
   }
 }
+
+/** Either the resolved settings with where they came from, or the exit code to end with (the reason is already printed). */
+type Loaded = { ok: true; resolved: ReturnType<typeof resolveSettings>; config: Config | undefined; file: string } | { ok: false; exitCode: number };
 
 /** The parsed command-line values `loadSettings` reads. */
 type Flagged = { level?: string; model?: string; "base-url"?: string; "context-budget"?: string };
@@ -85,7 +88,7 @@ async function main(): Promise<number> {
   const { values, positionals } = parsed;
   const [reference] = positionals;
   const loaded = await loadSettings(values);
-  if (typeof loaded === "number") return loaded;
+  if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
   const { baseUrl, model, level, contextBudget } = resolved.settings;
   if (!baseUrl || !model) {
