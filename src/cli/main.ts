@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveSettings } from "../core/index.js";
-import type { Config, ModelRequest } from "../core/index.js";
+import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
@@ -31,6 +31,12 @@ async function readConfig(file: string): Promise<Config | undefined> {
   return parseConfig(source, file);
 }
 
+/** The parsed command-line values `loadSettings` reads. */
+type Flagged = { level?: string; model?: string; "base-url"?: string; "context-budget"?: string };
+
+/** Either the resolved settings with where they came from, or the exit code to end with (the reason is already printed). */
+type Loaded = { ok: true; resolved: Resolution; config: Config | undefined; file: string } | { ok: false; exitCode: number };
+
 /** Where the settings come from, in order: flags, environment, the per-user config file. Returns an exit code when they cannot be resolved. */
 async function loadSettings(values: Flagged): Promise<Loaded> {
   const home = homedir();
@@ -51,12 +57,6 @@ async function loadSettings(values: Flagged): Promise<Loaded> {
     return { ok: false, exitCode: err instanceof LearnError ? err.exitCode : 2 };
   }
 }
-
-/** Either the resolved settings with where they came from, or the exit code to end with (the reason is already printed). */
-type Loaded = { ok: true; resolved: ReturnType<typeof resolveSettings>; config: Config | undefined; file: string } | { ok: false; exitCode: number };
-
-/** The parsed command-line values `loadSettings` reads. */
-type Flagged = { level?: string; model?: string; "base-url"?: string; "context-budget"?: string };
 
 /** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
 const describe = (err: unknown) => {

@@ -45,17 +45,29 @@ interface Def<K extends keyof ResolvedSettings> {
   show?: (raw: string) => string;
 }
 
-/** The only schemes whose text is safe to show: for any other, the parser may have read part of a credential as the scheme (`user:pass@host`). */
+/** What is printed in place of a base URL that cannot be shown safely. */
+export const HIDDEN = "(value hidden)";
+
+/**
+ * The only schemes whose text is safe to show: for any other, the parser may have read part of a
+ * credential as the scheme (`user:pass@host`). Wider than the http/https a base URL may use on
+ * purpose, so a rejected `ftp://host/v1` can still be named in the error that rejects it.
+ */
 const SHOWN_SCHEMES = ["http:", "https:", "ftp:", "ws:", "wss:"];
+
+/** Backslashes, whitespace and control characters: the parser silently turns `\` into `/` and drops tabs and newlines, which can move a pasted key into the host. */
+const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f]/;
 
 /**
  * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). It cannot be
  * done with a pattern: `#`, `?` and `@` can all appear inside a password, so no regex can tell where
  * credentials end. So the string is parsed. If it parses as a web URL with a host, only protocol,
  * host and path are shown, followed by a note of what was removed (credentials, query, fragment).
- * If it does not parse, or parses into something that is not a web URL, none of it is shown.
+ * If it does not parse, parses into something that is not a web URL, or holds a character the
+ * parser would quietly rewrite, none of it is shown.
  */
 export function redactUrl(raw: string): string {
+  if (UNSAFE_CHARACTERS.test(raw)) return HIDDEN;
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -71,10 +83,10 @@ export function redactUrl(raw: string): string {
   return `${parsed.protocol}//${parsed.host}${parsed.pathname}${removed.length > 0 ? ` (removed: ${removed.join(", ")})` : ""}`;
 }
 
-const HIDDEN = "(value hidden)";
+const NOT_A_BASE_URL = "must be an http or https URL, such as http://localhost:11434/v1";
 
 const url = (raw: unknown) => {
-  if (typeof raw !== "string") return { error: "must be an http or https URL, such as http://localhost:11434/v1" };
+  if (typeof raw !== "string") return { error: NOT_A_BASE_URL };
   try {
     const { protocol, username, password } = new URL(raw);
     // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.
@@ -83,7 +95,7 @@ const url = (raw: unknown) => {
   } catch {
     // falls through to the error
   }
-  return { error: "must be an http or https URL, such as http://localhost:11434/v1" };
+  return { error: NOT_A_BASE_URL };
 };
 
 const text = (what: string): Def<"model">["parse"] => (raw) =>
@@ -168,7 +180,13 @@ export interface ResolveInput {
  * over one table, so no setting has its own copy of the rule. An empty environment variable
  * counts as unset. An invalid value is an error that names where it came from.
  */
-export function resolveSettings({ flags, env, config, home }: ResolveInput): { settings: ResolvedSettings; warnings: string[] } {
+export interface Resolution {
+  settings: ResolvedSettings;
+  /** One line each, for stderr: unknown keys and flag-only settings found in a file or variable. */
+  warnings: string[];
+}
+
+export function resolveSettings({ flags, env, config, home }: ResolveInput): Resolution {
   const out: Record<string, unknown> = { level: DEFAULT_LEVEL, notesDir: `${home}/learn-notes` };
   for (const def of DEFS) {
     const candidates: [Where, unknown][] = [];

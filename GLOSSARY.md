@@ -61,5 +61,5 @@ A setting that widens what is read or sent (`--root`, `--allow-sensitive`) and s
 _Avoid_: Safety setting, override
 
 **Base URL**:
-Where requests are sent: an `http` or `https` URL with no username or password in it (the key goes in the environment variable named by `key_env`). Anywhere learn shows one, it is printed without userinfo, query or fragment.
+Where requests are sent: an `http` or `https` URL with no username or password in it (the key goes in the environment variable named by `key_env`). It is only ever printed through one function, which parses it and shows protocol, host and path, with a note of what was removed (`(removed: credentials, query, fragment)`). A value that does not parse as a web URL, or holds a backslash, whitespace or control character, is shown as `(value hidden)` and none of it is printed.
 _Avoid_: Endpoint (the Endpoint is the parsed host plus whether it is local)

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { redactUrl, resolveSettings } from "../src/core/settings.js";
+import { HIDDEN, redactUrl, resolveSettings } from "../src/core/settings.js";
 import { run } from "./support/cli.js";
 
 /**
@@ -12,9 +12,9 @@ import { run } from "./support/cli.js";
  */
 const CASES = [
   // `#` and `?` end the authority, so the parser rejects these: nothing of the string may be shown.
-  { url: "http://alice:pw7Q#x9Z@host/v1", shown: "(value hidden)", secrets: ["alice", "pw7Q", "x9Z"] },
-  { url: "http://alice:pw7Q?x9Z@host/v1", shown: "(value hidden)", secrets: ["alice", "pw7Q", "x9Z"] },
-  { url: "ftp://alice:pw7Q#x9Z@host/v1", shown: "(value hidden)", secrets: ["alice", "pw7Q", "x9Z"] },
+  { url: "http://alice:pw7Q#x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
+  { url: "http://alice:pw7Q?x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
+  { url: "ftp://alice:pw7Q#x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
   // The last `@` ends the userinfo, so this one parses; the credentials are removed and said so.
   { url: "http://alice:pw7Q@x9Z@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["alice", "pw7Q", "x9Z"] },
   { url: "http://alice:pw7Q%23x9Z@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["alice", "pw7Q", "x9Z", "%23"] },
@@ -23,15 +23,31 @@ const CASES = [
   { url: "https://host/v1#SECRET7", shown: "https://host/v1 (removed: fragment)", secrets: ["SECRET7"] },
   { url: "https://u7:pw7Q@host:8443/v1?k=SECRET7#SECRET7", shown: "https://host:8443/v1 (removed: credentials, query, fragment)", secrets: ["u7", "pw7Q", "SECRET7"] },
   // No scheme: the parser reads `user7:` as the scheme, so even that must not be shown.
-  { url: "user7:pw7Q@host/v1", shown: "(value hidden)", secrets: ["user7", "pw7Q"] },
-  { url: "not a url pw7Q", shown: "(value hidden)", secrets: ["pw7Q"] },
+  { url: "user7:pw7Q@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
+  { url: "not a url pw7Q", shown: HIDDEN, secrets: ["pw7Q"] },
+  // The parser reads `\` as `/` and drops tabs and newlines, so a key pasted before one would come out as the host: these are hidden before parsing.
+  { url: "http://tok7\\en@host/v1", shown: HIDDEN, secrets: ["tok7"] },
+  { url: "http://sk-SECRET7\\@host/v1", shown: HIDDEN, secrets: ["SECRET7"] },
+  { url: "http://user7:pw7Q\t@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
+  { url: "http://host/v1\nSECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
+  { url: " http://host/v1?k=SECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
+  // Forms the parser accepts or rejects in its own way; pinned so a parser change shows up here.
+  { url: "http://host%40evil7/v1", shown: HIDDEN, secrets: ["evil7"] },
+  { url: "http://b\u00fccher.example/v1", shown: "http://xn--bcher-kva.example/v1", secrets: [] },
+  { url: "http:host/v1", shown: "http://host/v1", secrets: [] },
+  { url: "http:///u7:pw7Q@host/x", shown: "http://host/x (removed: credentials)", secrets: ["u7", "pw7Q"] },
 ] as const;
+
+/** None of `secrets` may appear in `text`. */
+const expectNoSecrets = (text: string, secrets: readonly string[]) => {
+  for (const secret of secrets) expect(text).not.toContain(secret);
+};
 
 describe("redactUrl", () => {
   it.each(CASES)("$url", ({ url, shown, secrets }) => {
     const out = redactUrl(url);
     expect(out).toBe(shown);
-    for (const s of secrets) expect(out).not.toContain(s);
+    expectNoSecrets(out, secrets);
   });
   it.each([
     ["http://localhost:11434/v1", "http://localhost:11434/v1"],
@@ -50,7 +66,7 @@ describe("every message that echoes a base URL goes through redactUrl", () => {
       } catch (err) {
         message = (err as Error).message;
       }
-      for (const s of secrets) expect(message).not.toContain(s);
+      expectNoSecrets(message, secrets);
     }
   });
 });
@@ -85,10 +101,8 @@ describe("no output path of the CLI shows a secret, from the flag, the environme
         }),
       );
       for (const r of await Promise.all(runs)) {
-        for (const s of secrets) {
-          expect(r.stdout).not.toContain(s);
-          expect(r.stderr).not.toContain(s);
-        }
+        expectNoSecrets(r.stdout, secrets);
+        expectNoSecrets(r.stderr, secrets);
       }
     }, 30_000);
   }
