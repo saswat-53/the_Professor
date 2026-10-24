@@ -5,7 +5,7 @@ import { FileRefusedError } from "./errors.js";
 const MAX_BYTES = 1024 * 1024;
 const BINARY_SNIFF_BYTES = 8192;
 
-const describeSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${bytes / (1024 * 1024)} MB` : `${bytes / 1024} KB`);
+const describeSize = (bytes: number) => (bytes >= 1024 * 1024 ? `${+(bytes / (1024 * 1024)).toFixed(1)} MB` : `${+(bytes / 1024).toFixed(1)} KB`);
 
 /** Reads until end of file or `limit` bytes, whichever comes first; a single read can come back short. */
 async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
@@ -28,27 +28,27 @@ async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
  */
 export async function readTextFile(path: string, maxBytes = MAX_BYTES): Promise<string> {
   const pathStat = await stat(path);
-  if (!pathStat.isFile()) throw new FileRefusedError("not-regular", `${path}: not a regular file`);
-  if (pathStat.size > maxBytes) throw new FileRefusedError("too-large", `${path}: file too large (over ${describeSize(maxBytes)})`);
+  if (!pathStat.isFile()) throw new FileRefusedError("not-regular", path, `not a regular file`);
+  if (pathStat.size > maxBytes) throw new FileRefusedError("too-large", path, `file too large (over ${describeSize(maxBytes)})`);
 
   const handle = await open(path, "r");
   let bytes: Buffer;
   try {
     const handleStat = await handle.stat();
     if (!handleStat.isFile() || handleStat.dev !== pathStat.dev || handleStat.ino !== pathStat.ino) {
-      throw new FileRefusedError("changed", `${path}: changed while being read`);
+      throw new FileRefusedError("changed", path, `changed while being read`);
     }
     bytes = await readBounded(handle, maxBytes + 1);
-    if (bytes.length > maxBytes) throw new FileRefusedError("too-large", `${path}: file too large (over ${describeSize(maxBytes)})`);
+    if (bytes.length > maxBytes) throw new FileRefusedError("too-large", path, `file too large (over ${describeSize(maxBytes)})`);
   } finally {
     await handle.close();
   }
 
-  if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) throw new FileRefusedError("binary", `${path}: looks like a binary file`);
+  if (bytes.subarray(0, BINARY_SNIFF_BYTES).includes(0)) throw new FileRefusedError("binary", path, "looks like a binary file");
   try {
     // The decoder drops a leading BOM by default; CRLF becomes LF afterwards.
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replaceAll("\r\n", "\n");
   } catch {
-    throw new FileRefusedError("not-utf8", `${path}: not UTF-8 text`);
+    throw new FileRefusedError("not-utf8", path, "not UTF-8 text");
   }
 }

@@ -30,9 +30,11 @@ export class FileRefusedError extends RefusedError {
   override name = "FileRefusedError";
   constructor(
     readonly reason: FileRefusal,
-    message: string,
+    path: string,
+    /** What is wrong with the file, without the path: "not a regular file". */
+    readonly detail: string,
   ) {
-    super(message);
+    super(`${path}: ${detail}`);
   }
 }
 

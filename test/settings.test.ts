@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
-import { EXAMPLE_CONFIG, configPath, firstRunMessage, parseConfig, redactUrl, resolveSettings } from "../src/core/settings.js";
+import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, redactUrl, resolveSettings } from "../src/core/settings.js";
 
 const FILE = "/home/u/.config/learn/config.toml";
 const resolve = (flags = {}, env = {}, toml?: string) =>
@@ -228,5 +228,12 @@ describe("first-run message", () => {
       expect(settings.model).toBeTruthy();
     }
     expect(resolveSettings({ flags: {}, env: {}, config: parseConfig(EXAMPLE_CONFIG, FILE), home: "/h" }).settings.model).toBeUndefined();
+  });
+});
+
+describe("describeMissing", () => {
+  it("names the sources from the same table the resolver walks", () => {
+    expect(describeMissing("model", undefined, FILE)).toBe(`no model set (looked at --model, LEARN_MODEL, then ${FILE} (no such file); an empty value counts as not set)`);
+    expect(describeMissing("baseUrl", parseConfig("", FILE), FILE)).toContain(`"provider.base_url" in ${FILE}`);
   });
 });

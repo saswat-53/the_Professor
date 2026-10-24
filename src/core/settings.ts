@@ -82,14 +82,14 @@ const level = (raw: unknown) =>
 const dir = (raw: unknown, home: string) =>
   typeof raw === "string" && raw !== "" ? { value: raw === "~" ? home : raw.startsWith("~/") ? `${home}/${raw.slice(2)}` : raw } : { error: "must be a non-empty path" };
 
-const DEFS = [
+const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "level", flag: "level", flagName: "--level", env: "LEARN_LEVEL", config: ["level"], parse: level },
   { key: "contextBudget", flag: "contextBudget", flagName: "--context-budget", env: "LEARN_CONTEXT_BUDGET", config: ["context_budget"], parse: budget },
   { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: redactUrl },
   { key: "model", flag: "model", flagName: "--model", env: "LEARN_MODEL", config: ["provider", "model"], parse: text("a model name") },
   { key: "keyEnv", config: ["provider", "key_env"], parse: text("a variable name") },
   { key: "notesDir", config: ["notes_dir"], parse: dir },
-] as const satisfies readonly Def<keyof ResolvedSettings>[];
+];
 
 /** Reads TOML text; a syntax error names the file. */
 export function parseConfig(source: string, file: string): Config {
@@ -112,6 +112,17 @@ const FLAG_ONLY = [
   { flag: "--root", env: "LEARN_ROOT", key: "root" },
   { flag: "--allow-sensitive", env: "LEARN_ALLOW_SENSITIVE", key: "allow_sensitive" },
 ] as const;
+
+type FlagOnly = (typeof FLAG_ONLY)[number];
+
+/** One wording for a flag-only setting found where only a flag is honoured. `where` names the variable or the file key. */
+const flagOnlyWarning = (f: FlagOnly, where: string) => `warning: ${where} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`;
+
+/** A config key that no setting uses: a flag-only name gets the flag-only wording, anything else is a typo to name. */
+function unknownKeyWarning(key: string, file: string): string {
+  const f = FLAG_ONLY.find((x) => x.key === key);
+  return f ? flagOnlyWarning(f, `"${key}" in ${file}`) : `warning: unknown key "${key}" in ${file}; ignored`;
+}
 
 /** Dotted names of config keys that no setting uses. */
 function unknownKeys(values: Record<string, unknown>): string[] {
@@ -143,8 +154,8 @@ export function resolveSettings({ flags, env, config, home }: ResolveInput): { s
   const out: Record<string, unknown> = { level: DEFAULT_LEVEL, notesDir: `${home}/learn-notes` };
   for (const def of DEFS) {
     const candidates: [Where, unknown][] = [];
-    if ("flag" in def) candidates.push([{ kind: "flag", label: def.flagName }, flags[def.flag]]);
-    if ("env" in def) candidates.push([{ kind: "env", label: def.env }, env[def.env]]);
+    if (def.flag && def.flagName) candidates.push([{ kind: "flag", label: def.flagName }, flags[def.flag]]);
+    if (def.env) candidates.push([{ kind: "env", label: def.env }, env[def.env]]);
     if (config) candidates.push([{ kind: "config", label: `"${def.config.join(".")}" in ${config.file}` }, at(config.values, def.config)]);
     // One rule for every setting and source: an empty string is the same as not set.
     const found = candidates.find(([, v]) => v !== undefined && v !== "");
@@ -152,24 +163,28 @@ export function resolveSettings({ flags, env, config, home }: ResolveInput): { s
     const [where, raw] = found;
     const result = def.parse(raw, home);
     if ("error" in result) {
-      const subject = where.kind === "config" ? `invalid ${where.label}` : `invalid ${where.label} "${"show" in def && typeof raw === "string" ? def.show(raw) : String(raw)}"`;
+      const subject = where.kind === "config" ? `invalid ${where.label}` : `invalid ${where.label} "${typeof raw === "string" && def.show ? def.show(raw) : String(raw)}"`;
       throw new UsageError(`${subject}: ${result.error}`);
     }
     out[def.key] = result.value;
   }
-  const flagOnly = (key: string) => FLAG_ONLY.find((f) => f.key === key);
   const warnings = [
-    ...FLAG_ONLY.filter((f) => env[f.env] !== undefined && env[f.env] !== "").map((f) => `warning: ${f.env} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`),
-    ...(config
-      ? unknownKeys(config.values).map((k) => {
-          const f = flagOnly(k);
-          return f
-            ? `warning: "${k}" in ${config.file} is ignored; ${f.flag} is a flag only, so a persistent setting cannot widen access`
-            : `warning: unknown key "${k}" in ${config.file}; ignored`;
-        })
-      : []),
+    ...FLAG_ONLY.filter((f) => env[f.env] !== undefined && env[f.env] !== "").map((f) => flagOnlyWarning(f, f.env)),
+    ...(config ? unknownKeys(config.values).map((k) => unknownKeyWarning(k, config.file)) : []),
   ];
   return { settings: out as unknown as ResolvedSettings, warnings };
+}
+
+/**
+ * Why a required setting is missing, derived from the same table the resolver walks, so the
+ * sources named here cannot drift from the sources actually consulted.
+ */
+export function describeMissing(key: "baseUrl" | "model", config: Config | undefined, file: string): string {
+  const def = DEFS.find((d) => d.key === key);
+  if (!def) throw new Error(`unknown setting ${key}`);
+  const inFile = config ? `"${def.config.join(".")}" in ${file}` : `${file} (no such file)`;
+  const what = key === "baseUrl" ? "base URL" : "model";
+  return `no ${what} set (looked at ${def.flagName}, ${def.env}, then ${inFile}; an empty value counts as not set)`;
 }
 
 /** `$XDG_CONFIG_HOME/learn/config.toml` when that is an absolute path, else `~/.config/learn/config.toml`. Never relative to the project. */

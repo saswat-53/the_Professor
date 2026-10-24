@@ -115,4 +115,12 @@ describe("file reading races", () => {
     await expect(readTextFile(big)).rejects.toThrow(/too large/);
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it("a refusal carries the detail apart from the path, and a custom cap is named with a rounded size", async () => {
+    const capped = join(await mkdtemp(join(tmpdir(), "learn-cap-")), "cap.txt");
+    await writeFile(capped, "x".repeat(2000));
+    const err = await readTextFile(capped, 1536).catch((e) => e);
+    expect(err).toMatchObject({ reason: "too-large", detail: "file too large (over 1.5 KB)" });
+    expect(err.message).toBe(`${capped}: file too large (over 1.5 KB)`);
+  });
 });

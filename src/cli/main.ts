@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveSettings } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -25,11 +25,35 @@ async function readConfig(file: string): Promise<Config | undefined> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") return undefined;
-    const why = err instanceof FileRefusedError ? err.message.replace(`${file}: `, "") : code ?? "cannot be read";
+    const why = err instanceof FileRefusedError ? err.detail : code ?? "cannot be read";
     throw new UsageError(`${file}: cannot be used as the config file (${why})`);
   }
   return parseConfig(source, file);
 }
+
+/** Where the settings come from, in order: flags, environment, the per-user config file. Returns an exit code when they cannot be resolved. */
+async function loadSettings(values: Flagged): Promise<number | { resolved: ReturnType<typeof resolveSettings>; config: Config | undefined; file: string }> {
+  const home = homedir();
+  const file = configPath(process.env, home);
+  try {
+    const config = await readConfig(file);
+    const resolved = resolveSettings({
+      flags: { level: values.level, model: values.model, baseUrl: values["base-url"], contextBudget: values["context-budget"] },
+      env: process.env,
+      config,
+      home,
+    });
+    for (const warning of resolved.warnings) process.stderr.write(`${warning}\n`);
+    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) process.stderr.write(`${firstRunMessage(file)}\n\n`);
+    return { resolved, config, file };
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    return err instanceof LearnError ? err.exitCode : 2;
+  }
+}
+
+/** The parsed command-line values `loadSettings` reads. */
+type Flagged = { level?: string; model?: string; "base-url"?: string; "context-budget"?: string };
 
 /** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
 const describe = (err: unknown) => {
@@ -60,31 +84,13 @@ async function main(): Promise<number> {
   }
   const { values, positionals } = parsed;
   const [reference] = positionals;
-  const home = homedir();
-  const file = configPath(process.env, home);
-  let resolved;
-  let config: Config | undefined;
-  try {
-    config = await readConfig(file);
-    resolved = resolveSettings({
-      flags: { level: values.level, model: values.model, baseUrl: values["base-url"], contextBudget: values["context-budget"] },
-      env: process.env,
-      config,
-      home,
-    });
-    for (const warning of resolved.warnings) process.stderr.write(`${warning}\n`);
-    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) process.stderr.write(`${firstRunMessage(file)}\n\n`);
-  } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    return err instanceof LearnError ? err.exitCode : 2;
-  }
+  const loaded = await loadSettings(values);
+  if (typeof loaded === "number") return loaded;
+  const { resolved, config, file } = loaded;
   const { baseUrl, model, level, contextBudget } = resolved.settings;
   if (!baseUrl || !model) {
-    // Say where each missing setting was looked for, so an empty flag falling through to a lower source is not a mystery.
-    const looked = (flag: string, env: string, key: string) =>
-      `looked at ${flag}, ${env}, then ${config ? `"${key}" in ${file}` : `${file} (no such file)`}`;
-    if (!baseUrl) process.stderr.write(`no base URL set (${looked("--base-url", "LEARN_BASE_URL", "provider.base_url")}; an empty value counts as not set)\n`);
-    if (!model) process.stderr.write(`no model set (${looked("--model", "LEARN_MODEL", "provider.model")}; an empty value counts as not set)\n`);
+    if (!baseUrl) process.stderr.write(`${describeMissing("baseUrl", config, file)}\n`);
+    if (!model) process.stderr.write(`${describeMissing("model", config, file)}\n`);
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }

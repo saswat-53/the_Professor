@@ -55,3 +55,12 @@ _Avoid_: Status code, return code
 **Sensitive file**:
 A file whose content must not be sent to a model without explicit consent, because it likely holds secrets.
 _Avoid_: Secret file, protected file, private file
+
+**Flag-only setting**:
+A setting that widens what is read or sent (`--root`, `--allow-sensitive`) and so can be turned on only by a command-line flag for one run. The same names in an environment variable (`LEARN_ROOT`, `LEARN_ALLOW_SENSITIVE`) or the config file are ignored, with a warning that names them. A persistent file or variable can never silently widen access.
+_Avoid_: Safety setting, override
+
+**Base URL**:
+Where requests are sent: an `http` or `https` URL with no username or password in it (the key goes in the environment variable named by `key_env`). Anywhere learn shows one, it is printed without userinfo, query or fragment.
+_Avoid_: Endpoint (the Endpoint is the parsed host plus whether it is local)
+
