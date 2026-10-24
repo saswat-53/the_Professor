@@ -164,6 +164,13 @@ describe("missing settings and the first-run hint", () => {
     expect(r.stderr).not.toContain("no base URL set");
   });
 
+  it("a whitespace-only value counts as unset, and the error still lists where it looked", async () => {
+    const r = await run([file, "--model", " \n"], { LEARN_BASE_URL: "http://x/v1", LEARN_MODEL: "\t" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("no model set (looked at --model, LEARN_MODEL, then");
+    expect(r.stderr).toContain("an empty value counts as not set");
+  });
+
   it("with a config file that lacks the model, names the file and key, and gives no create-a-config hint", async () => {
     const env = await withConfig('[provider]\nbase_url = "http://x/v1"\n');
     const r = await run([file], env);

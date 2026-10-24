@@ -327,4 +327,27 @@ describe("--root validation, missing files and letter case", () => {
     const viaCwd = await run(["a.txt", "--dry-run"], env(), swapped);
     expect(viaCwd.code, viaCwd.stderr).toBe(0);
   });
+
+  it.each([
+    ["no trailing slash", "/v1", "/v1/chat/completions"],
+    ["a trailing slash (Gemini style)", "/v1beta/openai/", "/v1beta/openai/chat/completions"],
+    ["a port and no path", "", "/chat/completions"],
+    ["a port and only a slash", "/", "/chat/completions"],
+  ])("the request path is the base path plus /chat/completions: %s", async (_label, basePath, expected) => {
+    const seen: string[] = [];
+    const probe = createServer((req, res) => {
+      seen.push(req.url ?? "");
+      req.resume();
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end("data: [DONE]\n\n");
+    });
+    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(probe.address() as AddressInfo).port}${basePath}`;
+      await run([file], { LEARN_BASE_URL: url, LEARN_MODEL: "m" });
+      expect(seen).toEqual([expected]);
+    } finally {
+      probe.close();
+    }
+  });
 });
