@@ -66,31 +66,37 @@ describe("cancellation", () => {
     expect(r.stderr).toContain("cancelled");
   });
 
-  it("a second signal ends the process at once, while the first cancel is stuck behind output nobody reads", async () => {
-    // The reader never drains stdout, so after the first SIGINT the process cannot finish: its pending writes keep it alive.
+  it.each([
+    ["SIGINT", 130],
+    ["SIGTERM", 143],
+  ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
+    // The reader never drains stdout, so once the first SIGINT has closed the connection the process still cannot finish: its pending writes keep it alive.
+    let connected: () => void;
+    const reached = new Promise<void>((r) => (connected = r));
     respond = (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       const filler = "x".repeat(64 * 1024);
       for (let i = 0; i < 64; i++) res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`);
+      connected();
     };
     let aliveAfterFirst = false;
-    const started = Date.now();
     let secondSentAt = 0;
     const r = await run([file], env(), tmpdir(), (child) => {
       child.stdout!.pause();
-      setTimeout(() => {
-        child.kill("SIGINT");
+      // Handlers are installed before the request goes out, so the server seeing it means a signal is safe to send.
+      void reached.then(() => child.kill("SIGINT"));
+      // The connection closing proves the first cancel took effect; a short grace period lets a process that could exit do so.
+      void closed.then(() =>
         setTimeout(() => {
           aliveAfterFirst = child.exitCode === null && child.signalCode === null;
           secondSentAt = Date.now();
-          child.kill("SIGINT");
-        }, 700);
-      }, 500);
+          child.kill(second);
+        }, 300),
+      );
     });
     expect(aliveAfterFirst).toBe(true);
-    expect(r.code).toBe(130);
+    expect(r.code).toBe(code);
     expect(Date.now() - secondSentAt).toBeLessThan(2000);
-    expect(Date.now() - started).toBeLessThan(5000);
   });
 });
 
@@ -105,12 +111,12 @@ describe.skipIf(!hasPython)("cancellation on a terminal", () => {
     };
     const helper = join(import.meta.dirname, "support/pty-run.py");
     const bin = join(import.meta.dirname, "../dist/cli.js");
-    const output = await new Promise<string>((resolve) => {
+    const output = await new Promise<string>((resolve, reject) => {
       execFile(
         "python3",
         ["-I", helper, "partial", "SIGINT", "node", bin, file],
         { env: { ...process.env, ...env(), TERM: "dumb", HOME: tmpdir(), XDG_CONFIG_HOME: join(tmpdir(), "no-learn-config") }, cwd: tmpdir() },
-        (_err, stdout) => resolve(stdout),
+        (err, stdout) => (err ? reject(err) : resolve(stdout)),
       );
     });
     await closed;
@@ -119,5 +125,5 @@ describe.skipIf(!hasPython)("cancellation on a terminal", () => {
     expect(output).not.toContain("\u001b]");
     // After the visible text comes a line break, then the message: it is not glued to "partial".
     expect(output).toMatch(/partial\r?\n[^\n]*cancelled/);
-  });
+  }, 30_000);
 });

@@ -26,6 +26,8 @@ while time.time() < deadline:
     if not sent and wait_for.encode() in out:
         os.kill(pid, getattr(signal, sig_name))
         sent = True
+if time.time() >= deadline:
+    os.kill(pid, signal.SIGKILL)  # never leave the command running, or waitpid would block forever
 _, status = os.waitpid(pid, 0)
 code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 128 + os.WTERMSIG(status)
 sys.stdout.buffer.write(out + f"\nexit {code}\n".encode())
