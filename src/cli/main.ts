@@ -4,11 +4,12 @@ import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoo
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
-import { colorEnabled, painter } from "./output.js";
+import { outputMode, painter } from "./output.js";
 import type { StatusKind } from "./output.js";
 
 /** Status goes to stderr, coloured only for a person watching; stdout carries the explanation alone. */
-const paint = painter(colorEnabled({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!process.stderr.isTTY, env: process.env }));
+const mode = outputMode({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!process.stderr.isTTY, env: process.env });
+const paint = painter(mode.color);
 const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, text)}\n`);
 
 /** The exit code the run is heading for. Recorded before the message is written, so a pipe that closes mid-message cannot turn a failure into a success. */
@@ -190,8 +191,8 @@ async function main(): Promise<number> {
   }
   const llm = openAICompatibleModel(apiKey, keyEnv);
   let lastChar = "\n";
-  // In a terminal the model's text could carry escape sequences; a pipe is data, so it is left as sent.
-  const safeText = process.stdout.isTTY ? createEscapeStripper() : (text: string) => text;
+  // In terminal mode the model's text could carry escape sequences; in plain mode it is data, left as sent.
+  const stripTerminalEscapes = mode.stripEscapes ? createEscapeStripper() : (text: string) => text;
   for await (const event of explain({
     reference,
     settings,
@@ -204,7 +205,7 @@ async function main(): Promise<number> {
     if (event.type === "context-report") {
       status("info", formatContextReport(event.report));
     } else if (event.type === "text-delta") {
-      const text = safeText(event.text);
+      const text = stripTerminalEscapes(event.text);
       process.stdout.write(text);
       lastChar = text.at(-1) ?? lastChar;
     } else if (event.type === "error") {

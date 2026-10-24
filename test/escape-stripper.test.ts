@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createEscapeStripper } from "../src/cli/escape-stripper.js";
+import { MAX_HELD, createEscapeStripper } from "../src/cli/escape-stripper.js";
 
 const ESC = "\u001b";
 const BEL = "\u0007";
@@ -39,9 +39,12 @@ const cases: { name: string; input: string; out: string }[] = [
   { name: "text hidden by carriage return and backspace", input: "safe\rEVIL\b\b\b", out: "safeEVIL" },
   { name: "non-ASCII text, including an emoji", input: "héllo wörld — 日本語 🙂 ÿ", out: "héllo wörld — 日本語 🙂 ÿ" },
   { name: "plain text with a newline and a tab", input: "a\n\tb\n", out: "a\n\tb\n" },
-  { name: "zero-width characters (space, non-joiner, joiner, word joiner, BOM)", input: "a\u200bb\u200cc\u200dd\u2060e\u2063f\ufeffg", out: "abcdefg" },
-  { name: "bidi marks and overrides that reorder text (LRM, RLM, ALM, LRE to RLO, isolates)", input: "a\u200eb\u200fc\u061cd\u202ae\u202be\u202ce\u202df\u202eg\u2066h\u2067h\u2068h\u2069i", out: "abcdeeefghhhi" },
-  { name: "line and paragraph separators", input: "a\u2028b\u2029c", out: "abc" },
+  { name: "zero-width characters (space, non-joiner, joiner, word joiner, BOM)", input: "a\u200bb\u200cc\u200dd\u2060e\ufeffg", out: "abcdeg" },
+  { name: "bidi marks and overrides that reorder text (LRM, RLM, LRE to RLO, isolates)", input: "a\u200eb\u200fc\u202ad\u202be\u202cf\u202dg\u202eh\u2066i\u2067j\u2068k\u2069l", out: "abcdefghijkl" },
+  { name: "an override that would disguise a command", input: "\u202egnihtyreve fr- mr", out: "gnihtyreve fr- mr" },
+  { name: "line and paragraph separators, which stay", input: "a\u2028b\u2029c", out: "a\u2028b\u2029c" },
+  { name: "Arabic text, whose right-to-left characters pass through", input: "مرحبا بالعالم: ١٢٣ abc", out: "مرحبا بالعالم: ١٢٣ abc" },
+  { name: "Hebrew text with points", input: "שָׁלוֹם עולם", out: "שָׁלוֹם עולם" },
   { name: "an unterminated CSI at the end", input: `done${ESC}[31`, out: "done" },
   { name: "an unterminated OSC at the end", input: `done${ESC}]0;title`, out: "done" },
   { name: "an OSC whose ST is cut after the ESC", input: `done${ESC}]0;title${ESC}`, out: "done" },
@@ -64,6 +67,28 @@ describe("createEscapeStripper", () => {
     expect(feed(`a${ESC}]0;ti`)).toBe("a");
     expect(feed("tle")).toBe("");
     expect(feed(`${BEL}b`)).toBe("b");
+  });
+
+  it("hides a title that fits under the cap", () => {
+    expect(strip([`${ESC}]0;${"t".repeat(MAX_HELD - 10)}${BEL}after`])).toBe("after");
+  });
+
+  describe("an OSC that never closes", () => {
+    const tail = "the explanation goes on\nand on\n";
+    const input = `${ESC}]0;${"x".repeat(MAX_HELD * 4)}${tail}`;
+    it("drops only MAX_HELD characters and then shows the rest of the reply", () => {
+      expect(strip([input])).toBe(input.slice(MAX_HELD));
+    });
+    it("gives the same output split at every position and one character per chunk", () => {
+      for (const chunks of splits(input.slice(0, MAX_HELD + 40))) expect(strip(chunks)).toBe(input.slice(MAX_HELD, MAX_HELD + 40));
+    });
+    it("applies to an unterminated CSI too", () => {
+      const params = "1;".repeat(MAX_HELD);
+      expect(strip([`${ESC}[${params}ok`])).toBe(`${ESC}[${params}ok`.slice(MAX_HELD));
+    });
+    it("starts counting afresh for the next sequence", () => {
+      expect(strip([`${ESC}]0;title${BEL}${ESC}]0;title${BEL}ok`])).toBe("ok");
+    });
   });
 
   it("starts each stripper in the ground state", () => {
