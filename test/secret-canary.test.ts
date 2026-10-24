@@ -25,7 +25,9 @@ async function secretProject() {
   await writeFile(join(repo, ".env"), `TOKEN=${CANARY}\n`);
   await writeFile(join(repo, "sub", ".env.local"), `TOKEN=${CANARY}\n`);
   await writeFile(join(repo, "server.pem"), `${CANARY}\n`);
+  // Links with harmless names: one to a root `.env`, one to a denylisted file two directories down. Only the target's name gives either away.
   await symlink(join(repo, ".env"), join(repo, "innocent.txt"));
+  await symlink(join(repo, "sub", ".env.local"), join(repo, "notes.txt"));
   // Ordinary files whose Context (imports, nearby lines) mentions the secret files. Nothing may follow those references.
   await writeFile(join(repo, "app.ts"), 'import secrets from "./.env";\nimport ignored from "./ignored.txt";\nimport pem from "./server.pem";\n\nexport const x = 1;\nexport const y = 2;\n');
   await writeFile(join(repo, "app.py"), 'from secrets import load\nimport ignored\n\n\ndef f():\n    return open(".env").read()\n');
@@ -77,7 +79,7 @@ const MODES: { name: string; flags: string[] }[] = [
 ];
 
 describe("secret canary: Sensitive files and the Context", () => {
-  const refused = [".env", "ignored.txt", "innocent.txt", "sub/.env.local", "server.pem", ".env:1", "ignored.txt:1-1"];
+  const refused = [".env", "ignored.txt", "innocent.txt", "notes.txt", "sub/.env.local", "server.pem", ".env:1", "ignored.txt:1-1"];
   const cases = refused.flatMap((target) => MODES.map((m) => [target, m.name, m.flags] as const));
 
   it.each(cases)("%s with %s: refused, and the canary, key and home path appear nowhere", async (target, _mode, flags) => {
@@ -164,7 +166,7 @@ describe("secret canary: the API key", () => {
 describe("secret canary: the override", () => {
   it("--allow-sensitive on files that are otherwise refused sends the canary, says so in the report, and still hides the key", async () => {
     const flag = "--allow-sensitive";
-    for (const target of [".env", "ignored.txt", "innocent.txt"]) {
+    for (const target of [".env", "ignored.txt", "innocent.txt", "notes.txt"]) {
       const { home, repo } = await secretProject();
       await withServer(async (url, seen) => {
         const r = await run([target, flag], await envFor(url, home), repo);

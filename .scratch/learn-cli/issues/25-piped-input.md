@@ -12,3 +12,4 @@
 - [ ] The Excerpt size limit applies to piped input
 - [ ] The Context report says that filename rules were not applied to this input
 - [ ] The no-network guard (test/no-network.test.ts) gains a case for piped input (`cat file | learn`): the only connection is the configured endpoint, and `--dry-run` opens none
+- [ ] Secret-canary case in `test/secret-canary.test.ts` (ticket 21): a canary piped in has no filename, so no filename rule can catch it; the test asserts the Context report says "no filename checks applied" (the wording is pinned by the test), and that a canary API key still appears in no output and no request body

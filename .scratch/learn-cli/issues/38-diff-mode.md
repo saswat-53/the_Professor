@@ -12,3 +12,4 @@
 - [ ] Sensitive-file rules run on every file in the diff; blocked files are named in the report and excluded
 - [ ] The diff is delimited as data in the prompt
 - [ ] A shallow clone adds a note to the report
+- [ ] Secret-canary cases in `test/secret-canary.test.ts` (ticket 21), in a real temp repo: a canary in a changed denylisted file and in a changed gitignored file never reaches the request body, stdout, stderr, `--show-prompt` or `--dry-run` output, and the report names the excluded files; a canary in an untracked denylisted file is also excluded; a canary API key appears nowhere; with `--allow-sensitive` the canary does appear and the report says so

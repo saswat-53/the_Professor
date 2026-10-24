@@ -14,3 +14,4 @@
 ## Comments
 
 - From ticket 14: the `--allow-sensitive` canary case (canary sent, report says so, API-key canary still absent) is already tested in `test/context-report.test.ts` ("sensitive-file notes in the report"), as are the report-path canaries for refused files under `--dry-run`, `--show-prompt` and streaming. This ticket still owns the rest: the request body for the Context of a file that imports a secret file, and the gate over every other output path.
+- Remaining canary cases for tickets 25, 26, 38 and 39 (piped input, clipboard, `--diff`, `--blame`) are recorded as criteria in those tickets, since those paths do not exist yet. Ticket 21 itself covers every path that exists today. Break-it checks done: forcing the override on fails 22 tests; removing the report's override/skipped notes fails the 3 override tests; checking only a symlink's own name fails the `innocent.txt` and `notes.txt` (link to `sub/.env.local`) cases.

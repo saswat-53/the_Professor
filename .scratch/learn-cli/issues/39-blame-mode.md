@@ -11,3 +11,4 @@
 - [ ] The budget applies to the history; Sensitive-file rules apply to the files involved; history is delimited as data
 - [ ] The report says plainly that secrets inside history can't be filtered by name
 - [ ] A shallow clone adds a note that history is incomplete
+- [ ] Secret-canary cases in `test/secret-canary.test.ts` (ticket 21), in a real temp repo: a canary on a line of a denylisted file (or a gitignored one) given as the `--blame` path never reaches the request body or any output; a canary that was committed in an ordinary file's history and later removed is in the history sent to the model, so the test pins that the report says so plainly ("secrets inside history can't be filtered by name") rather than claiming it is excluded; a canary API key appears nowhere
