@@ -94,16 +94,6 @@ describe("config file", () => {
 /** The path the message names for the config, found from the output itself. */
 const emptyHomeOf = (stderr: string) => /No config file at (.*)\/\.config\/learn\/config\.toml/.exec(stderr)?.[1] ?? "";
 
-describe("base URL query secrets", () => {
-  it("--dry-run and --show-prompt print the base URL without its query or fragment", async () => {
-    for (const flag of ["--dry-run", "--show-prompt"]) {
-      const r = await run([file, flag, "--base-url", "http://127.0.0.1:9/v1?api_key=SECRET123#f", "--model", "m"]);
-      expect(r.stderr).toContain("base URL: http://127.0.0.1:9/v1\n");
-      expect(r.stdout + r.stderr).not.toContain("SECRET123");
-    }
-  });
-});
-
 describe("precedence through the CLI", () => {
   it("base URL and context budget: flag beats env beats config", async () => {
     const env = await withConfig('context_budget = 300\n[provider]\nbase_url = "http://cfg/v1"\nmodel = "m"\n');

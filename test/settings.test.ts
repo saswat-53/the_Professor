@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
-import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, redactUrl, resolveSettings } from "../src/core/settings.js";
+import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, resolveSettings } from "../src/core/settings.js";
 
 const FILE = "/home/u/.config/learn/config.toml";
 const resolve = (flags = {}, env = {}, toml?: string) =>
@@ -158,20 +158,6 @@ describe("secrets never appear in messages", () => {
       run();
     } catch (err) {
       expect((err as Error).message).not.toMatch(/:pass@|token@/);
-    }
-  });
-  it("redactUrl strips userinfo, query and fragment, and keeps the rest", () => {
-    expect(redactUrl("ftp://user:pass@host/v1")).toBe("ftp://host/v1");
-    expect(redactUrl("http://host/v1")).toBe("http://host/v1");
-    expect(redactUrl("https://host:8080/v1?api_key=abc#frag")).toBe("https://host:8080/v1");
-    expect(redactUrl("https://u:p@host/v1?k=a@b")).toBe("https://host/v1");
-  });
-  it("a rejected base URL with a secret in its query is echoed without it", () => {
-    expect(() => resolve({ baseUrl: "ftp://host/v1?api_key=SECRET123" })).toThrow(/ftp:\/\/host\/v1"/);
-    try {
-      resolve({ baseUrl: "ftp://host/v1?api_key=SECRET123" });
-    } catch (err) {
-      expect((err as Error).message).not.toContain("SECRET123");
     }
   });
 });

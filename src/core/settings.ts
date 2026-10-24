@@ -45,18 +45,36 @@ interface Def<K extends keyof ResolvedSettings> {
   show?: (raw: string) => string;
 }
 
+/** The only schemes whose text is safe to show: for any other, the parser may have read part of a credential as the scheme (`user:pass@host`). */
+const SHOWN_SCHEMES = ["http:", "https:", "ftp:", "ws:", "wss:"];
+
 /**
- * How a base URL is shown in any message or printed request. `https://user:pass@host/v1?key=abc#x`
- * must never be echoed whole: userinfo, query and fragment are cut (a base URL needs none of them
- * to be recognised), and anything still holding an "@" is hidden entirely.
+ * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). It cannot be
+ * done with a pattern: `#`, `?` and `@` can all appear inside a password, so no regex can tell where
+ * credentials end. So the string is parsed. If it parses as a web URL with a host, only protocol,
+ * host and path are shown, followed by a note of what was removed (credentials, query, fragment).
+ * If it does not parse, or parses into something that is not a web URL, none of it is shown.
  */
 export function redactUrl(raw: string): string {
-  const stripped = raw.replace(/(\/\/)[^/?#\s]*@/, "$1").replace(/[?#].*$/, "");
-  return stripped.includes("@") ? "(value hidden)" : stripped;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return HIDDEN;
+  }
+  if (!SHOWN_SCHEMES.includes(parsed.protocol) || parsed.host === "") return HIDDEN;
+  const removed = [
+    parsed.username || parsed.password ? "credentials" : "",
+    parsed.search.length > 1 ? "query" : "",
+    parsed.hash.length > 1 ? "fragment" : "",
+  ].filter(Boolean);
+  return `${parsed.protocol}//${parsed.host}${parsed.pathname}${removed.length > 0 ? ` (removed: ${removed.join(", ")})` : ""}`;
 }
 
+const HIDDEN = "(value hidden)";
+
 const url = (raw: unknown) => {
-  if (typeof raw !== "string") return { error: "must be an http or https URL" };
+  if (typeof raw !== "string") return { error: "must be an http or https URL, such as http://localhost:11434/v1" };
   try {
     const { protocol, username, password } = new URL(raw);
     // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.
@@ -65,7 +83,7 @@ const url = (raw: unknown) => {
   } catch {
     // falls through to the error
   }
-  return { error: "must be an http or https URL" };
+  return { error: "must be an http or https URL, such as http://localhost:11434/v1" };
 };
 
 const text = (what: string): Def<"model">["parse"] => (raw) =>
