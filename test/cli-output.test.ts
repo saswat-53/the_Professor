@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -63,5 +63,35 @@ describe("output modes", () => {
     const code = await new Promise((r) => child.on("close", r));
     expect(code).toBe(0);
     expect(stderr).not.toMatch(/EPIPE|at .*\(.*:\d+:\d+\)|Error/);
+  });
+
+  it("ends quietly when the stderr pipe closes early (2>&1 | head)", async () => {
+    // --dry-run writes the whole prompt to stderr; a big file keeps it writing after head has quit.
+    const big = join(await mkdtemp(join(tmpdir(), "learn-big-")), "big.ts");
+    await writeFile(big, "export const filler = 1;\n".repeat(40_000));
+    const env = { ...process.env, LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", HOME: tmpdir() };
+    const child = spawn("node", [BIN, big, "--dry-run", "--context-budget", "2000000"], { env, cwd: tmpdir() });
+    // Be the reader that quits early: take the first bytes, then close our end. Any stack trace
+    // would go to that closed stderr, so the exit code is what shows whether the run ended cleanly.
+    child.stderr.once("data", () => child.stderr.destroy());
+    const code = await new Promise((r) => child.on("close", r));
+    expect(code).toBe(0);
+  });
+});
+
+describe("--help and --version", () => {
+  it("--help prints usage to stdout and exits 0", async () => {
+    const r = await run(["--help"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Usage: learn");
+    expect(r.stderr).toBe("");
+  });
+
+  it("--version prints the package version to stdout and exits 0", async () => {
+    const { version } = JSON.parse(await readFile(join(import.meta.dirname, "../package.json"), "utf8"));
+    const r = await run(["--version"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toBe(`${version}\n`);
+    expect(r.stderr).toBe("");
   });
 });

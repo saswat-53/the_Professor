@@ -11,12 +11,18 @@ const paint = painter(colorEnabled({ stdoutIsTTY: !!process.stdout.isTTY, stderr
 const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, text)}\n`);
 
 // A closed output pipe (`learn f | head`) is the reader being done, not a failure: end without a stack trace.
-process.stdout.on("error", (err: NodeJS.ErrnoException) => {
-  if (err.code === "EPIPE") process.exit(0);
-  throw err;
-});
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") process.exit(0);
+    throw err;
+  });
+}
+
+/** Replaced with the package version at build time (tsup `define`). */
+declare const __VERSION__: string;
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
+       learn --help | --version
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
 then the config file (~/.config/learn/config.toml), then the default.
@@ -94,6 +100,8 @@ async function main(): Promise<number> {
         "allow-sensitive": { type: "boolean" },
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
+        help: { type: "boolean", short: "h" },
+        version: { type: "boolean", short: "v" },
       },
     });
   } catch (err) {
@@ -103,6 +111,15 @@ async function main(): Promise<number> {
   }
   const { values, positionals } = parsed;
   const [reference] = positionals;
+  // Asked for on purpose, so the answer is the output: stdout, exit 0.
+  if (values.help) {
+    process.stdout.write(`${USAGE}\n`);
+    return 0;
+  }
+  if (values.version) {
+    process.stdout.write(`${__VERSION__}\n`);
+    return 0;
+  }
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
