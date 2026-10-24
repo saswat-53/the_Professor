@@ -56,12 +56,16 @@ export const HIDDEN = "(value hidden)";
 const SHOWN_SCHEMES = ["http:", "https:", "ftp:", "ws:", "wss:"];
 
 /**
- * Pre-check only, for characters the parser would quietly rewrite: it turns `\` into `/` and drops
- * tabs and newlines, which can move a pasted key into the host. The parser does the real work in
- * `redactUrl`; this just refuses what it would otherwise normalise away. The control-character
- * range is intentional (a linter's no-control-regex rule or autofix must not "fix" it).
+ * Pre-check only, for characters the parser would quietly rewrite or keep invisible: it turns `\` into
+ * `/`, drops tabs and newlines, folds fullwidth letters, and passes zero-width, bidi and next-line
+ * characters through, any of which can hide or move part of a URL. The parser does the real work in
+ * `redactUrl`; this just refuses what it would otherwise normalise away. Covered: backslash,
+ * whitespace and C0/C1 controls (including DEL and NEL), soft hyphen, Mongolian vowel separator,
+ * zero-width and directional marks (U+200B-200F, U+202A-202E), the invisible operators
+ * (U+2060-206F), the byte order mark, and the fullwidth block (U+FF00-FFEF). The control-character
+ * ranges are intentional (a linter's no-control-regex rule or autofix must not "fix" them).
  */
-const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f]/;
+const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f-\u009f\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\uff00-\uffef]/;
 
 /**
  * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). Whether a
@@ -98,6 +102,11 @@ const url = (raw: unknown) => {
   if (/[?#]/.test(raw)) return { error: "must not contain a query or fragment (the request path is added after the URL, and keys go in an environment variable, not in the URL)" };
   // The same characters redactUrl refuses to print: the parser would rewrite them, so the URL used would not be the one written.
   if (UNSAFE_CHARACTERS.test(raw)) return { error: `${NOT_A_BASE_URL} (no backslashes, spaces or control characters)` };
+  // `scheme://host` with a real host: not `http:host`, `http:/h`, `http:////h` or `http:///x`, which the parser repairs into a different-looking URL.
+  const authority = /^https?:\/\/([^/\s])/i.test(raw) ? raw.slice(raw.indexOf("//") + 2).split("/")[0] : undefined;
+  if (authority === undefined) return { error: NOT_A_BASE_URL };
+  // Anything before an `@` in the authority is userinfo, even when empty (`http://@h`).
+  if (authority.includes("@")) return { error: "must not contain a username or password; put the key in an environment variable (key_env), not in the URL" };
   try {
     const { protocol, username, password } = new URL(raw);
     // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.

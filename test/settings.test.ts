@@ -242,6 +242,37 @@ describe("whitespace around a flag or environment value is trimmed", () => {
   });
 });
 
+describe("base URLs that are not what they look like are refused", () => {
+  it.each([
+    ["no // after the scheme", "http:host"],
+    ["no // after the scheme, with a path", "http:h/v1"],
+    ["one slash", "http:/h/v1"],
+    ["four slashes", "http:////h/v1"],
+    ["empty host, the path becomes the host", "http:///x"],
+    ["empty userinfo", "http://@h/v1"],
+    ["zero-width space after the host", "http://h\u200B/v1"],
+    ["fullwidth host letter", "http://\uFF48/v1"],
+    ["next-line character in the path", "http://h/v1\u0085"],
+    ["bidi override in the path", "http://h/v1\u202E"],
+    ["soft hyphen", "http://h\u00AD/v1"],
+    ["byte order mark", "http://h/v1\uFEFF"],
+  ])("%s: %j", (_why, url) => {
+    for (const run of [
+      () => resolve({ baseUrl: url }),
+      () => resolve({}, { LEARN_BASE_URL: url }),
+      () => resolve({}, {}, `[provider]\nbase_url = ${JSON.stringify(url)}\n`),
+    ]) {
+      expect(run).toThrow(UsageError);
+      expect(run).toThrow(/"provider\.base_url" in|--base-url|LEARN_BASE_URL/);
+    }
+  });
+  it("still accepts the legitimate forms next to them", () => {
+    for (const url of ["http://h/v1", "HTTP://H/v1", "https://xn--bcher-kva.example/v1", "http://b\u00fccher.example/v1"]) {
+      expect(() => resolve({ baseUrl: url })).not.toThrow();
+    }
+  });
+});
+
 describe("safety flags are flags only", () => {
   it("LEARN_ROOT and LEARN_ALLOW_SENSITIVE are ignored, with a warning that names them", () => {
     const { settings, warnings } = resolve({}, { LEARN_ROOT: "/", LEARN_ALLOW_SENSITIVE: "1" });
