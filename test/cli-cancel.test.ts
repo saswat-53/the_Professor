@@ -66,18 +66,30 @@ describe("cancellation", () => {
     expect(r.stderr).toContain("cancelled");
   });
 
-  it("a second signal ends the process at once with that signal's code, even while the first is still winding down", async () => {
-    let connected: () => void;
-    const reached = new Promise<void>((r) => (connected = r));
-    respond = () => connected();
+  it("a second signal ends the process at once, while the first cancel is stuck behind output nobody reads", async () => {
+    // The reader never drains stdout, so after the first SIGINT the process cannot finish: its pending writes keep it alive.
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      const filler = "x".repeat(64 * 1024);
+      for (let i = 0; i < 64; i++) res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`);
+    };
+    let aliveAfterFirst = false;
     const started = Date.now();
+    let secondSentAt = 0;
     const r = await run([file], env(), tmpdir(), (child) => {
-      void reached.then(() => {
+      child.stdout!.pause();
+      setTimeout(() => {
         child.kill("SIGINT");
-        child.kill("SIGINT");
-      });
+        setTimeout(() => {
+          aliveAfterFirst = child.exitCode === null && child.signalCode === null;
+          secondSentAt = Date.now();
+          child.kill("SIGINT");
+        }, 700);
+      }, 500);
     });
+    expect(aliveAfterFirst).toBe(true);
     expect(r.code).toBe(130);
+    expect(Date.now() - secondSentAt).toBeLessThan(2000);
     expect(Date.now() - started).toBeLessThan(5000);
   });
 });
