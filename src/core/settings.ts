@@ -54,7 +54,9 @@ export function redactUrl(raw: string): string {
 const url = (raw: unknown) => {
   if (typeof raw !== "string") return { error: "must be an http or https URL" };
   try {
-    const { protocol } = new URL(raw);
+    const { protocol, username, password } = new URL(raw);
+    // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.
+    if (username || password) return { error: "must not contain a username or password; put the key in an environment variable (key_env), not in the URL" };
     if (protocol === "http:" || protocol === "https:") return { value: raw };
   } catch {
     // falls through to the error

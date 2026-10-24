@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, reportForError, resolveSettings } from "../core/index.js";
+import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, explain, firstRunMessage, formatContextReport, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 
@@ -63,8 +63,9 @@ async function main(): Promise<number> {
   const home = homedir();
   const file = configPath(process.env, home);
   let resolved;
+  let config: Config | undefined;
   try {
-    const config = await readConfig(file);
+    config = await readConfig(file);
     resolved = resolveSettings({
       flags: { level: values.level, model: values.model, baseUrl: values["base-url"], contextBudget: values["context-budget"] },
       env: process.env,
@@ -78,7 +79,16 @@ async function main(): Promise<number> {
     return err instanceof LearnError ? err.exitCode : 2;
   }
   const { baseUrl, model, level, contextBudget } = resolved.settings;
-  if (!reference || !baseUrl || !model) {
+  if (!baseUrl || !model) {
+    // Say where each missing setting was looked for, so an empty flag falling through to a lower source is not a mystery.
+    const looked = (flag: string, env: string, key: string) =>
+      `looked at ${flag}, ${env}, then ${config ? `"${key}" in ${file}` : `${file} (no such file)`}`;
+    if (!baseUrl) process.stderr.write(`no base URL set (${looked("--base-url", "LEARN_BASE_URL", "provider.base_url")}; an empty value counts as not set)\n`);
+    if (!model) process.stderr.write(`no model set (${looked("--model", "LEARN_MODEL", "provider.model")}; an empty value counts as not set)\n`);
+    process.stderr.write(`${USAGE}\n`);
+    return 2;
+  }
+  if (!reference) {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
@@ -99,7 +109,7 @@ async function main(): Promise<number> {
   }
   const printRequest = (request: ModelRequest) =>
     process.stderr.write(
-      `base URL: ${request.baseUrl}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
+      `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
     );
 
   if (values["dry-run"]) {

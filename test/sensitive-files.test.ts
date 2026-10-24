@@ -288,10 +288,12 @@ describe("sensitive files through the CLI", () => {
   });
 
   it("does not exempt look-alike hosts or userinfo tricks", async () => {
-    for (const url of ["http://localhost@evil.invalid/v1", "http://127.0.0.1.evil.invalid/v1"]) {
-      const r = await run([".env", "--dry-run"], { LEARN_BASE_URL: url, LEARN_MODEL: "m" }, repo);
-      expect(r.code).toBe(3);
-    }
+    const lookAlike = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://127.0.0.1.evil.invalid/v1", LEARN_MODEL: "m" }, repo);
+    expect(lookAlike.code).toBe(3);
+    // A URL with userinfo is refused as a setting before any file is read, so it can never be an exemption either.
+    const userinfo = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://localhost@evil.invalid/v1", LEARN_MODEL: "m" }, repo);
+    expect(userinfo.code).toBe(2);
+    expect(userinfo.stderr).not.toContain(CANARY);
     const local = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://localhost:1/v1", LEARN_MODEL: "m" }, repo);
     expect(local.code).toBe(0);
   });

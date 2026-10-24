@@ -94,6 +94,47 @@ describe("config file", () => {
 /** The path the message names for the config, found from the output itself. */
 const emptyHomeOf = (stderr: string) => /No config file at (.*)\/\.config\/learn\/config\.toml/.exec(stderr)?.[1] ?? "";
 
+describe("base URL credentials", () => {
+  const CREDS = "http://user:hunter2@127.0.0.1:9/v1";
+  it.each([["--dry-run"], ["--show-prompt"], []])("a URL with credentials is refused (exit 2) and never printed (%s)", async (...flags) => {
+    for (const via of ["flag", "env"] as const) {
+      const args = [file, ...flags, ...(via === "flag" ? ["--base-url", CREDS] : [])];
+      const r = await run(args, { LEARN_MODEL: "m", ...(via === "env" ? { LEARN_BASE_URL: CREDS } : {}) });
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("put the key in an environment variable");
+      expect(r.stderr).toContain("http://127.0.0.1:9/v1");
+      expect(r.stdout + r.stderr).not.toContain("hunter2");
+    }
+  });
+});
+
+describe("missing settings and the first-run hint", () => {
+  it("an empty flag falls through, and the error says where it looked", async () => {
+    const r = await run([file, "--model", ""], { LEARN_BASE_URL: "http://x/v1" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("no model set (looked at --model, LEARN_MODEL, then");
+    expect(r.stderr).toContain("an empty value counts as not set");
+    expect(r.stderr).not.toContain("no base URL set");
+  });
+
+  it("with a config file that lacks the model, names the file and key, and gives no create-a-config hint", async () => {
+    const env = await withConfig('[provider]\nbase_url = "http://x/v1"\n');
+    const r = await run([file], env);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain(`"provider.model" in ${env.path}`);
+    expect(r.stderr).not.toContain("No config file");
+  });
+
+  it("an invalid config gives its specific error and no create-a-config hint", async () => {
+    const env = await withConfig('level = "guru"\n');
+    const r = await run([file], env);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain('invalid "level"');
+    expect(r.stderr).not.toContain("No config file");
+    expect(r.stderr).not.toContain("save this there");
+  });
+});
+
 describe("config file safety", () => {
   const withEntry = async (make: (path: string) => Promise<void> | void) => {
     const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));

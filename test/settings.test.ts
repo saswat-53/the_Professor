@@ -122,8 +122,24 @@ describe("secrets never appear in messages", () => {
       message = (err as Error).message;
     }
     expect(message).toMatch(/base/i);
-    expect(message).not.toContain("pass");
+    expect(message).not.toContain("user:pass");
     expect(message).not.toContain("user:");
+  });
+  it.each([
+    ["flag", { baseUrl: "https://user:pass@host/v1" }, {}, undefined],
+    ["environment", {}, { LEARN_BASE_URL: "https://user:pass@host/v1" }, undefined],
+    ["config file", {}, {}, '[provider]\nbase_url = "https://user:pass@host/v1"\n'],
+    ["username only", { baseUrl: "https://token@host/v1" }, {}, undefined],
+  ])("a base URL with credentials from the %s is refused with advice, and shown without them", (_n, flags, env, toml) => {
+    const run = () => resolve(flags, env, toml);
+    expect(run).toThrow(UsageError);
+    expect(run).toThrow(/put the key in an environment variable/);
+    if (_n !== "config file") expect(run).toThrow(/host\/v1/);
+    try {
+      run();
+    } catch (err) {
+      expect((err as Error).message).not.toMatch(/:pass@|token@/);
+    }
   });
   it("redactUrl strips userinfo and keeps the rest", () => {
     expect(redactUrl("ftp://user:pass@host/v1")).toBe("ftp://host/v1");
