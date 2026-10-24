@@ -24,18 +24,19 @@ const STRING_INTRODUCERS = new Set("]PX^_");
 const STRING_INTRODUCERS_8BIT = new Set([0x90, 0x98, 0x9d, 0x9e, 0x9f]);
 
 /**
- * Characters that are not control codes but hide or reorder text on screen: zero-width characters and
- * bidi marks (U+200B to U+200F), bidi embeddings and overrides (U+202A to U+202E), bidi isolates
- * (U+2066 to U+2069), the word joiner (U+2060) and the BOM (U+FEFF). Only these invisible controls go:
- * the right-to-left letters themselves (Arabic, Hebrew) pass through, and so do U+2028 and U+2029.
+ * Characters that are not control codes but hide or reorder text on screen: the zero-width space
+ * (U+200B), bidi embeddings and overrides (U+202A to U+202E), bidi isolates (U+2066 to U+2069), the
+ * word joiner (U+2060) and the BOM (U+FEFF). Everything that is part of real text passes through: the
+ * right-to-left letters (Arabic, Hebrew), ZWJ and ZWNJ (U+200D, U+200C: emoji sequences, Persian and
+ * Indic scripts), the direction marks LRM and RLM (U+200E, U+200F: they hide nothing), and U+2028/2029.
  */
-const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+const INVISIBLE = /[\u200b\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 
 /**
  * Returns a function that removes terminal escape sequences and control characters from streamed
  * text, so what the model says cannot move the cursor, retitle the window, or hide text. Only
  * newline and tab survive of the control characters, and invisible characters that reorder or hide
- * text (see INVISIBLE) go too, which also splits an emoji joined with ZWJ into its parts.
+ * text (see INVISIBLE) go too.
  *
  * It is a state machine, because a sequence can be split across chunks: the state lives in the
  * returned function, and one stripper must see one stream from the start. An unterminated sequence
