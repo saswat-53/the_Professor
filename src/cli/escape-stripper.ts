@@ -16,10 +16,14 @@ const ST_8BIT = 0x9c;
 const STRING_INTRODUCERS = new Set("]PX^_");
 const STRING_INTRODUCERS_8BIT = new Set([0x90, 0x98, 0x9d, 0x9e, 0x9f]);
 
+/** Characters that are not control codes but still hide or reorder text on screen: zero-width and joiner characters, bidi marks and overrides, line and paragraph separators, the BOM. */
+const INVISIBLE = /[\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
+
 /**
  * Returns a function that removes terminal escape sequences and control characters from streamed
  * text, so what the model says cannot move the cursor, retitle the window, or hide text. Only
- * newline and tab survive of the control characters.
+ * newline and tab survive of the control characters, and invisible characters that reorder or hide
+ * text (see INVISIBLE) go too, which also splits an emoji joined with ZWJ into its parts.
  *
  * It is a state machine, because a sequence can be split across chunks: the state lives in the
  * returned function, and one stripper must see one stream from the start. An unterminated sequence
@@ -39,7 +43,7 @@ export function createEscapeStripper(): (chunk: string) => string {
         else if (STRING_INTRODUCERS_8BIT.has(code)) state = "string";
         else if (ch === "\n" || ch === "\t") return ch;
         else if (code >= 0x20 && code < 0x7f) return ch;
-        else if (code > 0x9f) return ch;
+        else if (code > 0x9f) return INVISIBLE.test(ch) ? "" : ch;
         return "";
       case "esc":
         if (ch === "[") state = "csi";
