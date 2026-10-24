@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFile, spawnSync } from "node:child_process";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
 
@@ -63,5 +64,48 @@ describe("cancellation", () => {
     expect(r.code).toBe(130);
     expect(r.stdout).toBe("");
     expect(r.stderr).toContain("cancelled");
+  });
+
+  it("a second signal ends the process at once with that signal's code, even while the first is still winding down", async () => {
+    let connected: () => void;
+    const reached = new Promise<void>((r) => (connected = r));
+    respond = () => connected();
+    const started = Date.now();
+    const r = await run([file], env(), tmpdir(), (child) => {
+      void reached.then(() => {
+        child.kill("SIGINT");
+        child.kill("SIGINT");
+      });
+    });
+    expect(r.code).toBe(130);
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+});
+
+// Terminal mode needs a real TTY, so these run the CLI on a pseudo-terminal through a small Python helper.
+const hasPython = spawnSync("python3", ["--version"]).status === 0;
+describe.skipIf(!hasPython)("cancellation on a terminal", () => {
+  it("drops an escape sequence that was cut off, and still starts 'cancelled' on a fresh line", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      // Text, then the start of a window-title sequence that never finishes.
+      res.write(`data: ${JSON.stringify(chunk("partial\u001b]0;half-a-ti"))}\n\n`);
+    };
+    const helper = join(import.meta.dirname, "support/pty-run.py");
+    const bin = join(import.meta.dirname, "../dist/cli.js");
+    const output = await new Promise<string>((resolve) => {
+      execFile(
+        "python3",
+        ["-I", helper, "partial", "SIGINT", "node", bin, file],
+        { env: { ...process.env, ...env(), TERM: "dumb", HOME: tmpdir(), XDG_CONFIG_HOME: join(tmpdir(), "no-learn-config") }, cwd: tmpdir() },
+        (_err, stdout) => resolve(stdout),
+      );
+    });
+    await closed;
+    expect(output).toMatch(/\nexit 130\n$/);
+    expect(output).not.toContain("half-a-ti");
+    expect(output).not.toContain("\u001b]");
+    // After the visible text comes a line break, then the message: it is not glued to "partial".
+    expect(output).toMatch(/partial\r?\n[^\n]*cancelled/);
   });
 });

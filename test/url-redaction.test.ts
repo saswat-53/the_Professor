@@ -8,33 +8,33 @@ import { run } from "./support/cli.js";
 /**
  * A base URL is printed in exactly one way, `redactUrl`: parsed, then protocol, host and path only.
  * Each case lists every fragment of the input that must never appear in any output.
- * Tokens are unique (`pw7Q`, `x9Z`, `SECRET7`, `user7`) so a substring check cannot match by accident.
+ * Tokens are unique (`PASS-ZX9Q4-NOLEAK`, `XTRA-ZX9Q4-NOLEAK`, `SECRET-ZX9Q4-NOLEAK`, `USER-ZX9Q4-NOLEAK`) so a substring check cannot match by accident.
  */
 const CASES = [
   // `#` and `?` end the authority, so the parser rejects these: nothing of the string may be shown.
-  { url: "http://alice:pw7Q#x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
-  { url: "http://alice:pw7Q?x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
-  { url: "ftp://alice:pw7Q#x9Z@host/v1", shown: HIDDEN, secrets: ["alice", "pw7Q", "x9Z"] },
+  { url: "http://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK#XTRA-ZX9Q4-NOLEAK@host/v1", shown: HIDDEN, secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK"] },
+  { url: "http://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK?XTRA-ZX9Q4-NOLEAK@host/v1", shown: HIDDEN, secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK"] },
+  { url: "ftp://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK#XTRA-ZX9Q4-NOLEAK@host/v1", shown: HIDDEN, secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK"] },
   // The last `@` ends the userinfo, so this one parses; the credentials are removed and said so.
-  { url: "http://alice:pw7Q@x9Z@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["alice", "pw7Q", "x9Z"] },
-  { url: "http://alice:pw7Q%23x9Z@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["alice", "pw7Q", "x9Z", "%23"] },
-  { url: "http://alice:pw7Q%40x9Z@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["alice", "pw7Q", "x9Z", "%40"] },
-  { url: "https://host/v1?api_key=SECRET7", shown: "https://host/v1 (removed: query)", secrets: ["SECRET7", "api_key"] },
-  { url: "https://host/v1#SECRET7", shown: "https://host/v1 (removed: fragment)", secrets: ["SECRET7"] },
-  { url: "https://u7:pw7Q@host:8443/v1?k=SECRET7#SECRET7", shown: "https://host:8443/v1 (removed: credentials, query, fragment)", secrets: ["u7", "pw7Q", "SECRET7"] },
-  // No scheme: the parser reads `user7:` as the scheme, so even that must not be shown.
-  { url: "user7:pw7Q@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
-  { url: "not a url pw7Q", shown: HIDDEN, secrets: ["pw7Q"] },
+  { url: "http://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK@XTRA-ZX9Q4-NOLEAK@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK"] },
+  { url: "http://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK%23XTRA-ZX9Q4-NOLEAK@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK", "%23"] },
+  { url: "http://ALICE-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK%40XTRA-ZX9Q4-NOLEAK@host/v1", shown: "http://host/v1 (removed: credentials)", secrets: ["ALICE-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "XTRA-ZX9Q4-NOLEAK", "%40"] },
+  { url: "https://host/v1?api_key=SECRET-ZX9Q4-NOLEAK", shown: "https://host/v1 (removed: query)", secrets: ["SECRET-ZX9Q4-NOLEAK", "api_key"] },
+  { url: "https://host/v1#SECRET-ZX9Q4-NOLEAK", shown: "https://host/v1 (removed: fragment)", secrets: ["SECRET-ZX9Q4-NOLEAK"] },
+  { url: "https://USR-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK@host:8443/v1?k=SECRET-ZX9Q4-NOLEAK#SECRET-ZX9Q4-NOLEAK", shown: "https://host:8443/v1 (removed: credentials, query, fragment)", secrets: ["USR-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK", "SECRET-ZX9Q4-NOLEAK"] },
+  // No scheme: the parser reads `USER-ZX9Q4-NOLEAK:` as the scheme, so even that must not be shown.
+  { url: "USER-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK@host/v1", shown: HIDDEN, secrets: ["USER-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK"] },
+  { url: "not a url PASS-ZX9Q4-NOLEAK", shown: HIDDEN, secrets: ["PASS-ZX9Q4-NOLEAK"] },
   // The parser reads `\` as `/` and drops tabs and newlines, so a key pasted before one would come out as the host: these are hidden before parsing.
-  { url: "http://tok7\\en@host/v1", shown: HIDDEN, secrets: ["tok7"] },
-  { url: "http://sk-SECRET7\\@host/v1", shown: HIDDEN, secrets: ["SECRET7"] },
-  { url: "http://user7:pw7Q\t@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
-  { url: "http://host/v1\nSECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
+  { url: "http://TOK-ZX9Q4-NOLEAK\\en@host/v1", shown: HIDDEN, secrets: ["TOK-ZX9Q4-NOLEAK"] },
+  { url: "http://sk-SECRET-ZX9Q4-NOLEAK\\@host/v1", shown: HIDDEN, secrets: ["SECRET-ZX9Q4-NOLEAK"] },
+  { url: "http://USER-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK\t@host/v1", shown: HIDDEN, secrets: ["USER-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK"] },
+  { url: "http://host/v1\nSECRET-ZX9Q4-NOLEAK", shown: HIDDEN, secrets: ["SECRET-ZX9Q4-NOLEAK"] },
   // Invisible, format and lookalike characters the parser would quietly keep or fold (zero-width, soft hyphen, fullwidth, bidi, NEL): hidden before parsing.
   ...["\u200B", "\u00AD", "\u2060", "\uFF3C", "\uFF0F", "\u0085", "\u202E", "\uFEFF"].map((c) => ({
-    url: `http://u7${c}pw7Q@host/v1`,
+    url: `http://USR-ZX9Q4-NOLEAK${c}PASS-ZX9Q4-NOLEAK@host/v1`,
     shown: HIDDEN,
-    secrets: ["u7", "pw7Q"],
+    secrets: ["USR-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK"],
   })),
   { url: "http://h\u200B/v1", shown: HIDDEN, secrets: [] },
   { url: "http://\uFF48/v1", shown: HIDDEN, secrets: [] },
@@ -43,15 +43,15 @@ const CASES = [
   // Characters the parser reads as part of the userinfo, so they come out as "credentials removed". Safe today
   // only because of how the parser behaves: if one of these ever prints the key, this fails loudly.
   ...["\u200D", "\u200C", "\u3002", "%5C", "%09", "%0a", "%2F", "%40"].map((c) => ({
-    url: `http://u7${c}pw7Q@host/v1`,
+    url: `http://USR-ZX9Q4-NOLEAK${c}PASS-ZX9Q4-NOLEAK@host/v1`,
     shown: "http://host/v1 (removed: credentials)",
-    secrets: ["u7", "pw7Q"],
+    secrets: ["USR-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK"],
   })),
   // Forms the parser accepts or rejects in its own way; pinned so a parser change shows up here.
-  { url: "http://host%40evil7/v1", shown: HIDDEN, secrets: ["evil7"] },
+  { url: "http://host%40EVIL-ZX9Q4-NOLEAK/v1", shown: HIDDEN, secrets: ["EVIL-ZX9Q4-NOLEAK"] },
   { url: "http://b\u00fccher.example/v1", shown: "http://xn--bcher-kva.example/v1", secrets: [] },
   { url: "http:host/v1", shown: "http://host/v1", secrets: [] }, // shown honestly, but refused as a setting (see settings.test.ts)
-  { url: "http:///u7:pw7Q@host/x", shown: "http://host/x (removed: credentials)", secrets: ["u7", "pw7Q"] },
+  { url: "http:///USR-ZX9Q4-NOLEAK:PASS-ZX9Q4-NOLEAK@host/x", shown: "http://host/x (removed: credentials)", secrets: ["USR-ZX9Q4-NOLEAK", "PASS-ZX9Q4-NOLEAK"] },
 ] as const;
 
 /** What a pinned `shown` becomes when the path is left out: `http://host/v1 (removed: query)` -> `http://host (removed: query)`. Written out apart from `redactUrl` so the check is not circular. */
@@ -83,14 +83,14 @@ describe("redactUrl", () => {
 
 describe("redactUrl guard", () => {
   it("a leading space is hidden by the guard (the parser alone would trim it and accept the URL)", () => {
-    expect(new URL(" http://host/v1?k=SECRET7").search).toBe("?k=SECRET7");
-    expect(redactUrl(" http://host/v1?k=SECRET7")).toBe(HIDDEN);
+    expect(new URL(" http://host/v1?k=SECRET-ZX9Q4-NOLEAK").search).toBe("?k=SECRET-ZX9Q4-NOLEAK");
+    expect(redactUrl(" http://host/v1?k=SECRET-ZX9Q4-NOLEAK")).toBe(HIDDEN);
   });
 });
 
 describe("what is shown of a URL that has a path", () => {
   it("the path is kept by default, because it identifies the endpoint (so no key belongs in it)", () => {
-    expect(redactUrl("http://host/v1/sk-PATH7")).toBe("http://host/v1/sk-PATH7");
+    expect(redactUrl("http://host/v1/sk-PATH-ZX9Q4-NOLEAK")).toBe("http://host/v1/sk-PATH-ZX9Q4-NOLEAK");
   });
   it("the path is what the URL parser produces, not what was typed", () => {
     expect(redactUrl("http://host/v1/../x")).toBe("http://host/x");
@@ -100,17 +100,17 @@ describe("what is shown of a URL that has a path", () => {
     expect(redactUrl("http://host:443/v1")).toBe("http://host:443/v1");
   });
   it("a key typed as the host is printed as a host, lowercased", () => {
-    expect(redactUrl("http://SECRET7")).toBe("http://secret7/");
+    expect(redactUrl("http://SECRET-ZX9Q4-NOLEAK")).toBe("http://secret-zx9q4-noleak/");
   });
   it("an error about a rejected base URL names protocol and host only, since the path adds nothing there", () => {
     let message = "";
     try {
-      resolveSettings({ flags: { baseUrl: "ftp://host/v1/sk-PATH7" }, env: {}, home: "/h" });
+      resolveSettings({ flags: { baseUrl: "ftp://host/v1/sk-PATH-ZX9Q4-NOLEAK" }, env: {}, home: "/h" });
     } catch (err) {
       message = (err as Error).message;
     }
     expect(message).toContain('"ftp://host"');
-    expect(message).not.toContain("PATH7");
+    expect(message).not.toContain("PATH-ZX9Q4-NOLEAK");
   });
 });
 
@@ -180,11 +180,11 @@ describe("no output path of the CLI shows a secret, from the flag, the environme
   });
 
   it("a query or fragment is refused before anything is printed, with advice and without the secret", async () => {
-    for (const url of ["https://127.0.0.1:9/v1?api_key=SECRET7", "https://127.0.0.1:9/v1#SECRET7"]) {
+    for (const url of ["https://127.0.0.1:9/v1?api_key=SECRET-ZX9Q4-NOLEAK", "https://127.0.0.1:9/v1#SECRET-ZX9Q4-NOLEAK"]) {
       const r = await run([file, "--dry-run", "--base-url", url, "--model", "m"]);
       expect(r.code).toBe(2);
       expect(r.stderr).toContain("must not contain a query or fragment");
-      expect(r.stdout + r.stderr).not.toContain("SECRET7");
+      expect(r.stdout + r.stderr).not.toContain("SECRET-ZX9Q4-NOLEAK");
     }
   });
 

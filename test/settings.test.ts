@@ -194,8 +194,8 @@ describe("usual base URLs are accepted exactly as written", () => {
 describe("a query or fragment in the base URL is refused, because the request path is appended after it", () => {
   it.each([
     "https://h/v1?api-version=2024-02-01",
-    "https://h/v1?api_key=SECRET7",
-    "https://h/v1#SECRET7",
+    "https://h/v1?api_key=SECRET-ZX9Q4-NOLEAK",
+    "https://h/v1#SECRET-ZX9Q4-NOLEAK",
     "https://h/v1?",
     "https://h/v1#",
     "http://localhost?@evil.com/v1",
@@ -212,7 +212,7 @@ describe("a query or fragment in the base URL is refused, because the request pa
       try {
         run();
       } catch (err) {
-        expect((err as Error).message).not.toContain("SECRET7");
+        expect((err as Error).message).not.toContain("SECRET-ZX9Q4-NOLEAK");
       }
     }
   });

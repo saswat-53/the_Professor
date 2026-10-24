@@ -186,7 +186,9 @@ async function main(): Promise<number> {
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
   let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
   for (const [name, code] of Object.entries(SIGNAL_EXIT_CODES)) {
-    process.once(name, () => {
+    process.on(name, () => {
+      // A second signal means "stop now": leave at once instead of waiting for the request to wind down.
+      if (controller.signal.aborted) process.exit(code);
       cancelCode = code;
       controller.abort();
     });
