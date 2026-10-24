@@ -70,14 +70,21 @@ describe("cancellation", () => {
     ["SIGINT", 130],
     ["SIGTERM", 143],
   ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
-    // The reader stops draining stdout after a while. Once the CLI has written more than a pipe holds, the first SIGINT closes the
-    // connection but the process still cannot finish: its pending writes keep it alive.
+    // The reader stops draining stdout after a while. Once the CLI holds far more output than a pipe takes, the first SIGINT
+    // closes the connection but the process still cannot finish: its pending writes keep it alive.
+    const CHUNKS = 128;
+    let allAccepted: Promise<unknown>;
     respond = (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       const filler = "x".repeat(64 * 1024);
-      for (let i = 0; i < 128; i++) res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`); // 8 MB, and the response never ends
+      const writes: Promise<void>[] = [];
+      for (let i = 0; i < CHUNKS; i++) {
+        writes.push(new Promise((done) => res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`, () => done()))); // 8 MB, and the response never ends
+      }
+      allAccepted = Promise.all(writes);
     };
     const READ_BEFORE_STOPPING = 1024 * 1024;
+    const STALL_DEADLINE_MS = 5000;
     let aliveAfterFirst = false;
     let secondSentAt = 0;
     const r = await run([file], env(), tmpdir(), (child) => {
@@ -88,8 +95,10 @@ describe("cancellation", () => {
         read += data.length;
         if (read < READ_BEFORE_STOPPING || child.stdout!.isPaused()) return;
         child.stdout!.pause();
-        // Time for the CLI to fill the pipe and queue more behind it; the handlers have long been installed, since output is flowing.
-        setTimeout(() => child.kill("SIGINT"), 100);
+        // The stall is established when the CLI has taken all 8 MB from the server while we hold 1 MB at most: the rest is queued in the CLI.
+        // If that never happens the setup is broken (the failure below says so); the signal goes out anyway so the run still ends.
+        const deadline = new Promise((resolve) => setTimeout(resolve, STALL_DEADLINE_MS));
+        void Promise.race([allAccepted, deadline]).then(() => child.kill("SIGINT"));
       });
       // The connection closing proves the first cancel took effect; a short grace period lets a process that could exit do so.
       void closed.then(() =>
@@ -100,10 +109,10 @@ describe("cancellation", () => {
         }, 300),
       );
     });
-    expect(aliveAfterFirst).toBe(true);
+    expect(aliveAfterFirst, "the process exited before the stall was established: a problem with this test's setup (buffers or timing), not with the product").toBe(true);
     expect(r.code).toBe(code);
     expect(Date.now() - secondSentAt).toBeLessThan(2000);
-  });
+  }, 20_000);
 });
 
 // Terminal mode needs a real TTY, so these run the CLI on a pseudo-terminal through a small Python helper.
