@@ -44,6 +44,9 @@ const CASES = [
   { url: "http:///u7:pw7Q@host/x", shown: "http://host/x (removed: credentials)", secrets: ["u7", "pw7Q"] },
 ] as const;
 
+/** What a pinned `shown` becomes when the path is left out: `http://host/v1 (removed: query)` -> `http://host (removed: query)`. Written out apart from `redactUrl` so the check is not circular. */
+const hostOnly = (shown: string) => shown.replace(/^([a-z]+:\/\/[^/ ]+)\/\S*/, "$1");
+
 /** None of `secrets` may appear in `text`. */
 const expectNoSecrets = (text: string, secrets: readonly string[]) => {
   for (const secret of secrets) expect(text).not.toContain(secret);
@@ -53,6 +56,11 @@ describe("redactUrl", () => {
   it.each(CASES)("$url", ({ url, shown, secrets }) => {
     const out = redactUrl(url);
     expect(out).toBe(shown);
+    expectNoSecrets(out, secrets);
+  });
+  it.each(CASES)("path: false shows protocol and host only, with the same note: $url", ({ url, shown, secrets }) => {
+    const out = redactUrl(url, { path: false });
+    expect(out).toBe(hostOnly(shown));
     expectNoSecrets(out, secrets);
   });
   it.each([
@@ -71,8 +79,15 @@ describe("redactUrl guard", () => {
 });
 
 describe("what is shown of a URL that has a path", () => {
-  it("the path is kept as typed by default, because it identifies the endpoint (so no key belongs in it)", () => {
+  it("the path is kept by default, because it identifies the endpoint (so no key belongs in it)", () => {
     expect(redactUrl("http://host/v1/sk-PATH7")).toBe("http://host/v1/sk-PATH7");
+  });
+  it("the path is what the URL parser produces, not what was typed", () => {
+    expect(redactUrl("http://host/v1/../x")).toBe("http://host/x");
+    expect(redactUrl("http://host/v1/%2e%2e/x")).toBe("http://host/x");
+    expect(redactUrl("HTTP://Host:80/v1")).toBe("http://host/v1");
+    expect(redactUrl("https://host:443/v1")).toBe("https://host/v1");
+    expect(redactUrl("http://host:443/v1")).toBe("http://host:443/v1");
   });
   it("a key typed as the host is printed as a host, lowercased", () => {
     expect(redactUrl("http://SECRET7")).toBe("http://secret7/");
@@ -90,8 +105,11 @@ describe("what is shown of a URL that has a path", () => {
 });
 
 describe("every message that echoes a base URL goes through redactUrl", () => {
-  it.each(CASES)("settings error: $url", ({ url, secrets }) => {
-    for (const source of [{ flags: { baseUrl: url }, env: {} }, { flags: {}, env: { LEARN_BASE_URL: url } }]) {
+  it.each(CASES)("settings error: $url", ({ url, shown, secrets }) => {
+    for (const [source, label] of [
+      [{ flags: { baseUrl: url }, env: {} }, "--base-url"],
+      [{ flags: {}, env: { LEARN_BASE_URL: url } }, "LEARN_BASE_URL"],
+    ] as const) {
       let message = "";
       try {
         resolveSettings({ ...source, home: "/h" });
@@ -99,6 +117,10 @@ describe("every message that echoes a base URL goes through redactUrl", () => {
         message = (err as Error).message;
       }
       expectNoSecrets(message, secrets);
+      // Whenever the value is rejected, the error echoes exactly the host-only form, in quotes after the source's name.
+      if (message !== "") expect(message).toContain(`invalid ${label} "${hostOnly(shown)}": `);
+      // A value with credentials, or one that cannot be shown, is always rejected, so this cannot pass by never throwing.
+      if (shown.includes("credentials") || shown === HIDDEN) expect(message).not.toBe("");
     }
   });
 });

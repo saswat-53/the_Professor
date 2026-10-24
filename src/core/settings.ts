@@ -70,7 +70,7 @@ const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f]/;
  * string parses as a web URL with a host, only protocol, host and path are shown (just protocol and
  * host with `path: false`, for messages where the path adds nothing), followed by a note of what was
  * removed. If it does not parse, parses into something that is not a web URL, or fails the
- * `UNSAFE_CHARACTERS` pre-check, none of it is shown. The path is kept as typed (it identifies the
+ * `UNSAFE_CHARACTERS` pre-check, none of it is shown. The path is kept as the parser normalises it (it identifies the
  * endpoint, so a key does not belong in it), and a key typed as the host prints as a lowercased host.
  */
 export function redactUrl(raw: string, { path = true }: { path?: boolean } = {}): string {
@@ -94,6 +94,8 @@ const NOT_A_BASE_URL = "must be an http or https URL, such as http://localhost:1
 
 const url = (raw: unknown) => {
   if (typeof raw !== "string") return { error: NOT_A_BASE_URL };
+  // The same characters redactUrl refuses to print: the parser would rewrite them, so the URL used would not be the one written.
+  if (UNSAFE_CHARACTERS.test(raw)) return { error: `${NOT_A_BASE_URL} (no backslashes, spaces or control characters)` };
   try {
     const { protocol, username, password } = new URL(raw);
     // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.
