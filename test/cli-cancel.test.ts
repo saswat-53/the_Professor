@@ -66,7 +66,9 @@ describe("cancellation", () => {
     expect(r.stderr).toContain("cancelled");
   });
 
-  it.each([
+  // Needs stdout writes that queue instead of blocking, which is how Node treats pipes on macOS. On Linux (CI) a full pipe blocks the main
+  // thread inside the write, so no signal handler can run until the reader drains: that test hung there. The timing-free test below runs everywhere.
+  it.skipIf(process.platform !== "darwin").each([
     ["SIGINT", 130],
     ["SIGTERM", 143],
   ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
@@ -113,6 +115,21 @@ describe("cancellation", () => {
     expect(r.code).toBe(code);
     expect(Date.now() - secondSentAt).toBeLessThan(2000);
   }, 20_000);
+
+  it("two signals back to back end the process with 130 and do not hang", async () => {
+    let connected: () => void;
+    const reached = new Promise<void>((r) => (connected = r));
+    respond = () => connected(); // never answers
+    const started = Date.now();
+    const r = await run([file], env(), tmpdir(), (child) => {
+      void reached.then(() => {
+        child.kill("SIGINT");
+        child.kill("SIGINT");
+      });
+    });
+    expect(r.code).toBe(130);
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
 });
 
 // Terminal mode needs a real TTY, so these run the CLI on a pseudo-terminal through a small Python helper.
