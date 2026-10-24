@@ -11,6 +11,12 @@
 - Your API key is read from an environment variable (later, the OS keychain). It is never stored in a config file or passed on the command line.
 - No telemetry, no analytics, no update check. The only network connection is to the endpoint you configure, and that endpoint receives the code you ask about.
 
+## Configuration
+
+Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`), then a default. Run `learn` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`; a config key or variable of that name is ignored with a warning.
+
+Keys go in an environment variable, never in the URL at all: a base URL with a username or password is refused, and anything you put in the URL's path is printed as typed.
+
 ## Reporting bugs
 
 Error messages can contain file names and paths from your machine (a path outside your home directory is printed in full). Read the text before pasting it into a public issue, and remove anything you don't want shared.

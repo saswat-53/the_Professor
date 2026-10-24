@@ -165,7 +165,7 @@ describe("secrets never appear in messages", () => {
     expect(run).toThrow(UsageError);
     expect(run).toThrow(/put the key in an environment variable/);
     if (_n === "config file") expect(run).toThrow(/"provider\.base_url" in \/home\/u\/\.config\/learn\/config\.toml/);
-    else expect(run).toThrow(/host\/v1/);
+    else expect(run).toThrow(/https?:\/\/host \(removed: credentials\)/);
     try {
       run();
     } catch (err) {

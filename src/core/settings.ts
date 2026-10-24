@@ -55,18 +55,25 @@ export const HIDDEN = "(value hidden)";
  */
 const SHOWN_SCHEMES = ["http:", "https:", "ftp:", "ws:", "wss:"];
 
-/** Backslashes, whitespace and control characters: the parser silently turns `\` into `/` and drops tabs and newlines, which can move a pasted key into the host. */
+/**
+ * Pre-check only, for characters the parser would quietly rewrite: it turns `\` into `/` and drops
+ * tabs and newlines, which can move a pasted key into the host. The parser does the real work in
+ * `redactUrl`; this just refuses what it would otherwise normalise away. The control-character
+ * range is intentional (a linter's no-control-regex rule or autofix must not "fix" it).
+ */
 const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f]/;
 
 /**
- * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). It cannot be
- * done with a pattern: `#`, `?` and `@` can all appear inside a password, so no regex can tell where
- * credentials end. So the string is parsed. If it parses as a web URL with a host, only protocol,
- * host and path are shown, followed by a note of what was removed (credentials, query, fragment).
- * If it does not parse, parses into something that is not a web URL, or holds a character the
- * parser would quietly rewrite, none of it is shown.
+ * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). Whether a
+ * username, password, query or fragment is present is decided by parsing, not by a pattern: `#`, `?`
+ * and `@` can all appear inside a password, so no regex can tell where credentials end. If the
+ * string parses as a web URL with a host, only protocol, host and path are shown (just protocol and
+ * host with `path: false`, for messages where the path adds nothing), followed by a note of what was
+ * removed. If it does not parse, parses into something that is not a web URL, or fails the
+ * `UNSAFE_CHARACTERS` pre-check, none of it is shown. The path is kept as typed (it identifies the
+ * endpoint, so a key does not belong in it), and a key typed as the host prints as a lowercased host.
  */
-export function redactUrl(raw: string): string {
+export function redactUrl(raw: string, { path = true }: { path?: boolean } = {}): string {
   if (UNSAFE_CHARACTERS.test(raw)) return HIDDEN;
   let parsed: URL;
   try {
@@ -80,7 +87,7 @@ export function redactUrl(raw: string): string {
     parsed.search.length > 1 ? "query" : "",
     parsed.hash.length > 1 ? "fragment" : "",
   ].filter(Boolean);
-  return `${parsed.protocol}//${parsed.host}${parsed.pathname}${removed.length > 0 ? ` (removed: ${removed.join(", ")})` : ""}`;
+  return `${parsed.protocol}//${parsed.host}${path ? parsed.pathname : ""}${removed.length > 0 ? ` (removed: ${removed.join(", ")})` : ""}`;
 }
 
 const NOT_A_BASE_URL = "must be an http or https URL, such as http://localhost:11434/v1";
@@ -115,7 +122,7 @@ const dir = (raw: unknown, home: string) =>
 const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "level", flag: "level", flagName: "--level", env: "LEARN_LEVEL", config: ["level"], parse: level },
   { key: "contextBudget", flag: "contextBudget", flagName: "--context-budget", env: "LEARN_CONTEXT_BUDGET", config: ["context_budget"], parse: budget },
-  { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: redactUrl },
+  { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: (raw) => redactUrl(raw, { path: false }) },
   { key: "model", flag: "model", flagName: "--model", env: "LEARN_MODEL", config: ["provider", "model"], parse: text("a model name") },
   { key: "keyEnv", config: ["provider", "key_env"], parse: text("a variable name") },
   { key: "notesDir", config: ["notes_dir"], parse: dir },

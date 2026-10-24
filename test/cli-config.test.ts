@@ -149,7 +149,7 @@ describe("base URL credentials", () => {
       const r = await run(args, { LEARN_MODEL: "m", ...(via === "env" ? { LEARN_BASE_URL: CREDS } : {}) });
       expect(r.code).toBe(2);
       expect(r.stderr).toContain("put the key in an environment variable");
-      expect(r.stderr).toContain("http://127.0.0.1:9/v1");
+      expect(r.stderr).toContain("http://127.0.0.1:9 (removed: credentials)");
       expect(r.stdout + r.stderr).not.toContain("hunter2");
     }
   });

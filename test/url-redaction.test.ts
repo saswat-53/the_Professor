@@ -30,7 +30,13 @@ const CASES = [
   { url: "http://sk-SECRET7\\@host/v1", shown: HIDDEN, secrets: ["SECRET7"] },
   { url: "http://user7:pw7Q\t@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
   { url: "http://host/v1\nSECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
-  { url: " http://host/v1?k=SECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
+  // Characters the parser reads as part of the userinfo, so they come out as "credentials removed". Safe today
+  // only because of how the parser behaves: if one of these ever prints the key, this fails loudly.
+  ...["\u200B", "\u200D", "\u00AD", "\u2060", "\uFF3C", "\uFF0F", "\u3002", "%5C", "%09", "%0a", "%2F", "%40"].map((c) => ({
+    url: `http://u7${c}pw7Q@host/v1`,
+    shown: "http://host/v1 (removed: credentials)",
+    secrets: ["u7", "pw7Q"],
+  })),
   // Forms the parser accepts or rejects in its own way; pinned so a parser change shows up here.
   { url: "http://host%40evil7/v1", shown: HIDDEN, secrets: ["evil7"] },
   { url: "http://b\u00fccher.example/v1", shown: "http://xn--bcher-kva.example/v1", secrets: [] },
@@ -55,6 +61,32 @@ describe("redactUrl", () => {
     ["http://[::1]:8080/v1", "http://[::1]:8080/v1"],
     ["http://host", "http://host/"],
   ])("leaves a clean URL alone: %s", (url, shown) => expect(redactUrl(url)).toBe(shown));
+});
+
+describe("redactUrl guard", () => {
+  it("a leading space is hidden by the guard (the parser alone would trim it and accept the URL)", () => {
+    expect(new URL(" http://host/v1?k=SECRET7").search).toBe("?k=SECRET7");
+    expect(redactUrl(" http://host/v1?k=SECRET7")).toBe(HIDDEN);
+  });
+});
+
+describe("what is shown of a URL that has a path", () => {
+  it("the path is kept as typed by default, because it identifies the endpoint (so no key belongs in it)", () => {
+    expect(redactUrl("http://host/v1/sk-PATH7")).toBe("http://host/v1/sk-PATH7");
+  });
+  it("a key typed as the host is printed as a host, lowercased", () => {
+    expect(redactUrl("http://SECRET7")).toBe("http://secret7/");
+  });
+  it("an error about a rejected base URL names protocol and host only, since the path adds nothing there", () => {
+    let message = "";
+    try {
+      resolveSettings({ flags: { baseUrl: "ftp://host/v1/sk-PATH7" }, env: {}, home: "/h" });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('"ftp://host"');
+    expect(message).not.toContain("PATH7");
+  });
 });
 
 describe("every message that echoes a base URL goes through redactUrl", () => {
