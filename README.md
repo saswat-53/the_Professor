@@ -9,7 +9,7 @@
 - Strictly read-only: it never modifies your files. The only thing it will ever write is notes you explicitly save.
 - Files that likely hold secrets (`.env`, private keys, gitignored files) are refused by default. This is a safety net, not a guarantee: it goes by file names and gitignore rules, so a key hardcoded in an ordinary source file passes every rule. Only content scanning, a later step, can catch that.
 - Your API key is read from an environment variable (later, the OS keychain). It is never stored in a config file or passed on the command line. The config names the variable (`key_env = "OPENAI_API_KEY"` under `[provider]`); a hosted endpoint without that variable set exits 2 naming it, while a localhost endpoint needs no key. `--dry-run` never needs the key. Plain `http` to a non-local host prints a warning on stderr.
-- No telemetry, no analytics, no update check. The only network connection is to the endpoint you configure, and that endpoint receives the code you ask about.
+- No telemetry, no analytics, no update check. The only network connection is to the endpoint you configure (tested for Node-level connections during the covered runs), and that endpoint receives the code you ask about.
 
 ## Configuration
 

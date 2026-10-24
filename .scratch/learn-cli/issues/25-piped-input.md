@@ -11,3 +11,4 @@
 - [ ] When both a file Reference and piped input are given, the behaviour is defined and documented, and tested
 - [ ] The Excerpt size limit applies to piped input
 - [ ] The Context report says that filename rules were not applied to this input
+- [ ] The no-network guard (test/no-network.test.ts) gains a case for piped input (`cat file | learn`): the only connection is the configured endpoint, and `--dry-run` opens none

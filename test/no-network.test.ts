@@ -1,8 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
@@ -48,15 +49,16 @@ afterAll(() => {
   elsewhere.close();
 });
 
-/** Runs the CLI under the spy and returns what it did plus every network operation it started. */
-async function runWithSpy(args: string[], env: Record<string, string>, extraImports: string[] = []) {
+/** Runs the CLI under the spy and returns what it did, every network operation it started, and the commands it spawned. */
+async function runWithSpy(args: string[], env: Record<string, string>, extraImports: string[] = [], cwd?: string) {
   const log = join(dir, `net-${Math.random().toString(36).slice(2)}.log`);
   await writeFile(log, "");
   const imports = [SPY, ...extraImports].map((url) => `--import=${url}`);
   const nodeOptions = [process.env.NODE_OPTIONS, ...imports].filter(Boolean).join(" ");
-  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: nodeOptions });
-  const operations = (await readFile(log, "utf8")).split("\n").filter(Boolean);
-  return { ...result, operations };
+  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: nodeOptions }, cwd);
+  const lines = (await readFile(log, "utf8")).split("\n").filter(Boolean);
+  const spawned = lines.filter((line) => line.startsWith("spawn ")).map((line) => basename(line.slice("spawn ".length)));
+  return { ...result, operations: lines.filter((line) => !line.startsWith("spawn ")), spawned };
 }
 
 const envFor = (port: number) => ({ LEARN_BASE_URL: `http://127.0.0.1:${port}/v1`, LEARN_MODEL: "m" });
@@ -141,10 +143,27 @@ describe("no network except the configured endpoint", () => {
     expectOnlyConnectionsTo(r.operations, endpointPort);
   });
 
+  it("spawns only git, and only inside a git repository", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "learn-net-repo-"));
+    execFileSync("git", ["init", "-q"], { cwd: repo });
+    await writeFile(join(repo, "a.ts"), "export const a = 1;\n");
+    respond = (res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end("{}");
+    };
+    for (const args of [["a.ts", "--dry-run"], ["a.ts"], ["--help"]]) {
+      const r = await runWithSpy(args, configuredEnv(), [], repo);
+      expect(new Set(r.spawned) <= new Set(["git"])).toBe(true);
+    }
+    const used = await runWithSpy(["a.ts", "--dry-run"], configuredEnv(), [], repo);
+    expect(used.spawned).toContain("git"); // so the check above is not vacuously true
+  });
+
   // A negative control: the same guard, run against a build that has an update check added, must fail.
   it("fails when an update check is added (the guard's own self-test)", async () => {
     const r = await runWithSpy([file, "--dry-run"], { ...configuredEnv(), GUARD_FIXTURE_URL: `http://127.0.0.1:${elsewherePort}/latest` }, [FIXTURE]);
     expect(r.operations).toContain(`connect 127.0.0.1:${elsewherePort}`);
     expect(() => expect(r.operations).toEqual([])).toThrow();
+    expect(r.spawned).toContain("node"); // the spawn check catches the fixture's extra binary
   });
 });
