@@ -1,0 +1,32 @@
+name: Stall repro (ticket 42)
+
+# Manual only: finds out whether a stalled stdout reader stops a Node process from handling SIGINT on Linux.
+# Repro scripts and background: .scratch/learn-cli/issues/42-stalled-stdout-reader-on-linux.md
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run build
+      - name: Repro 1, plain Node child with a stalled stdout reader
+        run: node .scratch/learn-cli/issues/42-repro/stall.mjs
+      - name: Repro 2, dist/cli.js with a stalled stdout reader
+        run: |
+          dir="$(mktemp -d)"
+          echo "export const a = 1;" > "$dir/f.ts"
+          node .scratch/learn-cli/issues/42-repro/cli-stall.mjs dist/cli.js "$dir/f.ts" "$dir"
