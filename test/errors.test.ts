@@ -8,7 +8,7 @@ describe("error exit codes", () => {
     expect(new ContextTooLongError("x").exitCode).toBe(3);
     expect(new BlockedFileError("x", { kind: "denylist", name: "r" }).exitCode).toBe(3);
     expect(new UsageError("x").exitCode).toBe(2);
-    expect(ExitCode).toEqual({ Runtime: 1, Usage: 2, Refused: 3 });
+    expect(ExitCode).toEqual({ Runtime: 1, Usage: 2, Refused: 3, Cancelled: 130 });
   });
 });
 

@@ -53,7 +53,7 @@ How much background the learner is assumed to have: beginner, intermediate (the 
 _Avoid_: Mode, difficulty, skill
 
 **Exit code**:
-The number `learn` ends with, promised to script users: 0 success, 1 runtime or provider error, 2 usage or config error, 3 refused (a Sensitive file, a file that fails the reading rules, a file outside the Project root, or an Excerpt over budget).
+The number `learn` ends with, promised to script users: 0 success, 1 runtime or provider error, 2 usage or config error, 3 refused (a Sensitive file, a file that fails the reading rules, a file outside the Project root, or an Excerpt over budget), 130 cancelled by Ctrl-C (SIGINT), 143 cancelled by SIGTERM.
 _Avoid_: Status code, return code
 
 **Sensitive file**:

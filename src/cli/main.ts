@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
@@ -182,7 +182,15 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
-  process.once("SIGINT", () => controller.abort());
+  // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
+  const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
+  let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
+  for (const [name, code] of Object.entries(SIGNAL_EXIT_CODES)) {
+    process.once(name, () => {
+      cancelCode = code;
+      controller.abort();
+    });
+  }
   let apiKey: string | undefined;
   try {
     apiKey = resolveApiKey({ keyEnv, baseUrl, env: process.env });
@@ -209,11 +217,12 @@ async function main(): Promise<number> {
       process.stdout.write(text);
       lastChar = text.at(-1) ?? lastChar;
     } else if (event.type === "error") {
-      record(event.error.exitCode);
+      const code = event.error instanceof CancelledError ? cancelCode : event.error.exitCode;
+      record(code);
       // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
       if (lastChar !== "\n") process.stderr.write("\n");
       status("error", describe(event.error));
-      return event.error.exitCode;
+      return code;
     }
   }
   process.stdout.write("\n");

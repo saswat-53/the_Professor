@@ -3,6 +3,7 @@ export type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./type
 export {
   BadKeyError,
   BlockedFileError,
+  CancelledError,
   ContextTooLongError,
   ExitCode,
   FileNotFoundError,

@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertExcerptFits, resolveBudget } from "./budget.js";
-import { LearnError, ProviderError, UnexpectedError } from "./errors.js";
+import { CancelledError, LearnError, ProviderError, UnexpectedError } from "./errors.js";
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
@@ -84,6 +84,10 @@ export async function* explain(
     request = prepared.request;
     yield { type: "context-report", report: prepared.report };
   } catch (err) {
+    if (input.signal.aborted) {
+      yield { type: "error", error: new CancelledError() };
+      return;
+    }
     const refused = reportForError(err);
     if (refused) yield { type: "context-report", report: refused };
     yield { type: "error", error: local(err) };
@@ -92,10 +96,13 @@ export async function* explain(
   input.onRequest?.(request);
   try {
     for await (const text of input.model.stream(request, input.signal)) {
+      if (input.signal.aborted) break;
       yield { type: "text-delta", text };
     }
-    yield { type: "done" };
+    // An abort that ends the stream quietly is still a cancel, not a success.
+    yield input.signal.aborted ? { type: "error", error: new CancelledError() } : { type: "done" };
   } catch (err) {
-    yield { type: "error", error: fromModel(err) };
+    // Whatever the model threw after an abort is the abort's echo, not a provider failure.
+    yield { type: "error", error: input.signal.aborted ? new CancelledError() : fromModel(err) };
   }
 }

@@ -10,7 +10,7 @@ import type { LanguageModel } from "../core/index.js";
 export function classifyProviderError(err: unknown, keyEnv?: string): Error {
   // Only the variable's name is ever shown, never its value.
   const keyHint = keyEnv === undefined ? "set key_env in the config file to the variable that holds your key" : `check $${keyEnv}`;
-  // Cancellation is not a provider failure; ticket 19 gives it its own handling.
+  // Cancellation is not a provider failure; explain() turns it into a CancelledError.
   if (err instanceof Error && err.name === "AbortError") return err;
   const unreachable = new NetworkError("could not reach the model provider; check the base URL and your connection");
   if (!APICallError.isInstance(err)) return unreachable;

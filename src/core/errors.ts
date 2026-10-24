@@ -1,5 +1,5 @@
 /** Process exit codes, one per family of failure; scripts can rely on them. */
-export const ExitCode = { Runtime: 1, Usage: 2, Refused: 3 } as const;
+export const ExitCode = { Runtime: 1, Usage: 2, Refused: 3, Cancelled: 130 } as const;
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
 /** Every failure the user can hit: a friendly message plus the exit code the CLI ends with. */
@@ -86,6 +86,15 @@ export class PathEscapeError extends RefusedError {
 /** Git refused the repository because another user owns it; learn never overrides that. */
 export class UntrustedRepoError extends RefusedError {
   override name = "UntrustedRepoError";
+}
+
+/** The user stopped the request (Ctrl-C, SIGTERM). The CLI may swap in the exit code of the signal it received. */
+export class CancelledError extends LearnError {
+  override name = "CancelledError";
+  readonly exitCode = ExitCode.Cancelled;
+  constructor() {
+    super("cancelled");
+  }
 }
 
 /** The provider or the network failed: worth retrying or fixing configuration, not the input. */
