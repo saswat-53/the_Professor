@@ -7,6 +7,7 @@ import { isLocalHost } from "./sensitive.js";
  * endpoint may run without a key; a hosted one may not, and the error names the variable (never a value).
  */
 export function resolveApiKey({ keyEnv, baseUrl, env }: { keyEnv: string | undefined; baseUrl: string; env: Record<string, string | undefined> }): string | undefined {
+  // Only spaces, tabs and line ends are trimmed (a pasted line or `$(cat file)`), the same rule the other environment values get.
   const key = keyEnv === undefined ? undefined : env[keyEnv]?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
   if (key) return key;
   if (isLocalHost(baseUrl)) return undefined;

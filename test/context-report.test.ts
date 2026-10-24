@@ -228,8 +228,9 @@ describe("secret canary (the gate)", () => {
     const { home, repo } = await secretProject();
     await withServer(async (url, received, auth) => {
       // Sensitive files are only refused for a non-local endpoint, and a refusal happens before any request, so those runs
-      // use a hosted URL that is never contacted. Only the ordinary file streams, to the local spy.
-      const baseUrl = mode === "stream" && target === "ok.txt" ? url : "https://api.example.com/v1";
+      // use a hosted URL that is never contacted. The ordinary file goes to the local spy in every mode: --dry-run sends
+      // nothing, while --show-prompt and the plain run really send the key.
+      const baseUrl = target === "ok.txt" ? url : "https://api.example.com/v1";
       const args = mode === "stream" ? [target] : [target, mode];
       const r = await run(args, { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", KEY_VAR: KEY_CANARY, HOME: home, ...(await keyVarConfig()) }, repo);
       const everything = r.stdout + r.stderr + received();
@@ -238,7 +239,7 @@ describe("secret canary (the gate)", () => {
       expect(everything).not.toContain(KEY_CANARY);
       expect(everything).not.toContain(home);
       // The key really is used when a request goes out (as the Authorization header), and still never printed.
-      if (mode === "stream" && target === "ok.txt") expect(auth()).toBe(`Bearer ${KEY_CANARY}`);
+      if (target === "ok.txt") expect(auth()).toBe(mode === "--dry-run" ? undefined : `Bearer ${KEY_CANARY}`);
       if (target === "ok.txt") expect(r.stderr).toContain("Context report");
       else {
         expect(r.code).toBe(3);

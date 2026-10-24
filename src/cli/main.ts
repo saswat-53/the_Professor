@@ -102,8 +102,8 @@ async function main(): Promise<number> {
     return 2;
   }
   const settings = { baseUrl, model, level, contextBudget };
-  const insecure = insecureTransportWarning(baseUrl);
-  if (insecure) process.stderr.write(`${insecure}\n`);
+  const transportWarning = insecureTransportWarning(baseUrl);
+  if (transportWarning) process.stderr.write(`${transportWarning}\n`);
   const fail = (err: unknown) => {
     process.stderr.write(`${describe(err)}\n`);
     return err instanceof LearnError ? err.exitCode : 1;
