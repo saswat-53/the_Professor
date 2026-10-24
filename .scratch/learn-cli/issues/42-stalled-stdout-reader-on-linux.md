@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** needs-investigation
+**Status:** product cleared; test hang still unexplained
 
 ## Symptom
 
@@ -43,3 +43,18 @@ Then the same with `dist/cli.js` against a fake server streaming 8 MB, reader st
 - [ ] Cause confirmed on Linux with the plain script and with `dist/cli.js`
 - [ ] The macOS-only gate on the stall test is removed, or the reason it stays is written here
 - [ ] A decision (fix, force-exit timer, or documented limitation) is recorded in this file
+
+## Result of the Linux run (workflow "Stall repro (ticket 42)", run 40103670117, ubuntu-24.04, Node 22.23.3, 24.21.0, 26.12.1)
+
+- Repro 1 (plain Node child, stdout reader stalled): on all three versions `write()` returned false after 4 writes, the event loop kept ticking, SIGINT was handled 1-2 ms after it was sent, and the child exited 130 (`RESULT: handler ran and the process exited`).
+- Repro 2 (`dist/cli.js`, reader stopped after 1 MB, all 8 MB accepted by the CLI): on all three versions the first SIGINT closed the connection and printed `cancelled`, the process then stayed alive (stuck behind the unread output, exactly as on macOS), and the second SIGINT ended it with code 130 about 12 ms later.
+
+So candidate 1 (the product ignores signals while a reader is stalled) is refuted on Linux: the CLI behaves the same as on macOS, the second-signal `process.exit` works, and the first signal is handled even with a stalled reader. No README limitation and no force-exit timer is needed on this evidence.
+
+## What is still open
+
+The vitest version of the stall test hung until its timeout on Linux (Node 22 and 26) while this standalone script, with the same sequence, did not. So the cause is in the test (candidate 2 or 3), not the product. Differences to check: the shared `run()` helper (its own `data` listener, `HOME`/`cwd` setup), the module-level `closed` promise shared across tests, and the parallel load of the whole suite. Next step: lift the macOS-only gate on a branch with stage logging in the test (reader bytes, `allAccepted`, connection closed, exit) and read the log from CI.
+
+- [x] Cause confirmed on Linux with the plain script and with `dist/cli.js`: not the product
+- [ ] The macOS-only gate on the stall test is removed, or the reason it stays is written here
+- [ ] A decision is recorded: product needs no change; document the test-side cause
