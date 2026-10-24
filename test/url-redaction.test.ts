@@ -161,11 +161,26 @@ describe("no output path of the CLI shows a secret, from the flag, the environme
     }, 30_000);
   }
 
-  it("--dry-run and --show-prompt print the sanitized URL and say what was removed", async () => {
-    for (const flag of ["--dry-run", "--show-prompt"]) { // each alone with --dry-run, so the request is printed but never sent
-      const r = await run([file, "--dry-run", flag, "--base-url", "https://127.0.0.1:9/v1?api_key=SECRET7#SECRET7", "--model", "m"]);
+  it("--dry-run and --show-prompt print the URL that will be used: parsed, with the path normalised", async () => {
+    for (const flag of ["--dry-run", "--show-prompt"]) {
+      const r = await run([file, "--dry-run", flag, "--base-url", "HTTP://127.0.0.1:9/v1/../x", "--model", "m"]);
       expect(r.code).toBe(0);
-      expect(r.stderr).toContain("base URL: https://127.0.0.1:9/v1 (removed: query, fragment)\n");
+      expect(r.stderr).toContain("base URL: http://127.0.0.1:9/x\n");
     }
+  });
+
+  it("a query or fragment is refused before anything is printed, with advice and without the secret", async () => {
+    for (const url of ["https://127.0.0.1:9/v1?api_key=SECRET7", "https://127.0.0.1:9/v1#SECRET7"]) {
+      const r = await run([file, "--dry-run", "--base-url", url, "--model", "m"]);
+      expect(r.code).toBe(2);
+      expect(r.stderr).toContain("must not contain a query or fragment");
+      expect(r.stdout + r.stderr).not.toContain("SECRET7");
+    }
+  });
+
+  it("a trailing newline in LEARN_BASE_URL (as from $(cat file)) is trimmed, and the request URL is the trimmed one", async () => {
+    const r = await run([file, "--dry-run"], { LEARN_BASE_URL: "http://127.0.0.1:9/v1\n", LEARN_MODEL: "m\n" });
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("base URL: http://127.0.0.1:9/v1\nmodel: m\n");
   });
 });

@@ -15,7 +15,7 @@
 
 Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`, or `$XDG_CONFIG_HOME/learn/config.toml` when that variable is set to an absolute path; if it is unset or relative, `~/.config` is used), then a default. Run `learn` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`. `root` or `allow_sensitive` in the config file, and `LEARN_ROOT` or `LEARN_ALLOW_SENSITIVE` in the environment, are ignored with a warning.
 
-Keys go in an environment variable, never in the URL at all: a base URL with a username or password is refused, and a URL's path is printed after the URL parser has normalised it (dots resolved, host lowercased, default port dropped), so never put a key there either.
+Keys go in an environment variable, never in the URL at all: a base URL with a username or password is refused, and a URL's path is printed after the URL parser has normalised it (dots resolved, host lowercased, default port dropped), so never put a key there either. A base URL cannot carry a query or fragment (the request path is added after it), and stray whitespace around a flag or variable, such as a trailing newline from `$(cat file)`, is trimmed.
 
 ## Reporting bugs
 

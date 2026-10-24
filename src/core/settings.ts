@@ -94,6 +94,8 @@ const NOT_A_BASE_URL = "must be an http or https URL, such as http://localhost:1
 
 const url = (raw: unknown) => {
   if (typeof raw !== "string") return { error: NOT_A_BASE_URL };
+  // The SDK appends `/chat/completions` after whatever the URL ends with, so a query or fragment would swallow it; and a key must not be in the URL anyway.
+  if (/[?#]/.test(raw)) return { error: "must not contain a query or fragment (the request path is added after the URL, and keys go in an environment variable, not in the URL)" };
   // The same characters redactUrl refuses to print: the parser would rewrite them, so the URL used would not be the one written.
   if (UNSAFE_CHARACTERS.test(raw)) return { error: `${NOT_A_BASE_URL} (no backslashes, spaces or control characters)` };
   try {
@@ -142,6 +144,8 @@ export function parseConfig(source: string, file: string): Config {
     throw new UsageError(`${file}: not valid TOML${where}: ${reason}`);
   }
 }
+
+const trimEnds = (value: string | undefined) => value?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
 
 const at = (values: Record<string, unknown>, path: readonly string[]): unknown =>
   path.reduce<unknown>((v, k) => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>)[k] : undefined), values);
@@ -199,8 +203,9 @@ export function resolveSettings({ flags, env, config, home }: ResolveInput): Res
   const out: Record<string, unknown> = { level: DEFAULT_LEVEL, notesDir: `${home}/learn-notes` };
   for (const def of DEFS) {
     const candidates: [Where, unknown][] = [];
-    if (def.flag && def.flagName) candidates.push([{ kind: "flag", label: def.flagName }, flags[def.flag]]);
-    if (def.env) candidates.push([{ kind: "env", label: def.env }, env[def.env]]);
+    // A flag or variable often arrives with a stray newline (`$(cat file)`, a pasted line): trimmed, so it is not mistaken for part of the value. A config value is taken as written.
+    if (def.flag && def.flagName) candidates.push([{ kind: "flag", label: def.flagName }, trimEnds(flags[def.flag])]);
+    if (def.env) candidates.push([{ kind: "env", label: def.env }, trimEnds(env[def.env])]);
     if (config) candidates.push([{ kind: "config", label: `"${def.config.join(".")}" in ${config.file}` }, at(config.values, def.config)]);
     // One rule for every setting and source: an empty string is the same as not set.
     const found = candidates.find(([, v]) => v !== undefined && v !== "");

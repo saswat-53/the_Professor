@@ -191,6 +191,57 @@ describe("usual base URLs are accepted exactly as written", () => {
   });
 });
 
+describe("a query or fragment in the base URL is refused, because the request path is appended after it", () => {
+  it.each([
+    "https://h/v1?api-version=2024-02-01",
+    "https://h/v1?api_key=SECRET7",
+    "https://h/v1#SECRET7",
+    "https://h/v1?",
+    "https://h/v1#",
+    "http://localhost?@evil.com/v1",
+    "http://localhost#@evil.com",
+  ])("%s", (url) => {
+    for (const run of [
+      () => resolve({ baseUrl: url }),
+      () => resolve({}, { LEARN_BASE_URL: url }),
+      () => resolve({}, {}, `[provider]\nbase_url = "${url}"\n`),
+    ]) {
+      expect(run).toThrow(UsageError);
+      expect(run).toThrow(/must not contain a query or fragment/);
+      expect(run).toThrow(/key.*environment variable/);
+      try {
+        run();
+      } catch (err) {
+        expect((err as Error).message).not.toContain("SECRET7");
+      }
+    }
+  });
+});
+
+describe("whitespace around a flag or environment value is trimmed", () => {
+  it.each(["http://localhost:11434/v1\n", "http://localhost:11434/v1\r\n", " http://localhost:11434/v1", "\t http://localhost:11434/v1 \n"])(
+    "base URL %j",
+    (url) => {
+      expect(resolve({ baseUrl: url }).settings.baseUrl).toBe("http://localhost:11434/v1");
+      expect(resolve({}, { LEARN_BASE_URL: url }).settings.baseUrl).toBe("http://localhost:11434/v1");
+    },
+  );
+  it("applies to every setting, not only the base URL", () => {
+    const s = resolve({ model: "m\n", level: " expert\n" }, { LEARN_CONTEXT_BUDGET: "200\n" }).settings;
+    expect([s.model, s.level, s.contextBudget]).toEqual(["m", "expert", 200]);
+  });
+  it("whitespace alone is empty, so unset", () => {
+    expect(resolve({ model: " \n" }, { LEARN_MODEL: "\t" }, '[provider]\nmodel = "c"\n').settings.model).toBe("c");
+  });
+  it("whitespace inside the URL is still refused, and the message says what is wrong", () => {
+    expect(() => resolve({ baseUrl: "http://local host/v1" })).toThrow(/no backslashes, spaces or control characters/);
+    expect(() => resolve({ baseUrl: "http://localhost:11434/v1\n/x" })).toThrow(/no backslashes, spaces or control characters/);
+  });
+  it("a config value is taken as written, not trimmed", () => {
+    expect(() => resolve({}, {}, '[provider]\nbase_url = "http://x/v1 "\n')).toThrow(/"provider\.base_url"/);
+  });
+});
+
 describe("safety flags are flags only", () => {
   it("LEARN_ROOT and LEARN_ALLOW_SENSITIVE are ignored, with a warning that names them", () => {
     const { settings, warnings } = resolve({}, { LEARN_ROOT: "/", LEARN_ALLOW_SENSITIVE: "1" });
