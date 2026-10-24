@@ -31,7 +31,7 @@ const CASES = [
   { url: "http://user7:pw7Q\t@host/v1", shown: HIDDEN, secrets: ["user7", "pw7Q"] },
   { url: "http://host/v1\nSECRET7", shown: HIDDEN, secrets: ["SECRET7"] },
   // Invisible, format and lookalike characters the parser would quietly keep or fold (zero-width, soft hyphen, fullwidth, bidi, NEL): hidden before parsing.
-  ...["\u200B", "\u200D", "\u00AD", "\u2060", "\uFF3C", "\uFF0F", "\u0085", "\u202E", "\uFEFF"].map((c) => ({
+  ...["\u200B", "\u00AD", "\u2060", "\uFF3C", "\uFF0F", "\u0085", "\u202E", "\uFEFF"].map((c) => ({
     url: `http://u7${c}pw7Q@host/v1`,
     shown: HIDDEN,
     secrets: ["u7", "pw7Q"],
@@ -42,7 +42,7 @@ const CASES = [
   { url: "http://h/v1\u202E", shown: HIDDEN, secrets: [] },
   // Characters the parser reads as part of the userinfo, so they come out as "credentials removed". Safe today
   // only because of how the parser behaves: if one of these ever prints the key, this fails loudly.
-  ...["\u3002", "%5C", "%09", "%0a", "%2F", "%40"].map((c) => ({
+  ...["\u200D", "\u200C", "\u3002", "%5C", "%09", "%0a", "%2F", "%40"].map((c) => ({
     url: `http://u7${c}pw7Q@host/v1`,
     shown: "http://host/v1 (removed: credentials)",
     secrets: ["u7", "pw7Q"],

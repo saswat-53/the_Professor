@@ -204,10 +204,18 @@ describe("sensitive files", () => {
     ["http://[::ffff:127.0.0.1]/v1", false],
     ["http://0.0.0.0:8080/v1", false],
     ["http://127.0.0.2/v1", false],
-    // Spellings that the URL parser normalises to loopback are exempt, because the exemption is on the parsed host.
-    ["http://127.1/v1", true],
-    ["http://2130706433/v1", true],
-    ["http://[0:0:0:0:0:0:0:1]/v1", true],
+    // Only the plain spellings are exempt. Other spellings the URL parser folds to loopback are not: the exemption
+    // lowers a safety check, so it trusts what was written, not what the parser made of it.
+    ["http://127.1/v1", false],
+    ["http://2130706433/v1", false],
+    ["http://0x7f.1/v1", false],
+    ["http://0177.0.0.1/v1", false],
+    ["http://[0:0:0:0:0:0:0:1]/v1", false],
+    ["http://\u24DBocalhost/v1", false],
+    ["http://local%68ost/v1", false],
+    ["http://127.0.0.1:1234", true],
+    ["http://LOCALHOST/v1", true],
+    ["http://[::1]/v1", true],
   ])("isLocalHost(%s) is %s", (url, expected) => {
     expect(isLocalHost(url)).toBe(expected);
   });
@@ -288,8 +296,10 @@ describe("sensitive files through the CLI", () => {
   });
 
   it("does not exempt look-alike hosts or userinfo tricks", async () => {
-    const lookAlike = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://127.0.0.1.evil.invalid/v1", LEARN_MODEL: "m" }, repo);
-    expect(lookAlike.code).toBe(3);
+    for (const url of ["http://127.0.0.1.evil.invalid/v1", "http://127.1/v1", "http://2130706433/v1", "http://[0:0:0:0:0:0:0:1]/v1"]) {
+      const lookAlike = await run([".env", "--dry-run"], { LEARN_BASE_URL: url, LEARN_MODEL: "m" }, repo);
+      expect(lookAlike.code).toBe(3);
+    }
     // A URL with userinfo is refused as a setting before any file is read, so it can never be an exemption either.
     const userinfo = await run([".env", "--dry-run"], { LEARN_BASE_URL: "http://localhost@evil.invalid/v1", LEARN_MODEL: "m" }, repo);
     expect(userinfo.code).toBe(2);

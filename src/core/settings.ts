@@ -61,11 +61,11 @@ const SHOWN_SCHEMES = ["http:", "https:", "ftp:", "ws:", "wss:"];
  * characters through, any of which can hide or move part of a URL. The parser does the real work in
  * `redactUrl`; this just refuses what it would otherwise normalise away. Covered: backslash,
  * whitespace and C0/C1 controls (including DEL and NEL), soft hyphen, Mongolian vowel separator,
- * zero-width and directional marks (U+200B-200F, U+202A-202E), the invisible operators
+ * zero-width space and the directional marks (U+200B, U+200E, U+200F, U+202A-202E; the joiners U+200C and U+200D stay allowed, as real Persian and Indic hostnames need them), the invisible operators
  * (U+2060-206F), the byte order mark, and the fullwidth block (U+FF00-FFEF). The control-character
  * ranges are intentional (a linter's no-control-regex rule or autofix must not "fix" them).
  */
-const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f-\u009f\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\uff00-\uffef]/;
+const UNSAFE_CHARACTERS = /[\\\s\u0000-\u001f\u007f-\u009f\u00ad\u180e\u200b\u200e\u200f\u202a-\u202e\u2060-\u206f\ufeff\uff00-\uffef]/;
 
 /**
  * The only way a base URL is ever printed (errors, `--dry-run`, `--show-prompt`). Whether a
@@ -94,19 +94,26 @@ export function redactUrl(raw: string, { path = true }: { path?: boolean } = {})
   return `${parsed.protocol}//${parsed.host}${path ? parsed.pathname : ""}${removed.length > 0 ? ` (removed: ${removed.join(", ")})` : ""}`;
 }
 
-const NOT_A_BASE_URL = "must be an http or https URL, such as http://localhost:11434/v1";
+const NOT_A_BASE_URL = "must start with http:// or https://, such as http://localhost:11434/v1";
+const NEEDS_SLASHES = "must be written http://host or https://host (the scheme, then exactly two slashes, then the host)";
 
 const url = (raw: unknown) => {
   if (typeof raw !== "string") return { error: NOT_A_BASE_URL };
   // The SDK appends `/chat/completions` after whatever the URL ends with, so a query or fragment would swallow it; and a key must not be in the URL anyway.
   if (/[?#]/.test(raw)) return { error: "must not contain a query or fragment (the request path is added after the URL, and keys go in an environment variable, not in the URL)" };
   // The same characters redactUrl refuses to print: the parser would rewrite them, so the URL used would not be the one written.
-  if (UNSAFE_CHARACTERS.test(raw)) return { error: `${NOT_A_BASE_URL} (no backslashes, spaces or control characters)` };
+  if (UNSAFE_CHARACTERS.test(raw)) return { error: "must not contain backslashes, spaces, or control or invisible characters" };
+  if (!/^https?:/i.test(raw)) return { error: NOT_A_BASE_URL };
   // `scheme://host` with a real host: not `http:host`, `http:/h`, `http:////h` or `http:///x`, which the parser repairs into a different-looking URL.
-  const authority = /^https?:\/\/([^/\s])/i.test(raw) ? raw.slice(raw.indexOf("//") + 2).split("/")[0] : undefined;
-  if (authority === undefined) return { error: NOT_A_BASE_URL };
+  if (!/^https?:\/\/[^/\s]/i.test(raw)) return { error: NEEDS_SLASHES };
+  const afterSlashes = raw.slice(raw.indexOf("//") + 2);
+  const authority = afterSlashes.split("/")[0] ?? "";
   // Anything before an `@` in the authority is userinfo, even when empty (`http://@h`).
   if (authority.includes("@")) return { error: "must not contain a username or password; put the key in an environment variable (key_env), not in the URL" };
+  // A pasted sentence or bracket: `http://x/v1.` and `http://x/v1)` would be requested as written and 404. (A trailing dot on the host itself is a valid name, so only the path is checked.)
+  const path = afterSlashes.slice(authority.length);
+  const stray = /[.,;)\]>'"]$/.exec(path)?.[0];
+  if (stray) return { error: `must not end with stray punctuation: it ends with "${stray}" (pasted from a sentence or a bracket?)` };
   try {
     const { protocol, username, password } = new URL(raw);
     // fetch refuses such a URL, and stripping it would send the request without credentials the user thought they gave.

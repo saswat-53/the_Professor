@@ -234,8 +234,8 @@ describe("whitespace around a flag or environment value is trimmed", () => {
     expect(resolve({ model: " \n" }, { LEARN_MODEL: "\t" }, '[provider]\nmodel = "c"\n').settings.model).toBe("c");
   });
   it("whitespace inside the URL is still refused, and the message says what is wrong", () => {
-    expect(() => resolve({ baseUrl: "http://local host/v1" })).toThrow(/no backslashes, spaces or control characters/);
-    expect(() => resolve({ baseUrl: "http://localhost:11434/v1\n/x" })).toThrow(/no backslashes, spaces or control characters/);
+    expect(() => resolve({ baseUrl: "http://local host/v1" })).toThrow(/must not contain backslashes, spaces, or control or invisible characters/);
+    expect(() => resolve({ baseUrl: "http://localhost:11434/v1\n/x" })).toThrow(/must not contain backslashes, spaces, or control or invisible characters/);
   });
   it("a config value is taken as written, not trimmed", () => {
     expect(() => resolve({}, {}, '[provider]\nbase_url = "http://x/v1 "\n')).toThrow(/"provider\.base_url"/);
@@ -269,6 +269,48 @@ describe("base URLs that are not what they look like are refused", () => {
   it("still accepts the legitimate forms next to them", () => {
     for (const url of ["http://h/v1", "HTTP://H/v1", "https://xn--bcher-kva.example/v1", "http://b\u00fccher.example/v1"]) {
       expect(() => resolve({ baseUrl: url })).not.toThrow();
+    }
+  });
+});
+
+describe("base URL error messages say what is wrong", () => {
+  const message = (url: string) => {
+    try {
+      resolve({ baseUrl: url });
+    } catch (err) {
+      return (err as Error).message;
+    }
+    return "";
+  };
+  it.each(["http:localhost", "http:/localhost", "http:///localhost", "http:////h", "https:h/v1"])("%s: says the scheme needs // and then the host", (url) => {
+    expect(message(url)).toMatch(/must be written http:\/\/host or https:\/\/host/);
+    expect(message(url)).toMatch(/exactly two slashes/);
+  });
+  it.each(["localhost:11434/v1", "htp://x", "https//x", "<http://x/v1>", '"http://x/v1"', "'http://x/v1'", "x"])("%s: says it must start with http:// or https://", (url) => {
+    expect(message(url)).toMatch(/must start with http:\/\/ or https:\/\//);
+  });
+  it.each([["http://x/v1.", "."], ["http://x/v1,", ","], ["http://x/v1)", ")"], ["http://x/v1;", ";"], ["http://x/v1>", ">"], ['http://x/v1"', '"'], ["http://x/v1]", "]"]])(
+    "%s: refuses the stray %s at the end of the path",
+    (url, ch) => {
+      expect(message(url)).toContain(`ends with "${ch}"`);
+      expect(message(url)).toMatch(/pasted/);
+    },
+  );
+  it("does not mistake legitimate endings for stray punctuation", () => {
+    for (const url of ["http://example.com.", "http://example.com./v1", "http://x/v1/", "http://x/v1.2", "http://x/a.b/v1", "http://[::1]:11434/v1"]) {
+      expect(message(url)).toBe("");
+    }
+  });
+});
+
+describe("joiners in real hostnames", () => {
+  it("accepts a Persian hostname that needs a zero-width non-joiner, and shows it as punycode", () => {
+    const url = "http://\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645.example/v1";
+    expect(resolve({ baseUrl: url }).settings.baseUrl).toBe(url);
+  });
+  it("still refuses the other zero-width characters, and a joiner the parser itself rejects", () => {
+    for (const url of ["http://h\u200B/v1", "http://h\u200E/v1", "http://h\u200F/v1", "http://a\u200Cb.example/v1"]) {
+      expect(() => resolve({ baseUrl: url })).toThrow(UsageError);
     }
   });
 });

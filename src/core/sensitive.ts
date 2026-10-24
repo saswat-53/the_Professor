@@ -66,11 +66,22 @@ export interface Endpoint {
   local: boolean;
 }
 
-/** Local means localhost, 127.0.0.1 and ::1 only, decided on the parsed host, so `localhost.evil.example` is not exempt. */
+const PLAIN_LOCAL_HOSTS = ["localhost", "127.0.0.1", "[::1]"];
+
+/** The host as written in the URL, lowercased and before the parser rewrites it (`127.1` stays `127.1`); userinfo is skipped. */
+const writtenHost = (baseUrl: string): string | undefined =>
+  /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?(\[[^\]]*\]|[^:/?#]*)/i.exec(baseUrl)?.[1]?.toLowerCase();
+
+/**
+ * Local means localhost, 127.0.0.1 and ::1 only, in exactly those spellings, so `localhost.evil.example`
+ * is not exempt. The exemption lowers a safety check, so it trusts what was written, not what the URL
+ * parser made of it: `127.1`, `2130706433`, `0x7f.1`, `[0:0:0:0:0:0:0:1]`, `local%68ost` and `ⓛocalhost`
+ * all parse to loopback but are not exempt. (Case does not matter: `LOCALHOST` is `localhost`.)
+ */
 export function resolveEndpoint(baseUrl: string): Endpoint {
   try {
     const hostname = new URL(baseUrl).hostname;
-    return { host: hostname.replace(/^\[|\]$/g, ""), local: ["localhost", "127.0.0.1", "[::1]"].includes(hostname) };
+    return { host: hostname.replace(/^\[|\]$/g, ""), local: PLAIN_LOCAL_HOSTS.includes(hostname) && writtenHost(baseUrl) === hostname };
   } catch {
     return { local: false };
   }
