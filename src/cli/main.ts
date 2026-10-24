@@ -3,6 +3,18 @@ import { parseArgs } from "node:util";
 import { BlockedFileError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
+import { colorEnabled, painter } from "./output.js";
+import type { StatusKind } from "./output.js";
+
+/** Status goes to stderr, coloured only for a person watching; stdout carries the explanation alone. */
+const paint = painter(colorEnabled({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!process.stderr.isTTY, env: process.env }));
+const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, text)}\n`);
+
+// A closed output pipe (`learn f | head`) is the reader being done, not a failure: end without a stack trace.
+process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EPIPE") process.exit(0);
+  throw err;
+});
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
 
@@ -49,11 +61,14 @@ async function loadSettings(values: Flagged): Promise<Loaded> {
       config,
       home,
     });
-    for (const warning of resolved.warnings) process.stderr.write(`${warning}\n`);
-    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) process.stderr.write(`${firstRunMessage(file)}\n\n`);
+    for (const warning of resolved.warnings) status("warning", warning);
+    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) {
+      status("info", firstRunMessage(file));
+      process.stderr.write("\n");
+    }
     return { ok: true, resolved, config, file };
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+    status("error", err instanceof Error ? err.message : String(err));
     return { ok: false, exitCode: err instanceof LearnError ? err.exitCode : 2 };
   }
 }
@@ -82,7 +97,8 @@ async function main(): Promise<number> {
       },
     });
   } catch (err) {
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n${USAGE}\n`);
+    status("error", err instanceof Error ? err.message : String(err));
+    process.stderr.write(`${USAGE}\n`);
     return 2;
   }
   const { values, positionals } = parsed;
@@ -92,8 +108,8 @@ async function main(): Promise<number> {
   const { resolved, config, file } = loaded;
   const { baseUrl, model, level, contextBudget, keyEnv } = resolved.settings;
   if (!baseUrl || !model) {
-    if (!baseUrl) process.stderr.write(`${describeMissing("baseUrl", config, file)}\n`);
-    if (!model) process.stderr.write(`${describeMissing("model", config, file)}\n`);
+    if (!baseUrl) status("error", describeMissing("baseUrl", config, file));
+    if (!model) status("error", describeMissing("model", config, file));
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
@@ -103,17 +119,15 @@ async function main(): Promise<number> {
   }
   const settings = { baseUrl, model, level, contextBudget };
   const transportWarning = insecureTransportWarning(baseUrl);
-  if (transportWarning) process.stderr.write(`${transportWarning}\n`);
+  if (transportWarning) status("warning", transportWarning);
   const fail = (err: unknown) => {
-    process.stderr.write(`${describe(err)}\n`);
+    status("error", describe(err));
     return err instanceof LearnError ? err.exitCode : 1;
   };
   try {
     const project = await findProjectRoot(process.cwd(), values.root);
     if (project.isHome) {
-      process.stderr.write(
-        "warning: the project root is your home directory, so everything in it is in reach; run learn from inside a project or pass --root\n",
-      );
+      status("warning", "warning: the project root is your home directory, so everything in it is in reach; run learn from inside a project or pass --root");
     }
   } catch (err) {
     return fail(err);
@@ -126,12 +140,12 @@ async function main(): Promise<number> {
   if (values["dry-run"]) {
     try {
       const { request, report } = await prepareRequest({ reference, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
-      process.stderr.write(`${formatContextReport(report)}\n`);
+      status("info", formatContextReport(report));
       printRequest(request);
       return 0;
     } catch (err) {
       const refused = reportForError(err);
-      if (refused) process.stderr.write(`${formatContextReport(refused)}\n`);
+      if (refused) status("info", formatContextReport(refused));
       return fail(err);
     }
   }
@@ -156,13 +170,14 @@ async function main(): Promise<number> {
     onRequest: values["show-prompt"] ? printRequest : undefined,
   })) {
     if (event.type === "context-report") {
-      process.stderr.write(`${formatContextReport(event.report)}\n`);
+      status("info", formatContextReport(event.report));
     } else if (event.type === "text-delta") {
       process.stdout.write(event.text);
       lastChar = event.text.at(-1) ?? lastChar;
     } else if (event.type === "error") {
       // Start the message on a fresh line, but only if streamed text left the cursor mid-line.
-      process.stderr.write(`${lastChar === "\n" ? "" : "\n"}${describe(event.error)}\n`);
+      if (lastChar !== "\n") process.stderr.write("\n");
+      status("error", describe(event.error));
       return event.error.exitCode;
     }
   }
