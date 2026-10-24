@@ -70,21 +70,27 @@ describe("cancellation", () => {
     ["SIGINT", 130],
     ["SIGTERM", 143],
   ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
-    // The reader never drains stdout, so once the first SIGINT has closed the connection the process still cannot finish: its pending writes keep it alive.
-    let connected: () => void;
-    const reached = new Promise<void>((r) => (connected = r));
+    // The reader stops draining stdout after a while. Once the CLI has written more than a pipe holds, the first SIGINT closes the
+    // connection but the process still cannot finish: its pending writes keep it alive.
     respond = (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       const filler = "x".repeat(64 * 1024);
-      for (let i = 0; i < 64; i++) res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`);
-      connected();
+      for (let i = 0; i < 128; i++) res.write(`data: ${JSON.stringify(chunk(filler))}\n\n`); // 8 MB, and the response never ends
     };
+    const READ_BEFORE_STOPPING = 1024 * 1024;
     let aliveAfterFirst = false;
     let secondSentAt = 0;
     const r = await run([file], env(), tmpdir(), (child) => {
-      child.stdout!.pause();
-      // Handlers are installed before the request goes out, so the server seeing it means a signal is safe to send.
-      void reached.then(() => child.kill("SIGINT"));
+      let read = 0;
+      // `run` resolves on "close", which waits for stdout to end: once the process is gone, drain what is left.
+      child.on("exit", () => child.stdout!.resume());
+      child.stdout!.on("data", (data: Buffer) => {
+        read += data.length;
+        if (read < READ_BEFORE_STOPPING || child.stdout!.isPaused()) return;
+        child.stdout!.pause();
+        // Time for the CLI to fill the pipe and queue more behind it; the handlers have long been installed, since output is flowing.
+        setTimeout(() => child.kill("SIGINT"), 100);
+      });
       // The connection closing proves the first cancel took effect; a short grace period lets a process that could exit do so.
       void closed.then(() =>
         setTimeout(() => {
