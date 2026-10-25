@@ -21,7 +21,7 @@ export {
   UsageError,
 } from "./errors.js";
 export type { BlockReason, FileRefusal } from "./errors.js";
-export { parseReference, resolveReference, defaultResolvers } from "./reference.js";
+export { parseReference, pipedExcerpt, resolveReference, defaultResolvers } from "./reference.js";
 export type { Excerpt, Reference, Resolver, Resolvers } from "./reference.js";
 export { findRepo, runGit } from "./git.js";
 export type { GitOptions, GitRepo, GitSubcommand } from "./git.js";

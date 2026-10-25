@@ -23,6 +23,8 @@ export interface WordReference extends Reference {
 export interface Excerpt {
   label: string;
   text: string;
+  /** Set for text that arrived on standard input: it has no filename, so no filename rule could apply to it. */
+  origin?: "piped";
   /** Where the Excerpt sits in its file. Absent for input with no file behind it, which gets no Context. */
   source?: { path: string; text: string; start: number; end: number };
 }
@@ -110,6 +112,17 @@ export const defaultResolvers: Resolvers = {
     );
   },
 };
+
+/** A language hint is one short token, since it goes into the request: no spaces or line breaks to carry instructions. */
+const LANG_HINT = /^[A-Za-z0-9_+#.-]{1,30}$/;
+
+/** The Excerpt for text piped in (`cat file | learn`): all of it, with no file behind it and so no Context. */
+export function pipedExcerpt(text: string, lang?: string): Excerpt {
+  if (lang !== undefined && !LANG_HINT.test(lang)) {
+    throw new UsageError(`--lang takes a language name such as python or ts (letters, digits, + # . _ -), got "${lang}"`);
+  }
+  return { label: `piped input${lang ? ` (language: ${lang})` : ""}`, text, origin: "piped" };
+}
 
 export function resolveReference(ref: Reference, deps: ResolverDeps, resolvers: Resolvers = defaultResolvers) {
   const resolve = resolvers[ref.kind];

@@ -50,12 +50,12 @@ afterAll(() => {
 });
 
 /** Runs the CLI under the spy and returns what it did, every network operation it started, and the commands it spawned. */
-async function runWithSpy(args: string[], env: Record<string, string>, extraImports: string[] = [], cwd?: string) {
+async function runWithSpy(args: string[], env: Record<string, string>, extraImports: string[] = [], cwd?: string, input?: string) {
   const log = join(dir, `net-${Math.random().toString(36).slice(2)}.log`);
   await writeFile(log, "");
   const imports = [SPY, ...extraImports].map((url) => `--import=${url}`);
   const nodeOptions = [process.env.NODE_OPTIONS, ...imports].filter(Boolean).join(" ");
-  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: nodeOptions }, cwd);
+  const result = await run(args, { ...env, LEARN_NET_LOG: log, NODE_OPTIONS: nodeOptions }, cwd, undefined, input);
   const lines = (await readFile(log, "utf8")).split("\n").filter(Boolean);
   const spawned = lines.filter((line) => line.startsWith("spawn ")).map((line) => basename(line.slice("spawn ".length)));
   return { ...result, operations: lines.filter((line) => !line.startsWith("spawn ")), spawned };
@@ -126,6 +126,19 @@ describe("no network except the configured endpoint", () => {
       res.end("{}");
     };
     const r = await runWithSpy([`${file}:1`], configuredEnv());
+    expect(r.code).toBe(1);
+    expectOnlyConnectionsTo(r.operations, endpointPort);
+  });
+
+  it("opens nothing for piped input under --dry-run, and only the endpoint otherwise", async () => {
+    const dry = await runWithSpy(["--dry-run"], configuredEnv(), [], undefined, "export const a = 1;\n");
+    expect(dry.code).toBe(0);
+    expect(dry.operations).toEqual([]);
+    respond = (res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end("{}");
+    };
+    const r = await runWithSpy([], configuredEnv(), [], undefined, "export const a = 1;\n");
     expect(r.code).toBe(1);
     expectOnlyConnectionsTo(r.operations, endpointPort);
   });

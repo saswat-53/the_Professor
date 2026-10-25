@@ -59,6 +59,12 @@ Before the first streamed output, `learn` prints on **stderr** exactly what it i
 - `hosted endpoint budget 24,000 characters (default)`
 - `budget N characters (setting)`
 
+## Piped input
+
+`cat file | learn` explains the piped text. It is the whole Excerpt, with no Enclosing block or imports. `--lang <name>` (for example `--lang python`) tells the model the language. Piped text has no filename, so the Sensitive-file rules cannot be applied to it; the Context report says `no filename checks applied`, and what you pipe is sent as it is. The Excerpt size limit applies, and input over 1 MiB is refused (exit 3).
+
+If you give both a file Reference and piped input, the file wins and standard input is not read. With neither (a terminal on stdin, or an empty pipe), `learn` prints the usage and exits 2.
+
 ## Configuration
 
 Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`, or `$XDG_CONFIG_HOME/learn/config.toml` when that variable is set to an absolute path; if it is unset or relative, `~/.config` is used), then a default. Run `learn <file>` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`. `root` or `allow_sensitive` in the config file, and `LEARN_ROOT` or `LEARN_ALLOW_SENSITIVE` in the environment, are ignored with a warning.
@@ -72,6 +78,7 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `--level <beginner\|intermediate\|expert>` | How much background to assume (default `intermediate`) |
 | `--root <dir>` | Treat this directory as the project root. Flag only |
 | `--allow-sensitive` | Send Sensitive files anyway, for this run. Flag only |
+| `--lang <name>` | Language hint for piped input |
 | `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally, and also print the request (system and user prompts) on stderr |
 | `--base-url`, `--model`, `--context-budget` | Override those settings for one run |

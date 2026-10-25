@@ -118,6 +118,26 @@ describe("secret canary: Sensitive files and the Context", () => {
   });
 });
 
+describe("secret canary: piped input", () => {
+  it("has no filename for a rule to catch, says so in the report, and the key still appears nowhere", async () => {
+    const { home, repo } = await secretProject();
+    await withServer(async (url, seen) => {
+      for (const flags of [[], ["--show-prompt"], ["--dry-run"]]) {
+        const r = await run(flags, await envFor(url, home), repo, undefined, `TOKEN=${CANARY}\n`);
+        expect(r.code).toBe(0);
+        // The pinned wording: a pipe cannot be checked by name, and the user is told.
+        expect(r.stderr).toContain("no filename checks applied");
+        expect(r.stdout + r.stderr + seen.body()).not.toContain(KEY_CANARY);
+        expect(r.stdout + r.stderr + seen.body()).not.toContain(home);
+      }
+      // The two sending runs carried the text (it is what the user chose to pipe); the dry run sent nothing.
+      expect(seen.requests()).toBe(2);
+      expect(seen.body()).toContain(CANARY);
+      expect(seen.auth()).toBe(`Bearer ${KEY_CANARY}`);
+    });
+  });
+});
+
 describe("secret canary: the API key", () => {
   it.each([
     ["server answers 401", (res: ServerResponse) => { res.writeHead(401, { "content-type": "application/json" }); res.end('{"error":{"message":"Incorrect API key provided"}}'); }],

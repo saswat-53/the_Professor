@@ -29,11 +29,27 @@ for (const stream of [process.stdout, process.stderr]) {
 declare const __VERSION__: string;
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
+       cat <file> | learn [--lang <language>] [same options]
        learn -h | --help | -v | --version
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
 then the config file (~/.config/learn/config.toml), then the default.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
+
+/** Piped text is read only up to this many bytes, so an endless pipe cannot fill memory; the context budget is the real limit and is far smaller. */
+const STDIN_MAX_BYTES = 1024 * 1024;
+
+/** All of standard input as text, or a ContextTooLongError once it passes the cap. */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > STDIN_MAX_BYTES) throw new ContextTooLongError(`the piped input is over ${STDIN_MAX_BYTES.toLocaleString("en-US")} bytes; pipe a smaller piece (for example \`sed -n 40,60p file\`)`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 /** A config file is a few lines; this cap also keeps a wrong file (a log, a dump) from being parsed. */
 const CONFIG_MAX_BYTES = 64 * 1024;
@@ -108,6 +124,7 @@ async function main(): Promise<number> {
         "allow-sensitive": { type: "boolean" },
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
+        lang: { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -140,10 +157,26 @@ async function main(): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
-  if (!reference) {
-    record(2);
-    process.stderr.write(`${USAGE}\n`);
-    return 2;
+  // A file Reference wins over piped input: standard input is then not read at all (so a pipe that never closes cannot hang the run).
+  // With no Reference, piped text is the input; a terminal on stdin, or a pipe that carries nothing, is a usage error.
+  let piped: { text: string; lang?: string } | undefined;
+  if (reference) {
+    if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and is ignored for a file reference");
+  } else {
+    let text = "";
+    try {
+      if (!process.stdin.isTTY) text = await readStdin();
+    } catch (err) {
+      record(err instanceof LearnError ? err.exitCode : 1);
+      status("error", describe(err));
+      return exitCode;
+    }
+    if (text.trim() === "") {
+      record(2);
+      process.stderr.write(`${USAGE}\n`);
+      return 2;
+    }
+    piped = { text, lang: values.lang };
   }
   const settings = { baseUrl, model, level, contextBudget };
   const transportWarning = insecureTransportWarning(baseUrl);
@@ -169,7 +202,7 @@ async function main(): Promise<number> {
 
   if (values["dry-run"]) {
     try {
-      const { request, report } = await prepareRequest({ reference, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
+      const { request, report } = await prepareRequest({ reference, piped, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
       status("info", formatContextReport(report));
       printRequest(request);
       return 0;
@@ -205,6 +238,7 @@ async function main(): Promise<number> {
   const stripTerminalEscapes = mode.stripEscapes ? createEscapeStripper() : (text: string) => text;
   for await (const event of explain({
     reference,
+    piped,
     settings,
     root: values.root,
     allowSensitive: values["allow-sensitive"],
