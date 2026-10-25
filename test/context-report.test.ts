@@ -293,10 +293,10 @@ describe("sensitive-file notes in the report", () => {
   });
 
   it("decides 'local' and names the host from one parse, and the report uses that decision", async () => {
-    expect(resolveEndpoint("http://localhost@evil.invalid/v1")).toEqual({ host: "evil.invalid", local: false });
-    expect(resolveEndpoint("http://[::1]:1234/v1")).toEqual({ host: "::1", local: true });
-    expect(resolveEndpoint("http://127.0.0.1:1/v1")).toEqual({ host: "127.0.0.1", local: true });
-    expect(resolveEndpoint("not a url")).toEqual({ local: false });
+    expect(resolveEndpoint("http://localhost@evil.invalid/v1")).toMatchObject({ host: "evil.invalid", local: false });
+    expect(resolveEndpoint("http://[::1]:1234/v1")).toMatchObject({ host: "::1", local: true });
+    expect(resolveEndpoint("http://127.0.0.1:1/v1")).toMatchObject({ host: "127.0.0.1", local: true });
+    expect(resolveEndpoint("not a url")).toMatchObject({ local: false });
     expect(isLocalHost("http://localhost.evil.example/v1")).toBe(false);
     for (const baseUrl of ["http://127.0.0.1:1/v1", "http://[::1]:1/v1", "https://api.example.com/v1"]) {
       const endpoint = resolveEndpoint(baseUrl);

@@ -73,7 +73,7 @@ The name, set as `key_env` under `[provider]` in the config file, of the environ
 _Avoid_: API key setting, key field
 
 **Keychain entry**:
-A key stored in the OS keychain by `learn auth set`, under the service name `learn` and the base URL's host (hostname only, no port), so a key stored for one host is never used for another. Used only when the key variable is unset or empty; the environment wins. It comes from the optional dependency `@napi-rs/keyring`, loaded on first use; without it, or on a machine with no keyring, `learn auth set` fails saying so (exit 1) and the key variable still works. The key is typed with nothing shown, or piped on standard input, and never printed.
+A key stored in the OS keychain by `learn auth set`, under the service name `learn` and the base URL's host (plus `:port` when the URL names a non-default port), so a key stored for one host is never used for another. Used only when the key variable is unset or empty (the environment wins), and never for a local endpoint unless `key_env` is named. `learn auth delete` removes it. It comes from the optional dependency `@napi-rs/keyring`, loaded on first use; without it, or on a machine with no keyring, `learn auth set` fails saying so (exit 1) and the key variable still works. The key is typed with nothing shown, or piped on standard input, and never printed.
 _Avoid_: Saved key, credential
 
 **Base URL**:

@@ -24,6 +24,12 @@ export class Entry {
     check();
     writeFileSync(file(), JSON.stringify({ ...load(), [this.id]: password }));
   }
+  deletePassword() {
+    check();
+    const { [this.id]: removed, ...rest } = load();
+    writeFileSync(file(), JSON.stringify(rest));
+    return removed !== undefined;
+  }
 }
 `;
 

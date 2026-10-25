@@ -53,7 +53,7 @@ export type Parsed =
   | { kind: "help"; text: string }
   | { kind: "version" }
   | { kind: "init" }
-  | { kind: "auth-set"; flags: Flags }
+  | { kind: "auth"; action: "set" | "delete"; flags: Flags }
   | { kind: "usage-error"; message: string };
 
 /**
@@ -114,13 +114,16 @@ export function parseCommandLine(argv: string[]): Parsed {
   });
   const auth = program.command("auth").description("manage the API key kept in the OS keychain");
   auth.action(() => {
-    result = helpAsked() ? { kind: "help", text: auth.helpInformation() } : { kind: "usage-error", message: "learn auth needs a subcommand: learn auth set" };
+    result = helpAsked() ? { kind: "help", text: auth.helpInformation() } : { kind: "usage-error", message: "learn auth needs a subcommand: learn auth set, learn auth delete" };
   });
-  const authSet = auth.command("set").description("store the API key for the configured endpoint's host in the OS keychain (the key is typed with nothing shown)");
-  authSet.action(() => {
-    const { help, ...flags } = program.opts<Flags & { help?: boolean }>();
-    result = help ? { kind: "help", text: authSet.helpInformation() } : { kind: "auth-set", flags };
-  });
+  const authActions = { set: "store the API key for the configured endpoint's host in the OS keychain (the key is typed with nothing shown)", delete: "remove the stored API key for the configured endpoint's host from the OS keychain" } as const;
+  for (const [action, description] of Object.entries(authActions) as [keyof typeof authActions, string][]) {
+    const command = auth.command(action).description(description);
+    command.action(() => {
+      const { help, ...flags } = program.opts<Flags & { help?: boolean }>();
+      result = help ? { kind: "help", text: command.helpInformation() } : { kind: "auth", action, flags };
+    });
+  }
   try {
     program.parse(argv, { from: "user" });
   } catch (err) {

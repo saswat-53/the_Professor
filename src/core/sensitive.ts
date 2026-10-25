@@ -63,6 +63,8 @@ export function denylistRule(file: string): string | undefined {
 export interface Endpoint {
   /** The parsed host without brackets (so `::1`, not `[::1]`); undefined when the URL does not parse. */
   host?: string;
+  /** What a stored key is filed under: the host, plus `:port` only when the URL names a non-default port (`api.example.com`, `localhost:11434`, `[::1]:8080`). */
+  keyHost?: string;
   local: boolean;
 }
 
@@ -80,8 +82,8 @@ const writtenHost = (baseUrl: string): string | undefined =>
  */
 export function resolveEndpoint(baseUrl: string): Endpoint {
   try {
-    const hostname = new URL(baseUrl).hostname;
-    return { host: hostname.replace(/^\[|\]$/g, ""), local: PLAIN_LOCAL_HOSTS.includes(hostname) && writtenHost(baseUrl) === hostname };
+    const { hostname, port } = new URL(baseUrl);
+    return { host: hostname.replace(/^\[|\]$/g, ""), keyHost: port ? `${hostname}:${port}` : hostname, local: PLAIN_LOCAL_HOSTS.includes(hostname) && writtenHost(baseUrl) === hostname };
   } catch {
     return { local: false };
   }

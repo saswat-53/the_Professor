@@ -186,7 +186,7 @@ export function parseConfig(source: string, file: string): Config {
   }
 }
 
-const trimEnds = (value: string | undefined) => value?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
+export const trimEnds = (value: string | undefined) => value?.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, "");
 
 const at = (values: Record<string, unknown>, path: readonly string[]): unknown =>
   path.reduce<unknown>((v, k) => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>)[k] : undefined), values);

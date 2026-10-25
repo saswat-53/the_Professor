@@ -25,6 +25,13 @@ export function osKeychain(): KeyStore {
   const entry = async (host: string) => new (await load())(KEYCHAIN_SERVICE, host);
   const unavailable = (err: unknown) => (err instanceof KeychainUnavailableError ? err : new KeychainUnavailableError(`no keyring is available on this machine (${err instanceof Error ? err.message : "unknown error"})`));
   return {
+    async delete(host) {
+      try {
+        return (await entry(host)).deletePassword();
+      } catch (err) {
+        throw unavailable(err);
+      }
+    },
     async get(host) {
       try {
         return (await (await entry(host)).getPassword()) ?? undefined;

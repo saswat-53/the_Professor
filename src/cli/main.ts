@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimKey } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -156,21 +156,27 @@ async function readKey(host: string): Promise<string> {
   return Buffer.concat(chunks).toString("utf8").split("\n")[0] ?? "";
 }
 
-/** `learn auth set`: keeps the key in the OS keychain under the configured endpoint's host. The key is never printed. */
-async function authSetCommand(values: Flags): Promise<number> {
+/** `learn auth set` and `learn auth delete`: keep or remove the key in the OS keychain under the configured endpoint's host (and port, if the URL names one). The key is never printed. */
+async function authCommand(action: "set" | "delete", values: Flags): Promise<number> {
   const loaded = await loadSettings(values, { needsModel: false });
   if (!loaded.ok) return loaded.exitCode;
   const { baseUrl } = loaded.resolved.settings;
-  const host = baseUrl === undefined ? undefined : resolveEndpoint(baseUrl).host;
+  const host = baseUrl === undefined ? undefined : resolveEndpoint(baseUrl).keyHost;
   if (host === undefined) {
     record(ExitCode.Usage);
-    status("error", baseUrl === undefined ? `${describeMissing("baseUrl", loaded.config, loaded.file)}; the key is stored under the endpoint's host` : "the base URL cannot be read, so there is no host to store the key under");
+    status("error", baseUrl === undefined ? `${describeMissing("baseUrl", loaded.config, loaded.file)}; the key is stored under the endpoint's host` : "the base URL cannot be read, so there is no host the key is stored under");
     return ExitCode.Usage;
   }
+  const done = action === "set" ? "stored" : "removed";
   try {
-    const key = trimKey(await readKey(host));
-    if (!key) throw new UsageError("no key was given, so nothing was stored");
-    await osKeychain().set(host, key);
+    if (action === "set") {
+      const key = trimEnds(await readKey(host)) ?? "";
+      if (!key) throw new UsageError("no key was given, so nothing was stored");
+      await osKeychain().set(host, key);
+    } else if (!(await osKeychain().delete(host))) {
+      status("info", `No key was stored for ${host}; nothing to remove.`);
+      return 0;
+    }
   } catch (err) {
     if (err instanceof CancelledError) {
       record(130);
@@ -179,14 +185,14 @@ async function authSetCommand(values: Flags): Promise<number> {
     }
     if (err instanceof KeychainUnavailableError) {
       record(ExitCode.Runtime);
-      status("error", `cannot use the OS keychain: ${err.message}. Nothing was stored. Setting the key in an environment variable still works (name it with key_env in the config file).`);
+      status("error", `cannot use the OS keychain: ${err.message}. Nothing was ${done}. Setting the key in an environment variable still works (name it with key_env in the config file).`);
       return ExitCode.Runtime;
     }
     const code = record(err instanceof LearnError ? err.exitCode : 1);
     status("error", describe(err));
     return code;
   }
-  status("info", `Stored the key for ${host} in the OS keychain.`);
+  status("info", `${action === "set" ? "Stored the key for" : "Removed the key for"} ${host} ${action === "set" ? "in" : "from"} the OS keychain.`);
   return 0;
 }
 
@@ -208,7 +214,7 @@ async function main(): Promise<number> {
     return 0;
   }
   if (parsed.kind === "init") return await initCommand();
-  if (parsed.kind === "auth-set") return await authSetCommand(parsed.flags);
+  if (parsed.kind === "auth") return await authCommand(parsed.action, parsed.flags);
   const { reference, flags: values } = parsed;
   if (reference !== undefined && looksLikeCommand(reference) && !existsSync(reference)) {
     record(2);

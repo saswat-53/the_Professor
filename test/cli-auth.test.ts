@@ -21,7 +21,8 @@ async function endpoint() {
     res.end("data: [DONE]\n\n");
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  return { seen, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`, close: () => server.close() };
+  const port = (server.address() as AddressInfo).port;
+  return { seen, url: `http://127.0.0.1:${port}/v1`, entry: `learn|127.0.0.1:${port}`, close: () => server.close() };
 }
 
 describe("learn auth set", () => {
@@ -32,6 +33,13 @@ describe("learn auth set", () => {
     expect(await box.stored()).toEqual({ "learn|api.example.com": KEY });
     expect(r.stdout + r.stderr).not.toContain(KEY);
     expect(r.stderr).toContain("api.example.com");
+  });
+
+  it("names the entry by host and port when the port is explicit", async () => {
+    const box = await keyringSandbox("working");
+    const r = await box.run(["auth", "set", "--base-url", "https://api.example.com:8443/v1"], {}, `${KEY}\n`);
+    expect(r.code).toBe(0);
+    expect(Object.keys(await box.stored())).toEqual(["learn|api.example.com:8443"]);
   });
 
   it("takes the host from the configured base URL when no flag is given", async () => {
@@ -86,6 +94,31 @@ describe("learn auth set", () => {
   }, 30_000);
 });
 
+describe("learn auth delete", () => {
+  it("removes the stored key for the host and leaves other hosts alone", async () => {
+    const box = await keyringSandbox("working");
+    await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ "learn|api.example.com": KEY, "learn|api.other.com": "other" }));
+    const r = await box.run(["auth", "delete", "--base-url", HOSTED]);
+    expect(r.code).toBe(0);
+    expect(await box.stored()).toEqual({ "learn|api.other.com": "other" });
+    expect(r.stdout + r.stderr).not.toContain(KEY);
+  });
+
+  it("when nothing is stored it says so and exits 0", async () => {
+    const box = await keyringSandbox("working");
+    const r = await box.run(["auth", "delete", "--base-url", HOSTED]);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("No key was stored");
+  });
+
+  it.each(["broken", "absent"] as const)("with a keyring that is %s, says so plainly", async (kind) => {
+    const box = await keyringSandbox(kind);
+    const r = await box.run(["auth", "delete", "--base-url", HOSTED]);
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/keychain|keyring/i);
+  });
+});
+
 describe("lookup when explaining", () => {
   async function explainWith(box: Awaited<ReturnType<typeof keyringSandbox>>, env: Record<string, string>, url: string) {
     const file = join(box.dir, "sample.ts");
@@ -99,7 +132,7 @@ describe("lookup when explaining", () => {
     const api = await endpoint();
     try {
       const box = await keyringSandbox("working");
-      await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ "learn|127.0.0.1": KEY }));
+      await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ [api.entry]: KEY }));
       const r = await explainWith(box, {}, api.url);
       expect(r.code).toBe(0);
       expect(api.seen).toEqual([`Bearer ${KEY}`]);
@@ -112,10 +145,26 @@ describe("lookup when explaining", () => {
     const api = await endpoint();
     try {
       const box = await keyringSandbox("working");
-      await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ "learn|127.0.0.1": KEY }));
+      await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ [api.entry]: KEY }));
       const r = await explainWith(box, { SOME_KEY: "from-env" }, api.url);
       expect(r.code).toBe(0);
       expect(api.seen).toEqual(["Bearer from-env"]);
+    } finally {
+      api.close();
+    }
+  });
+
+  it("a localhost endpoint without a named key variable never reads the keychain", async () => {
+    const api = await endpoint();
+    try {
+      const box = await keyringSandbox("working");
+      await writeFile(box.env.FAKE_KEYRING_FILE!, JSON.stringify({ [api.entry]: KEY }));
+      const file = join(box.dir, "sample.ts");
+      await writeFile(file, "export const answer = 42;\n");
+      // This test has no config file, so the key variable is not named.
+      const r = await box.run([file], { LEARN_BASE_URL: `${api.url}`, LEARN_MODEL: "m" });
+      expect(r.code).toBe(0);
+      expect(api.seen).toEqual([undefined]);
     } finally {
       api.close();
     }

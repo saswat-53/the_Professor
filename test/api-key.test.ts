@@ -45,7 +45,7 @@ describe("resolveApiKey", () => {
 /** A keychain in memory, keyed by host, that counts how often it is asked. */
 function fakeStore(entries: Record<string, string> = {}) {
   const reads: string[] = [];
-  return { reads, store: { get: async (host: string) => (reads.push(host), entries[host]), set: async (host: string, key: string) => void (entries[host] = key) } };
+  return { reads, store: { get: async (host: string) => (reads.push(host), entries[host]), set: async (host: string, key: string) => void (entries[host] = key), delete: async (host: string) => delete entries[host] } };
 }
 
 describe("resolveApiKey with a keychain", () => {
@@ -71,13 +71,22 @@ describe("resolveApiKey with a keychain", () => {
   });
 
   it("a keychain that cannot be used falls back to the usual error about the variable", async () => {
-    const store = { get: async () => { throw new Error("no keyring"); }, set: async () => {} };
+    const store = { get: async () => { throw new Error("no keyring"); }, set: async () => {}, delete: async () => false };
     await expect(resolveApiKey({ keyEnv: "MY_KEY", baseUrl: HOSTED, env: {}, store })).rejects.toThrow(/MY_KEY/);
   });
 
-  it("a localhost endpoint uses a stored key too", async () => {
-    const { store } = fakeStore({ localhost: "local-key" });
-    expect(await resolveApiKey({ keyEnv: undefined, baseUrl: LOCAL, env: {}, store })).toBe("local-key");
+  it("a localhost endpoint never asks the keychain unless the config names a variable", async () => {
+    const { store, reads } = fakeStore({ "localhost:11434": "local-key" });
+    expect(await resolveApiKey({ keyEnv: undefined, baseUrl: LOCAL, env: {}, store })).toBeUndefined();
+    expect(reads).toEqual([]);
+    expect(await resolveApiKey({ keyEnv: "MY_KEY", baseUrl: LOCAL, env: {}, store })).toBe("local-key");
+  });
+
+  it("an explicit port is part of the entry's name, a default port is not", async () => {
+    const { store } = fakeStore({ "api.example.com:8443": "custom-port", "api.example.com": "plain" });
+    expect(await resolveApiKey({ keyEnv: "K", baseUrl: "https://api.example.com:8443/v1", env: {}, store })).toBe("custom-port");
+    expect(await resolveApiKey({ keyEnv: "K", baseUrl: "https://api.example.com:443/v1", env: {}, store })).toBe("plain");
+    expect(await resolveApiKey({ keyEnv: "K", baseUrl: HOSTED, env: {}, store })).toBe("plain");
   });
 });
 
