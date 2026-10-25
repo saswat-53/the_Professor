@@ -4,6 +4,8 @@ import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRe
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
+import { writeFileAtomic } from "./atomic-write.js";
+import { runInit } from "./init.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
@@ -101,6 +103,38 @@ const describe = (err: unknown) => {
   return err instanceof ContextTooLongError ? `${message}; or raise the limit with --context-budget` : message;
 };
 
+/** `learn init`: needs a person at a terminal, since it asks questions and nothing else could answer them. */
+async function initCommand(): Promise<number> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    record(ExitCode.Usage);
+    status("error", "learn init asks questions, so it needs a terminal (standard input and output must both be one); run it directly in your shell, or write the config file yourself");
+    return ExitCode.Usage;
+  }
+  const home = homedir();
+  const file = configPath(process.env, home);
+  let existing: Config | undefined;
+  try {
+    existing = await readConfig(file);
+  } catch (err) {
+    // Something is there but unusable: still "exists", so the user is asked before it is replaced.
+    status("warning", `warning: ${err instanceof Error ? err.message : String(err)}`);
+    existing = { file, values: {} };
+  }
+  const code = await runInit({
+    input: process.stdin,
+    output: process.stdout,
+    env: process.env,
+    home,
+    file,
+    existing,
+    write: writeFileAtomic,
+    model: openAICompatibleModel,
+    warn: (text) => status("warning", text),
+    error: (text) => status("error", text),
+  });
+  return record(code);
+}
+
 async function main(): Promise<number> {
   const parsed = parseCommandLine(process.argv.slice(2));
   if (parsed.kind === "usage-error") {
@@ -118,6 +152,7 @@ async function main(): Promise<number> {
     process.stdout.write(`${__VERSION__}\n`);
     return 0;
   }
+  if (parsed.kind === "init") return await initCommand();
   const { reference, flags: values } = parsed;
   if (reference !== undefined && looksLikeCommand(reference) && !existsSync(reference)) {
     record(2);

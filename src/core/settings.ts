@@ -152,6 +152,13 @@ const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "notesDir", config: ["notes_dir"], parse: dir },
 ];
 
+/** Checks one typed answer (for `learn init`) with the very parser the config reader uses, so a value the wizard accepts is a value the file can hold. */
+export function validateSetting(key: "level" | "baseUrl" | "model" | "keyEnv" | "notesDir", raw: string, home: string): { value: unknown } | { error: string } {
+  const def = DEFS.find((d) => d.key === key);
+  if (!def) throw new Error(`unknown setting ${key}`);
+  return def.parse(raw, home);
+}
+
 /** Reads TOML text; a syntax error names the file. */
 export function parseConfig(source: string, file: string): Config {
   try {

@@ -1,7 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { ExitCode, LEVELS } from "../core/index.js";
 
-/** The subcommands `learn` routes to. `init` and `auth` are announced here before they exist (tickets 30 and 31). */
+/** The subcommands `learn` routes to. `auth` is announced here before it exists (ticket 31). */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
 export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
@@ -52,6 +52,7 @@ export type Parsed =
   | { kind: "run"; reference?: string; flags: Flags }
   | { kind: "help"; text: string }
   | { kind: "version" }
+  | { kind: "init" }
   | { kind: "usage-error"; message: string };
 
 /**
@@ -105,10 +106,11 @@ export function parseCommandLine(argv: string[]): Parsed {
       else result = { kind: "run", reference, flags };
     });
   for (const name of SUBCOMMANDS) {
-    const command = program.command(name).description(`learn ${name}`);
+    const command = program.command(name).description(name === "init" ? "create the global config file by answering a few questions" : `learn ${name}`);
     command.action(() => {
       // The program owns -h/--help (so it wins over a file argument), which means it also swallows `learn init --help`.
       if (program.opts<{ help?: boolean }>().help) result = { kind: "help", text: command.helpInformation() };
+      else if (name === "init") result = { kind: "init" };
       else result = { kind: "usage-error", message: `learn ${name} is not available yet` };
     });
   }

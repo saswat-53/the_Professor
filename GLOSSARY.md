@@ -56,6 +56,10 @@ _Avoid_: Mode, difficulty, skill
 The number `learn` ends with, promised to script users: 0 success, 1 runtime or provider error, 2 usage or config error, 3 refused (a Sensitive file, a file that fails the reading rules, a file outside the Project root, or an Excerpt over budget), 130 cancelled by Ctrl-C (SIGINT), 143 cancelled by SIGTERM.
 _Avoid_: Status code, return code
 
+**Init wizard**:
+`learn init`: asks for a provider **preset** (a set of defaults for base URL, model and key variable name: Ollama, OpenAI, or another OpenAI-compatible endpoint), the base URL, model, the *name* of the key variable, Level and notes directory, then writes the global config atomically (owner-only). It never asks for the key itself, needs a terminal, and writes nothing until the last answer, so Ctrl-C leaves any existing config untouched.
+_Avoid_: Setup, installer
+
 **Sensitive file**:
 A file whose content must not be sent to a model without explicit consent, because it likely holds secrets.
 _Avoid_: Secret file, protected file, private file

@@ -90,7 +90,9 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `-h`, `--help` | Print usage and the exit-code table to stdout, exit 0 |
 | `-v`, `--version` | Print the version to stdout, exit 0 |
 
-`learn init` and `learn auth` are reserved subcommands (not available yet; they exit 2). A bare lowercase word that is neither a command nor an existing file is reported as an unknown command, listing the valid ones. A file named `init` is still reachable as `./init`. A flag's value may not start with `-` (`--model --dry-run` is a usage error, exit 2, not a model called `--dry-run`).
+`learn auth` is a reserved subcommand (not available yet; it exits 2). A bare lowercase word that is neither a command nor an existing file is reported as an unknown command, listing the valid ones. A file named `init` is still reachable as `./init`. A flag's value may not start with `-` (`--model --dry-run` is a usage error, exit 2, not a model called `--dry-run`).
+
+`learn init` asks for a provider preset (Ollama, OpenAI, or another OpenAI-compatible endpoint), base URL, model, the *name* of the environment variable that holds your key, level and notes directory, then writes `~/.config/learn/config.toml` (or under `XDG_CONFIG_HOME`). It never asks for the key itself: it tells you which variable to `export`. It needs a terminal (exit 2 without one). Nothing is written until the last answer, so Ctrl-C (exit 130) leaves an existing config untouched; the file is written to a temporary name and renamed into place, owner-only (0600). An existing file supplies the defaults and is only replaced after you confirm. At the end it can send a one-word test request to the endpoint you just configured; a failure is reported with the usual error message, and the config stays saved.
 
 Output goes to stdout; the Context report, warnings and errors go to stderr. When stdout is a terminal, escape sequences and control characters in the model's text are removed (the text is untrusted); when piped, it is left exactly as sent. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
 
