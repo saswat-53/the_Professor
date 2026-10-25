@@ -12,7 +12,7 @@ learn src/auth.ts:42         # one line, with its enclosing function
 learn src/auth.ts:40-60      # a line range
 ```
 
-With no config, `learn` prints an example `~/.config/learn/config.toml` and exits 2. The example, with the provider blocks marked as alternatives (uncomment exactly one):
+(Until it is published, run it as `node dist/cli.js`, or link it with `npm link`.) With no config file and no base URL or model set, `learn` prints an example `~/.config/learn/config.toml` on stderr and exits 2. The example, with the provider blocks marked as alternatives (uncomment exactly one):
 
 ```toml
 level = "intermediate"
@@ -45,7 +45,7 @@ The endpoint you configure **receives the code you ask about**: the lines you po
 
 ### Sensitive files
 
-Before anything is sent, every file that goes into the request (the one you named and the surrounding context) is checked. A file that likely holds secrets, by name (`.env`, `.env.*`, SSH keys, `service-account*.json`, names containing `secret`, `credentials` or `private-key`, and more) or because git ignores it, is **refused**: exit 3, with the rule's name. Pass `--allow-sensitive` for one run to send it anyway; it is a flag only, never a config or environment setting, because a leaked key cannot be un-sent.
+Before anything is sent, every file that goes into the request (the one you named and the surrounding context) is checked. A file that likely holds secrets, by name (`.env`, `.env.*`, SSH keys, `service-account*.json`, names containing `secret`, `credentials` or `private-key`, and more) or because git ignores it (even if it is already tracked), is **refused**: exit 3, with the rule's name. Pass `--allow-sensitive` for one run to send it anyway; it is a flag only, never a config or environment setting, because a leaked key cannot be un-sent.
 
 A **localhost** endpoint (`localhost`, `127.0.0.1`, `::1`) is exempt, since nothing leaves your machine. That exemption trusts the address, not the destination: a tunnel, port forward or local proxy on 127.0.0.1 may lead to a remote or hosted model. The Context report's note `sensitive-file check skipped: … endpoint is local (host)` is the cue to notice.
 
@@ -61,7 +61,7 @@ Before the first streamed output, `learn` prints on **stderr** exactly what it i
 
 ## Configuration
 
-Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`, or `$XDG_CONFIG_HOME/learn/config.toml` when that variable is set to an absolute path; if it is unset or relative, `~/.config` is used), then a default. Run `learn` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`. `root` or `allow_sensitive` in the config file, and `LEARN_ROOT` or `LEARN_ALLOW_SENSITIVE` in the environment, are ignored with a warning.
+Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`, or `$XDG_CONFIG_HOME/learn/config.toml` when that variable is set to an absolute path; if it is unset or relative, `~/.config` is used), then a default. Run `learn <file>` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`. `root` or `allow_sensitive` in the config file, and `LEARN_ROOT` or `LEARN_ALLOW_SENSITIVE` in the environment, are ignored with a warning.
 
 Keys go in an environment variable, never in the URL at all: a base URL with a username or password is refused, and a URL's path is printed after the URL parser has normalised it (dots resolved, host lowercased, default port dropped), so never put a key there either. A base URL cannot carry a query or fragment (the request path is added after it), and stray whitespace around a flag or variable, such as a trailing newline from `$(cat file)`, is trimmed (a value that is only whitespace counts as not set). Values in the config file are taken as written, so a stray space there is an error: the file is edited on purpose, while a shell variable often picks up a trailing newline.
 
@@ -72,7 +72,7 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `--level <beginner\|intermediate\|expert>` | How much background to assume (default `intermediate`) |
 | `--root <dir>` | Treat this directory as the project root. Flag only |
 | `--allow-sensitive` | Send Sensitive files anyway, for this run. Flag only |
-| `--dry-run` | Print the Context report and the exact request, send nothing. Needs no API key |
+| `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally, and also print the request (system and user prompts) on stderr |
 | `--base-url`, `--model`, `--context-budget` | Override those settings for one run |
 | `-h`, `--help` | Print usage to stdout, exit 0 |
@@ -87,7 +87,7 @@ Output goes to stdout; the Context report, warnings and errors go to stderr. Whe
 | 0 | Success |
 | 1 | Runtime or provider error |
 | 2 | Usage or config error |
-| 3 | Refused: a Sensitive file, a file that fails the reading rules, a file outside the project root, or an excerpt over budget |
+| 3 | Refused: a Sensitive file, a file that fails the reading rules, a file outside the project root, an excerpt over budget, or a git repository owned by another user (git's own safety check, never overridden) |
 | 130 | Cancelled by Ctrl-C (SIGINT) |
 | 143 | Cancelled by SIGTERM |
 
