@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { CancelledError, followUp } from "../core/index.js";
-import type { LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
+import { CancelledError, followUp, formatContextReport, reportForError } from "../core/index.js";
+import type { ContextReport, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
 
 /** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
 export const BLOCK_OPEN = "<<<";
@@ -18,7 +18,9 @@ export interface ChatOptions {
   stripper: () => (text: string) => string;
   /** Shows an error or note on the status stream. */
   report: (kind: "error" | "info", text: string) => void;
-  describe: (err: LearnError) => string;
+  describe: (err: unknown) => string;
+  /** Attaches the files a question mentions with `@path`. Throws a LearnError when one cannot be attached; the question is then not sent. */
+  attach: (question: string) => Promise<{ content: string; reports: ContextReport[] }>;
   /** Called with each follow-up request just before it is sent (`--show-prompt`). */
   onRequest?: (request: ModelRequest) => void;
   /** Hands over the process's signal handling for as long as the chat runs. The handler gets the exit code the signal stands for (130 or 143). */
@@ -90,6 +92,16 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     if (/^\/[a-z]+$/.test(question)) {
       if (question === "/exit" || question === "/quit") break;
       opts.report("info", `${question} is not a command yet (commands: /exit)`);
+      continue;
+    }
+    try {
+      const attached = await opts.attach(question);
+      for (const report of attached.reports) opts.report("info", formatContextReport(report));
+      question = attached.content;
+    } catch (err) {
+      const refused = reportForError(err);
+      if (refused) opts.report("info", formatContextReport(refused));
+      opts.report("error", `${opts.describe(err)}; your message was not sent`);
       continue;
     }
     current = new AbortController();

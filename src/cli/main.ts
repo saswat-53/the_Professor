@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveBudget, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
+import { attachReferences, BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveBudget, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -381,6 +381,7 @@ async function main(): Promise<number> {
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),
       report: (kind, text) => status(kind, text),
       describe,
+      attach: (question) => attachReferences({ question, settings, root: values.root, allowSensitive: values.allowSensitive }),
       onRequest: values.showPrompt ? printRequest : undefined,
       takeSignals: (handler) => {
         onSignal = (code) => {

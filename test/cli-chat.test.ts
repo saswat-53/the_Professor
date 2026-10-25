@@ -121,6 +121,35 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(bodies[1]!.messages.at(-1)!.content).toBe("const b = 2;\nconst c = 3;");
   }, 30_000);
 
+  it("attaches an @file to the question, shows it in a Context report, and remembers it", async () => {
+    await writeFile(join(dir, "b.ts"), "export const bee = 'BEE_MARKER';\n");
+    const out = await chat([
+      ["learn> ", `what is @b.ts for? me@example.com${ENTER}`],
+      ["ANSWER2", `and?${ENTER}`],
+      ["ANSWER3", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toContain("Context report");
+    expect(out).toContain("b.ts");
+    expect(bodies[1]!.messages.at(-1)!.content).toContain("what is @b.ts for? me@example.com");
+    expect(bodies[1]!.messages.at(-1)!.content).toContain("BEE_MARKER");
+    expect(bodies[2]!.messages.map((m) => m.content).join("\n")).toContain("BEE_MARKER");
+  }, 30_000);
+
+  it("shows an inline error for a missing file or one outside the project root, and does not send the message", async () => {
+    const outside = join(tmpdir(), `learn-outside-${process.pid}.ts`);
+    await writeFile(outside, "export const OUTSIDE_MARKER = 1;\n");
+    const out = await chat([
+      ["learn> ", `explain @nope.ts${ENTER}`],
+      ["not sent", `read @../${outside.split("/").pop()}${ENTER}`],
+      ["outside the project root", `/exit${ENTER}`],
+    ]);
+    expect(out).toContain("nope.ts: no such file");
+    expect(out).toContain("your message was not sent");
+    expect(out).not.toContain("OUTSIDE_MARKER");
+    expect(bodies).toHaveLength(1);
+  }, 30_000);
+
   it("Ctrl-C during a response cancels only that response; the chat goes on", async () => {
     const out = await chat([
       ["learn> ", `hang${ENTER}`],

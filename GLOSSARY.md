@@ -47,6 +47,10 @@ _Avoid_: Chat, thread, conversation
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
+**Mention**:
+An `@path` or `@path:N-M` token in a Chat question that attaches a file to that message. It counts only after whitespace and only if it names an existing file or looks like a path; it then goes through the same Sensitive-file check, Project root check and Excerpt limit as any Reference, and appears in the Context report for that message.
+_Avoid_: Tag
+
 **Plain mode / Terminal mode**:
 Whether stdout is a terminal. In terminal mode the model's text has escape sequences, control characters (except newline and tab) and invisible bidi and zero-width characters removed, since the model's text is untrusted and could move the cursor, retitle the window or disguise a command. Colour on status lines is a separate choice (both streams terminals, `NO_COLOR` unset, `TERM` not `dumb`); stripping stays on whatever the colour preference. In plain mode (piped or redirected) the text is exactly as the model sent it. Decided in one place, `outputMode`.
 _Avoid_: Interactive mode, TTY mode
