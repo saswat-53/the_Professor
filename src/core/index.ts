@@ -23,7 +23,7 @@ export {
 export type { BlockReason, FileRefusal } from "./errors.js";
 export { parseReference, pipedExcerpt, resolveReference, defaultResolvers } from "./reference.js";
 export type { Excerpt, Reference, Resolver, Resolvers } from "./reference.js";
-export { clipboardCommand, readClipboard } from "./clipboard.js";
+export { clipboardCommands, readClipboard } from "./clipboard.js";
 export type { ClipboardCommand, ReadClipboardOptions } from "./clipboard.js";
 export { findRepo, runGit } from "./git.js";
 export type { GitOptions, GitRepo, GitSubcommand } from "./git.js";

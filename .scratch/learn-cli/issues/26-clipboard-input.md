@@ -13,3 +13,10 @@
 - [x] The no-network guard (test/no-network.test.ts) gains a case for clipboard input (`--clip`): the only connection is the configured endpoint, and `--dry-run` opens none
 - [x] The guard's spawn check (git only) is updated to allow the platform's clipboard tool for `--clip` runs and nothing else
 - [x] Secret-canary case in `test/secret-canary.test.ts` (ticket 21), on a fake clipboard: the same as piped input, so the report says "no filename checks applied" for clipboard text, and a canary API key still appears in no output and no request body
+
+## Decisions
+
+- `--clip` together with a file Reference is a usage error (exit 2). Both are explicit, so picking one silently would surprise; piped input differs because a pipe can be there by accident, so the file wins there. Standard input is not read under `--clip`.
+- On Linux both `wl-paste` and `xclip` are tried (the session type decides the order); only a tool that is not installed moves on to the next. The error lists both.
+- An empty or non-text clipboard says "the clipboard has no text".
+- The spawn check was shown to fail: a throwaway `sh -c true` in the CLI made both spawn tests fail, and the break was reverted.

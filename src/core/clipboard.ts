@@ -9,18 +9,19 @@ export interface ClipboardCommand {
   install: string;
 }
 
+const PBPASTE: ClipboardCommand = { tool: "pbpaste", args: [], install: "pbpaste ships with macOS; check that it is on your PATH" };
+const WL_PASTE: ClipboardCommand = { tool: "wl-paste", args: ["--no-newline", "--type", "text"], install: "install wl-clipboard (for example `sudo apt install wl-clipboard`)" };
+const XCLIP: ClipboardCommand = { tool: "xclip", args: ["-selection", "clipboard", "-out"], install: "install xclip (for example `sudo apt install xclip`)" };
+
 /**
- * Which program reads the clipboard on this platform. Chosen from the platform and the session type
- * alone, never from user input, and the arguments are constants: nothing the user or the clipboard
- * holds ever becomes part of a command.
+ * The programs that can read the clipboard on this platform, best first. Chosen from the platform and
+ * the session type alone, never from user input, and the arguments are constants: nothing the user
+ * or the clipboard holds ever becomes part of a command. On Linux both tools are listed, because a
+ * Wayland session may have only xclip (it works through XWayland) and the reverse can happen too.
  */
-export function clipboardCommand(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): ClipboardCommand {
-  if (platform === "darwin") return { tool: "pbpaste", args: [], install: "pbpaste ships with macOS; check that it is on your PATH" };
-  if (platform === "linux") {
-    return env.WAYLAND_DISPLAY
-      ? { tool: "wl-paste", args: ["--no-newline", "--type", "text"], install: "install wl-clipboard (for example `sudo apt install wl-clipboard`)" }
-      : { tool: "xclip", args: ["-selection", "clipboard", "-out"], install: "install xclip (for example `sudo apt install xclip`)" };
-  }
+export function clipboardCommands(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): ClipboardCommand[] {
+  if (platform === "darwin") return [PBPASTE];
+  if (platform === "linux") return env.WAYLAND_DISPLAY ? [WL_PASTE, XCLIP] : [XCLIP, WL_PASTE];
   throw new UsageError(`--clip is not supported on ${platform}; pipe the text in instead (for example \`cat file | learn\`)`);
 }
 
@@ -40,25 +41,36 @@ export interface ReadClipboardOptions {
  */
 export async function readClipboard(options: ReadClipboardOptions): Promise<string> {
   const env = options.env ?? process.env;
-  const { tool, args, install } = clipboardCommand(options.platform ?? process.platform, env);
-  const text = await new Promise<string>((resolve, reject) => {
+  const commands = clipboardCommands(options.platform ?? process.platform, env);
+  for (const command of commands) {
+    const text = await runTool(command, env, options.maxBytes);
+    if (text === undefined) continue; // not installed: try the next one
+    if (text.trim() === "") throw new UsageError("the clipboard has no text; copy some code first (an image or a file is not text)");
+    return text;
+  }
+  const names = commands.map((c) => c.tool);
+  throw new UsageError(
+    `${names.length === 1 ? `${names[0]} was not found` : `neither ${names.join(" nor ")} was found`}, and --clip needs ${names.length === 1 ? "it" : "one of them"}: ${commands.map((c) => c.install).join("; or ")}. Or pipe the text in instead (for example \`cat file | learn\`)`,
+  );
+}
+
+/** What one tool prints, or undefined if it is not installed. Any other failure is thrown. */
+function runTool({ tool, args }: ClipboardCommand, env: NodeJS.ProcessEnv, maxBytes: number): Promise<string | undefined> {
+  return new Promise((resolve, reject) => {
     const child = spawn(tool, args, { env, stdio: ["ignore", "pipe", "ignore"], timeout: TIMEOUT_MS });
     const chunks: Buffer[] = [];
     let size = 0;
     let failure: Error | undefined;
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > options.maxBytes) {
-        failure ??= new ContextTooLongError(`the clipboard is over ${options.maxBytes.toLocaleString("en-US")} bytes; copy a smaller piece`);
+      if (size > maxBytes) {
+        failure ??= new ContextTooLongError(`the clipboard is over ${maxBytes.toLocaleString("en-US")} bytes; copy a smaller piece`);
         child.kill();
       } else chunks.push(chunk);
     });
     child.on("error", (err: NodeJS.ErrnoException) => {
-      reject(
-        err.code === "ENOENT"
-          ? new UsageError(`${tool} was not found, and --clip needs it: ${install}, or pipe the text in instead (for example \`cat file | learn\`)`)
-          : new UnexpectedError(`could not read the clipboard: ${tool} could not be started (${err.code ?? "unknown error"})`),
-      );
+      if (err.code === "ENOENT") resolve(undefined);
+      else reject(new UnexpectedError(`could not read the clipboard: ${tool} could not be started (${err.code ?? "unknown error"})`));
     });
     child.on("close", (code, signal) => {
       if (failure) reject(failure);
@@ -66,6 +78,4 @@ export async function readClipboard(options: ReadClipboardOptions): Promise<stri
       else resolve(Buffer.concat(chunks).toString("utf8"));
     });
   });
-  if (text.trim() === "") throw new UsageError("the clipboard is empty; copy some code first");
-  return text;
 }
