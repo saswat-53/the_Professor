@@ -87,6 +87,29 @@ describe("provider failures", () => {
     expect(r.stderr).toContain("could not reach");
   });
 
+  it("reports malformed stream data as an unexpected error, not a network problem, without echoing it", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(`data: {not json ${SENTINEL}\n\n`);
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("probably a bug in learn");
+    expect(r.stderr).not.toContain("could not reach");
+    expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+  });
+
+  it("still calls a connection cut off mid-stream a network failure", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: "x" }, finish_reason: null }] })}\n\n`, () => setTimeout(() => res.destroy(), 50));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("could not reach");
+    expect(r.stderr).not.toContain("bug in learn");
+  });
+
   it("starts the error on a fresh line after partial output, keeping stdout clean", async () => {
     respond = (res) => {
       res.writeHead(200, { "content-type": "text/event-stream" });
