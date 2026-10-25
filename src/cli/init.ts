@@ -146,7 +146,7 @@ const tildeOf = (path: string, home: string) => (path === home ? "~" : path.star
 /** The optional check: one tiny request to the endpoint just configured (the only network call `init` can make). */
 async function sendTest(a: InitAnswers, d: InitDeps, controller: AbortController, say: (text?: string) => void): Promise<number> {
   try {
-    const apiKey = resolveApiKey({ keyEnv: a.keyEnv, baseUrl: a.baseUrl, env: d.env });
+    const apiKey = await resolveApiKey({ keyEnv: a.keyEnv, baseUrl: a.baseUrl, env: d.env });
     say(`Asking ${a.model}...`);
     let reply = "";
     for await (const piece of d.model(apiKey, a.keyEnv).stream(testRequest(a), controller.signal)) {

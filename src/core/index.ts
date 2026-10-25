@@ -44,7 +44,8 @@ export { buildContextReport, formatContextReport, reportForError } from "./repor
 export type { ContextReport, ReportedRange } from "./report.js";
 export { EXAMPLE_CONFIG, configPath, describeMissing, firstRunMessage, parseConfig, redactUrl, HIDDEN, resolveSettings, validateSetting } from "./settings.js";
 export type { Config, Flags, Resolution, ResolvedSettings } from "./settings.js";
-export { resolveApiKey } from "./api-key.js";
+export { resolveApiKey, trimKey } from "./api-key.js";
+export type { KeyStore } from "./api-key.js";
 export { readTextFile } from "./read-file.js";
 export { INIT_PRESETS, renderConfig, testRequest } from "./init.js";
 export type { InitAnswers, InitPreset, PresetName } from "./init.js";

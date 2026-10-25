@@ -1,11 +1,13 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimKey } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
 import { writeFileAtomic } from "./atomic-write.js";
+import { readHidden } from "./hidden-input.js";
 import { runInit } from "./init.js";
+import { KeychainUnavailableError, osKeychain } from "./keychain.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
@@ -72,7 +74,7 @@ async function readConfig(file: string): Promise<Config | undefined> {
 type Loaded = { ok: true; resolved: Resolution; config: Config | undefined; file: string } | { ok: false; exitCode: number };
 
 /** Where the settings come from, in order: flags, environment, the per-user config file. Returns an exit code when they cannot be resolved. */
-async function loadSettings(values: Flags): Promise<Loaded> {
+async function loadSettings(values: Flags, { needsModel = true } = {}): Promise<Loaded> {
   const home = homedir();
   const file = configPath(process.env, home);
   try {
@@ -84,7 +86,7 @@ async function loadSettings(values: Flags): Promise<Loaded> {
       home,
     });
     for (const warning of resolved.warnings) status("warning", warning);
-    if (!config && (!resolved.settings.baseUrl || !resolved.settings.model)) {
+    if (!config && (!resolved.settings.baseUrl || (needsModel && !resolved.settings.model))) {
       status("info", firstRunMessage(file));
       process.stderr.write("\n");
     }
@@ -135,6 +137,59 @@ async function initCommand(): Promise<number> {
   return record(code);
 }
 
+/** A key is a short line; this cap keeps a wrong pipe (a log, a binary) from being read whole. */
+const KEY_MAX_BYTES = 16 * 1024;
+
+/** The key for `learn auth set`: typed with nothing shown when a person is at the terminal, otherwise the first line of standard input. */
+async function readKey(host: string): Promise<string> {
+  // The prompt goes to stderr, but whether it is visible does not matter for hiding: any terminal on stdin means a person typing, so never echo.
+  if (process.stdin.isTTY) {
+    return await readHidden(process.stdin as unknown as Parameters<typeof readHidden>[0], `API key for ${host} (typing is hidden): `, (text) => process.stderr.write(text));
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > KEY_MAX_BYTES) throw new UsageError("the key on standard input is far longer than any API key; pipe only the key");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8").split("\n")[0] ?? "";
+}
+
+/** `learn auth set`: keeps the key in the OS keychain under the configured endpoint's host. The key is never printed. */
+async function authSetCommand(values: Flags): Promise<number> {
+  const loaded = await loadSettings(values, { needsModel: false });
+  if (!loaded.ok) return loaded.exitCode;
+  const { baseUrl } = loaded.resolved.settings;
+  const host = baseUrl === undefined ? undefined : resolveEndpoint(baseUrl).host;
+  if (host === undefined) {
+    record(ExitCode.Usage);
+    status("error", baseUrl === undefined ? `${describeMissing("baseUrl", loaded.config, loaded.file)}; the key is stored under the endpoint's host` : "the base URL cannot be read, so there is no host to store the key under");
+    return ExitCode.Usage;
+  }
+  try {
+    const key = trimKey(await readKey(host));
+    if (!key) throw new UsageError("no key was given, so nothing was stored");
+    await osKeychain().set(host, key);
+  } catch (err) {
+    if (err instanceof CancelledError) {
+      record(130);
+      status("info", "Cancelled; nothing was stored.");
+      return 130;
+    }
+    if (err instanceof KeychainUnavailableError) {
+      record(ExitCode.Runtime);
+      status("error", `cannot use the OS keychain: ${err.message}. Nothing was stored. Setting the key in an environment variable still works (name it with key_env in the config file).`);
+      return ExitCode.Runtime;
+    }
+    const code = record(err instanceof LearnError ? err.exitCode : 1);
+    status("error", describe(err));
+    return code;
+  }
+  status("info", `Stored the key for ${host} in the OS keychain.`);
+  return 0;
+}
+
 async function main(): Promise<number> {
   const parsed = parseCommandLine(process.argv.slice(2));
   if (parsed.kind === "usage-error") {
@@ -153,6 +208,7 @@ async function main(): Promise<number> {
     return 0;
   }
   if (parsed.kind === "init") return await initCommand();
+  if (parsed.kind === "auth-set") return await authSetCommand(parsed.flags);
   const { reference, flags: values } = parsed;
   if (reference !== undefined && looksLikeCommand(reference) && !existsSync(reference)) {
     record(2);
@@ -256,7 +312,7 @@ async function main(): Promise<number> {
   }
   let apiKey: string | undefined;
   try {
-    apiKey = resolveApiKey({ keyEnv, baseUrl, env: process.env });
+    apiKey = await resolveApiKey({ keyEnv, baseUrl, env: process.env, store: osKeychain() });
   } catch (err) {
     return fail(err);
   }

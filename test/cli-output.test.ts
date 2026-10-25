@@ -149,7 +149,7 @@ describe("subcommand routing", () => {
   it("auth is routed to its own command, not read as a file", async () => {
     const r = await run(["auth"]);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("learn auth is not available yet");
+    expect(r.stderr).toContain("learn auth needs a subcommand");
   });
 
   it("a subcommand answers --help on stdout with exit 0", async () => {
@@ -175,8 +175,8 @@ describe("subcommand routing", () => {
     expect(asFile.stderr).toContain(`contents of ${name}`);
     const asCommand = await run([name], env, dir);
     expect(asCommand.code).toBe(2);
-    // Run without a terminal, init refuses and auth is not built yet: either way a command ran, not a file.
-    expect(asCommand.stderr).toMatch(name === "init" ? /needs a terminal/ : /not available yet/);
+    // Run without a terminal, init refuses and a bare auth wants its subcommand: either way a command ran, not a file.
+    expect(asCommand.stderr).toMatch(name === "init" ? /needs a terminal/ : /needs a subcommand/);
     expect(asCommand.stderr).not.toContain(`contents of ${name}`);
   });
 

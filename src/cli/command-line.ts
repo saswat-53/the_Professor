@@ -1,7 +1,7 @@
 import { Command, CommanderError } from "commander";
 import { ExitCode, LEVELS } from "../core/index.js";
 
-/** The subcommands `learn` routes to. `auth` is announced here before it exists (ticket 31). */
+/** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
 export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
@@ -53,6 +53,7 @@ export type Parsed =
   | { kind: "help"; text: string }
   | { kind: "version" }
   | { kind: "init" }
+  | { kind: "auth-set"; flags: Flags }
   | { kind: "usage-error"; message: string };
 
 /**
@@ -105,15 +106,21 @@ export function parseCommandLine(argv: string[]): Parsed {
       else if (swallowed) result = { kind: "usage-error", message: `Option '${swallowed[1]} <value>' argument missing (the next argument starts with "-")` };
       else result = { kind: "run", reference, flags };
     });
-  for (const name of SUBCOMMANDS) {
-    const command = program.command(name).description(name === "init" ? "create the global config file by answering a few questions" : `learn ${name}`);
-    command.action(() => {
-      // The program owns -h/--help (so it wins over a file argument), which means it also swallows `learn init --help`.
-      if (program.opts<{ help?: boolean }>().help) result = { kind: "help", text: command.helpInformation() };
-      else if (name === "init") result = { kind: "init" };
-      else result = { kind: "usage-error", message: `learn ${name} is not available yet` };
-    });
-  }
+  // The program owns -h/--help (so it wins over a file argument), which means it also swallows `learn init --help`.
+  const helpAsked = () => program.opts<{ help?: boolean }>().help;
+  const init = program.command("init").description("create the global config file by answering a few questions");
+  init.action(() => {
+    result = helpAsked() ? { kind: "help", text: init.helpInformation() } : { kind: "init" };
+  });
+  const auth = program.command("auth").description("manage the API key kept in the OS keychain");
+  auth.action(() => {
+    result = helpAsked() ? { kind: "help", text: auth.helpInformation() } : { kind: "usage-error", message: "learn auth needs a subcommand: learn auth set" };
+  });
+  const authSet = auth.command("set").description("store the API key for the configured endpoint's host in the OS keychain (the key is typed with nothing shown)");
+  authSet.action(() => {
+    const { help, ...flags } = program.opts<Flags & { help?: boolean }>();
+    result = help ? { kind: "help", text: authSet.helpInformation() } : { kind: "auth-set", flags };
+  });
   try {
     program.parse(argv, { from: "user" });
   } catch (err) {
