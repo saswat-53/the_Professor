@@ -6,14 +6,15 @@
 
 **Status:** ready-for-agent
 
-- [ ] States plainly that the configured endpoint receives the user's code, and lists the no-telemetry, no-update-check, only-your-endpoint promises
-- [ ] Documents the exit-code table (0 success, 1 runtime or provider error, 2 usage or config error, 3 refused, plus 130/143 once ticket 19 lands), the example config with the alternative lines marked as alternatives, and the supported Node versions
-- [ ] Explains Sensitive-file refusal, `--allow-sensitive`, and the localhost exemption
-- [ ] Documents `--show-prompt`, `--dry-run`, `--root`, and `--level`
-- [ ] Documents `--help`/`-h` and `--version`/`-v` (both print to stdout and exit 0), and says a closed output pipe (`| head`) ends the run quietly with the exit code of any failure already found, else 0
-- [ ] States that the 0.x versions may change before 1.0
+- [x] States plainly that the configured endpoint receives the user's code, and lists the no-telemetry, no-update-check, only-your-endpoint promises
+- [x] Documents the exit-code table (0 success, 1 runtime or provider error, 2 usage or config error, 3 refused, plus 130/143 once ticket 19 lands), the example config with the alternative lines marked as alternatives, and the supported Node versions
+- [x] Explains Sensitive-file refusal, `--allow-sensitive`, and the localhost exemption
+- [x] Documents `--show-prompt`, `--dry-run`, `--root`, and `--level`
+- [x] Documents `--help`/`-h` and `--version`/`-v` (both print to stdout and exit 0), and says a closed output pipe (`| head`) ends the run quietly with the exit code of any failure already found, else 0
+- [x] States that the 0.x versions may change before 1.0
 
 ## Comments
 
 - From ticket 14: document the Context report on stderr, including the budget line, a format pinned by a test and so safe for scripts to read: `local endpoint budget 8,000 characters (default)`, `hosted endpoint budget 24,000 characters (default)`, `budget N characters (setting)`.
 - From ticket 14: say in one sentence that the local-endpoint exemption from the sensitive-file check trusts the address, not the destination: a tunnel, port forward or local proxy on 127.0.0.1 may lead to a remote or hosted model, and the Context report's "sensitive-file check skipped: … endpoint is local (host)" note is the cue to notice.
+- README written 2026-10-25. Ticket 22's hosted run is still pending (no DeepSeek key on the dev machine), so the README does not claim hosted verification. Exit-code, flag and Context-report text were checked against `--help`, the glossary and a `--dry-run`.
