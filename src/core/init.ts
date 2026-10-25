@@ -12,6 +12,7 @@ export interface InitAnswers {
   notesDir: string;
   /** Carried over from an existing file; the wizard does not ask about it. */
   contextBudget?: number;
+  contextWindow?: number;
 }
 
 /** A starting point for the provider questions. Every field is only a default the user can overwrite. */
@@ -38,6 +39,7 @@ export function renderConfig(a: InitAnswers): string {
     level: a.level,
     notes_dir: a.notesDir,
     ...(a.contextBudget === undefined ? {} : { context_budget: a.contextBudget }),
+    ...(a.contextWindow === undefined ? {} : { context_window: a.contextWindow }),
     provider,
   });
   return `# Written by \`learn init\`. Edit freely.\n# The API key never goes in this file: key_env names the environment variable that holds it.\n\n${body}\n`;

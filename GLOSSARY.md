@@ -44,6 +44,16 @@ _Avoid_: Workspace, base directory
 One conversation: the first explanation of a Reference plus its follow-up questions.
 _Avoid_: Chat, thread, conversation
 
+**Session cap**:
+The most characters of transcript (earlier turns plus the new question) a Session sends. Hosted endpoint: four times the Budget. Local endpoint: derived from the **Context window** (a quarter kept free for the answer, four characters a token, less the system prompt). Over the cap the oldest follow-up turns are dropped in question-and-answer pairs; the **pinned** part (the first Excerpt, its Context and the first explanation) and the most recent turns stay. A Session whose pinned part alone exceeds the cap is refused before the chat starts.
+_Avoid_: Limit, truncation
+
+**Pinned part**:
+The first turn of a Session (the first Excerpt, its Context and the first explanation). Trimming never drops it. A **turn** is one question and its answer; turn 1 is the first explanation, follow-ups count from 2.
+
+**Context window**:
+The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` / `--context-window` (default 4096, Ollama's default). Used only to derive the Session cap on a local endpoint, because an OpenAI-compatible endpoint does not report its real window.
+
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 

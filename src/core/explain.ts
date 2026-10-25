@@ -98,6 +98,8 @@ export async function* explain(
   try {
     const prepared = await prepareRequest(input);
     request = prepared.request;
+    // A Session that could never fit its own first request is refused before anything is sent.
+    input.session?.assertPinnedFits(request.user.length);
     yield { type: "context-report", report: prepared.report };
   } catch (err) {
     if (input.signal.aborted) {

@@ -26,7 +26,7 @@ beforeAll(async () => {
 
 describe("attachReferences", () => {
   it("leaves a question with no reference exactly as typed", async () => {
-    expect(await attach("why is this async?")).toEqual({ content: "why is this async?", reports: [], notes: [] });
+    expect(await attach("why is this async?")).toEqual({ content: "why is this async?", files: [], reports: [], notes: [] });
   });
 
   it("attaches a whole file, keeps the question text, and reports it", async () => {
@@ -46,7 +46,7 @@ describe("attachReferences", () => {
 
   it("does not take an email address, a decorator or a mid-word @ for a reference", async () => {
     for (const q of ["mail me@example.com", "what is @Injectable for?", "see @app.route(\"/x\") here", "x@a.ts is odd"]) {
-      expect(await attach(q)).toEqual({ content: q, reports: [], notes: [] });
+      expect(await attach(q)).toEqual({ content: q, files: [], reports: [], notes: [] });
     }
   });
 
@@ -86,6 +86,11 @@ describe("attachReferences", () => {
     await expect(attach("@a.ts and @nope.ts")).rejects.toBeInstanceOf(Error);
   });
 
+  it("lists what was attached as typed, for the Session to name if the turn is dropped", async () => {
+    const r = await attach('compare @a.ts:1-3 with @"my file.ts"');
+    expect(r.files).toEqual(["a.ts:1-3", "my file.ts"]);
+  });
+
   it("attaches several files, one report each", async () => {
     const { reports } = await attach("compare @a.ts:1-2 with @\"my file.ts\"");
     expect(reports.map((r) => (r.kind === "sent" ? r.label : ""))).toEqual(["a.ts:1-2", "my file.ts"]);
@@ -115,7 +120,7 @@ describe("two references to one file", () => {
   });
 });
 
-describe("attached code and the interim Session cap", () => {
+describe("attached code and the Session cap", () => {
   it("counts toward the cap, so attaching cannot get around it", async () => {
     const session = new Session(400);
     session.begin({ baseUrl: "http://h/v1", model: "m", system: "s", user: "first" }, "answer");
@@ -130,7 +135,7 @@ describe("attached code and the interim Session cap", () => {
     // The question alone fits; the same question with 30 attached lines does not.
     expect(attached.content.length).toBeGreaterThan(400);
     expect(typed.content.length).toBeLessThan(100);
-    expect((await run(attached.content))[0]).toMatchObject({ type: "error", error: { name: "ContextTooLongError" } });
+    expect((await run(attached.content))[0]).toMatchObject({ type: "error", error: { name: "SessionTooLongError" } });
   });
 });
 

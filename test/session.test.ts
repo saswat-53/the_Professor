@@ -29,15 +29,15 @@ async function firstExplanation(session: Session, model: LanguageModel) {
   return await collect(explain({ reference: file, root: tmpdir(), settings: { baseUrl: "http://h/v1", model: "m" }, model, signal: new AbortController().signal, session }));
 }
 
-describe("the interim Session cap", () => {
-  it("refuses a question that would pass it, sends nothing, and leaves the Session as it was", async () => {
+describe("the Session cap on a question that cannot fit", () => {
+  it("refuses a question that would pass it even with every earlier turn dropped, sends nothing, and leaves the Session as it was", async () => {
     const { model, requests } = fakeModel(["first answer", "second"]);
     const session = new Session(200);
     await firstExplanation(session, model);
     const before = session.size;
     const events = await collect(followUp({ session, question: "x".repeat(500), model, signal: new AbortController().signal }));
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ type: "error", error: { name: "ContextTooLongError" } });
+    expect(events[0]).toMatchObject({ type: "error", error: { name: "SessionTooLongError" } });
     expect(requests).toHaveLength(1);
     expect(session.size).toBe(before);
     // A question that fits is still answered.

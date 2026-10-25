@@ -94,11 +94,13 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       opts.report("info", `${question} is not a command yet (commands: /exit)`);
       continue;
     }
+    let attachedFiles: string[] = [];
     try {
       const attached = await opts.attach(question);
       for (const report of attached.reports) opts.report("info", formatContextReport(report));
       for (const note of attached.notes) opts.report("info", note);
       question = attached.content;
+      attachedFiles = attached.files;
     } catch (err) {
       const refused = reportForError(err);
       if (refused) opts.report("info", formatContextReport(refused));
@@ -107,8 +109,10 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     }
     current = new AbortController();
     const strip = opts.stripper();
-    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, onRequest: opts.onRequest })) {
-      if (event.type === "text-delta") {
+    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, onRequest: opts.onRequest })) {
+      if (event.type === "context-report") {
+        opts.report("info", formatContextReport(event.report));
+      } else if (event.type === "text-delta") {
         const text = strip(event.text);
         opts.output.write(text);
         lastChar = text.at(-1) ?? lastChar;

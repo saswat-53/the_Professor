@@ -215,15 +215,45 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     for (const text of ["PASTE-ONE-sk-live", "PASTE-TWO", "PASTE-THREE"]) expect(out.split(text)).toHaveLength(2);
   }, 30_000);
 
-  it("caps a local endpoint's transcript at two times the context budget, not four", async () => {
-    // Budget 100: the cap is 200 characters locally (400 on a hosted endpoint). The 250-character question fits under the hosted cap only.
+  /** A multi-line paste of about `length` characters starting with `c`: a terminal takes only about a thousand characters on one line. */
+  const paste = (c: string, length: number) => `<<<${ENTER}${`${c.repeat(400)}${ENTER}`.repeat(Math.ceil(length / 400))}>>>${ENTER}`;
+
+  it("derives a local endpoint's Session cap from --context-window, and refuses a message that cannot fit", async () => {
+    // Window 800 tokens: 600 for the prompt = 2400 characters, less the system prompt (a little over 1,300), about 1,000. A 1,200-character question cannot fit; a short one can. (A pty holds only so much echoed text, so the pastes stay small.)
     const out = await chat([
-      ["learn> ", `${"x".repeat(250)}${ENTER}`],
-      ["too long to continue", `/exit${ENTER}`],
-    ], { LEARN_CONTEXT_BUDGET: "100" });
+      ["learn> ", paste("x", 1200)],
+      ["too long to send", `short${ENTER}`],
+      ["ANSWER2", `/exit${ENTER}`],
+    ], { LEARN_CONTEXT_WINDOW: "800" });
     expect(out).toMatch(/\nexit 0\n$/);
-    expect(out).toContain("of 200 characters");
-    expect(bodies).toHaveLength(1);
+    expect(out).toContain("--context-window");
+    expect(bodies).toHaveLength(2);
+  }, 30_000);
+
+  it("drops the oldest turns to stay inside the cap, and says which", async () => {
+    // Each question is 1200 characters. The cap is about 4,700, so the fourth question no longer fits beside turn 1 and turns 2 and 3.
+    const q = (c: string) => paste(c, 1200);
+    const out = await chat([
+      ["learn> ", q("a")],
+      ["ANSWER2", q("b")],
+      ["ANSWER3", q("c")],
+      ["ANSWER4", q("d")],
+      ["ANSWER5", `/exit${ENTER}`],
+    ], { LEARN_CONTEXT_WINDOW: "2000" });
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toMatch(/dropped turns? 2/);
+    const last = bodies.at(-1)!.messages;
+    expect(last[1]!.content).toContain("export const a = 1;");
+    expect(last.some((m) => m.content.startsWith("aaa"))).toBe(false);
+    expect(last.at(-1)!.content.startsWith("dd")).toBe(true);
+  }, 30_000);
+
+  it("refuses up front, sending nothing, when the first Excerpt could never leave room to chat", async () => {
+    const out = await chat([["exit", ""]], { LEARN_CONTEXT_WINDOW: "100" });
+    expect(out).toMatch(/\nexit 3\n$/);
+    expect(out).toContain("could not continue");
+    expect(out).toContain("--context-window");
+    expect(bodies).toHaveLength(0);
   }, 30_000);
 
   it("Ctrl-C at an idle prompt ends the chat", async () => {

@@ -4,7 +4,7 @@ import { ExitCode, LEVELS } from "../core/index.js";
 /** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
-export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
+export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
        cat <file> | learn [--lang <language>] [same options]
        learn --clip [--lang <language>] [same options]
        learn <command>
@@ -12,9 +12,10 @@ export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [-
 
 Commands: ${SUBCOMMANDS.join(", ")}
 
-Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
+Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET, LEARN_CONTEXT_WINDOW),
 then the config file (~/.config/learn/config.toml), then the default.
---chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved).
+--chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved). A long chat drops its oldest turns to stay inside the model's window;
+for a local model that window is --context-window (default 4096 tokens, Ollama's default).
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
 /** The exit codes scripts can rely on, with what each means. */
@@ -33,7 +34,7 @@ Exit codes:
 ${EXIT_CODES.map(([code, meaning]) => `  ${String(code).padEnd(4)}${meaning}`).join("\n")}`;
 
 /** The flags that take a value, with their spelling. */
-const VALUE_FLAGS = [["baseUrl", "--base-url"], ["model", "--model"], ["level", "--level"], ["root", "--root"], ["contextBudget", "--context-budget"], ["lang", "--lang"]] as const;
+const VALUE_FLAGS = [["baseUrl", "--base-url"], ["model", "--model"], ["level", "--level"], ["root", "--root"], ["contextBudget", "--context-budget"], ["contextWindow", "--context-window"], ["lang", "--lang"]] as const;
 
 /** The flags of the main `learn <file>` command, as commander names them. */
 export type Flags = {
@@ -42,6 +43,7 @@ export type Flags = {
   level?: string;
   root?: string;
   contextBudget?: string;
+  contextWindow?: string;
   allowSensitive?: boolean;
   showPrompt?: boolean;
   dryRun?: boolean;
@@ -91,6 +93,7 @@ export function parseCommandLine(argv: string[]): Parsed {
     .option("--level <level>")
     .option("--root <dir>")
     .option("--context-budget <chars>")
+    .option("--context-window <tokens>")
     .option("--allow-sensitive")
     .option("--show-prompt")
     .option("--dry-run")

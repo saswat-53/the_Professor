@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { attachReferences, BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveBudget, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
+import { attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -81,7 +81,7 @@ async function loadSettings(values: Flags, { needsModel = true } = {}): Promise<
   try {
     const config = await readConfig(file);
     const resolved = resolveSettings({
-      flags: { level: values.level, model: values.model, baseUrl: values.baseUrl, contextBudget: values.contextBudget },
+      flags: { level: values.level, model: values.model, baseUrl: values.baseUrl, contextBudget: values.contextBudget, contextWindow: values.contextWindow },
       env: process.env,
       config,
       home,
@@ -103,6 +103,7 @@ async function loadSettings(values: Flags, { needsModel = true } = {}): Promise<
 const describe = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
   if (err instanceof BlockedFileError) return `${message}; pass --allow-sensitive to send it anyway`;
+  if (err instanceof SessionTooLongError) return `${message}; lower --context-budget or narrow the range, or for a local model raise --context-window (its context window in tokens)`;
   return err instanceof ContextTooLongError ? `${message}; or raise the limit with --context-budget` : message;
 };
 
@@ -239,7 +240,7 @@ async function main(): Promise<number> {
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
-  const { baseUrl, model, level, contextBudget, keyEnv } = resolved.settings;
+  const { baseUrl, model, level, contextBudget, contextWindow, keyEnv } = resolved.settings;
   if (!baseUrl || !model) {
     record(2);
     if (!baseUrl) status("error", describeMissing("baseUrl", config, file));
@@ -287,7 +288,7 @@ async function main(): Promise<number> {
     }
     piped = { text, lang: values.lang };
   }
-  const settings = { baseUrl, model, level, contextBudget };
+  const settings = { baseUrl, model, level, contextBudget, contextWindow };
   const transportWarning = insecureTransportWarning(baseUrl);
   if (transportWarning) status("warning", transportWarning);
   try {
@@ -318,10 +319,10 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
-  // Interim hard cap on the transcript; ticket 34 replaces refusing with trimming. Hosted: four times the context budget (the spec's rule).
-  // Local: two times, a stopgap because small local windows (Ollama's default is about 4k tokens) would otherwise silently lose the start of the chat.
-  const endpoint = resolveEndpoint(baseUrl);
-  const session = values.chat ? new Session((endpoint.local ? 2 : 4) * resolveBudget(endpoint, settings.contextBudget).chars) : undefined;
+  // The cap on the transcript: hosted, four times the context budget; local, derived from the context window (see `resolveSessionCap`).
+  const session = values.chat
+    ? new Session(resolveSessionCap(resolveEndpoint(baseUrl), { contextBudget, contextWindow, systemChars: buildSystemPrompt(level).length }))
+    : undefined;
   // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
   let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
@@ -371,6 +372,13 @@ async function main(): Promise<number> {
   }
   process.stdout.write("\n");
   if (!session) return 0;
+  // The explanation is already on screen; if its size leaves no room to ask anything, say so instead of opening a chat that refuses every question.
+  try {
+    session.assertPinnedFits();
+  } catch (err) {
+    status("info", "the explanation above is complete; only the chat that would follow it is refused");
+    return fail(err);
+  }
   let chatSignals = 0;
   return record(
     await runChat({

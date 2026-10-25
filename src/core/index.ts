@@ -1,5 +1,7 @@
 export { explain, buildRequest, prepareRequest } from "./explain.js";
 export { Session, followUp } from "./session.js";
+export type { DroppedTurns } from "./session.js";
+export { buildSystemPrompt } from "./prompt.js";
 export type { ExplainEvent, LanguageModel, Message, ModelRequest, Settings } from "./types.js";
 export {
   BadKeyError,
@@ -17,6 +19,7 @@ export {
   RateLimitError,
   RefusedError,
   RuntimeError,
+  SessionTooLongError,
   UnexpectedError,
   UntrustedRepoError,
   UsageError,
@@ -37,7 +40,7 @@ export type { FileReader, Endpoint, FileReaderOptions, SensitiveBypass } from ".
 export { braceBlockFinder, BRACE_EXTENSIONS } from "./brace-block-finder.js";
 export { pythonBlockFinder, PYTHON_EXTENSIONS } from "./python-block-finder.js";
 export { blockFinderFor } from "./block-finder-for.js";
-export { assertExcerptFits, defaultBudget, isValidBudget, resolveBudget, HOSTED_BUDGET, LOCAL_BUDGET } from "./budget.js";
+export { assertExcerptFits, defaultBudget, isValidBudget, isValidContextWindow, resolveBudget, resolveSessionCap, DEFAULT_CONTEXT_WINDOW, HOSTED_BUDGET, LOCAL_BUDGET } from "./budget.js";
 export type { Budget, BudgetSource, Dropped } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";

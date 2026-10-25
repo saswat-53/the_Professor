@@ -2,7 +2,7 @@ import { parse } from "smol-toml";
 import { UsageError } from "./errors.js";
 import { DEFAULT_LEVEL, LEVELS, isLevel } from "./prompt.js";
 import type { Level } from "./prompt.js";
-import { isValidBudget } from "./budget.js";
+import { isValidBudget, isValidContextWindow } from "./budget.js";
 
 /** What the user can set. Provider and model go through the same table as level, so precedence is written once. */
 export interface ResolvedSettings {
@@ -10,6 +10,8 @@ export interface ResolvedSettings {
   model?: string;
   level: Level;
   contextBudget?: number;
+  /** The model's context window in tokens; sets the Session cap for a local endpoint. */
+  contextWindow?: number;
   /** Name of the environment variable that holds the API key (never the key itself). */
   keyEnv?: string;
   /** Absolute, `~` expanded. */
@@ -22,6 +24,7 @@ export interface Flags {
   model?: string;
   baseUrl?: string;
   contextBudget?: string;
+  contextWindow?: string;
 }
 
 /** A parsed config file, and where it came from, so an error can name the file. */
@@ -151,6 +154,11 @@ const budget = (raw: unknown) => {
   return typeof n === "number" && isValidBudget(n) ? { value: n } : { error: "must be a whole number of characters above 0" };
 };
 
+const contextWindow = (raw: unknown) => {
+  const n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
+  return typeof n === "number" && isValidContextWindow(n) ? { value: n } : { error: "must be a whole number of tokens above 0" };
+};
+
 const level = (raw: unknown) =>
   typeof raw === "string" && isLevel(raw) ? { value: raw } : { error: `must be one of: ${LEVELS.join(", ")}` };
 
@@ -160,6 +168,7 @@ const dir = (raw: unknown, home: string) =>
 const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "level", flag: "level", flagName: "--level", env: "LEARN_LEVEL", config: ["level"], parse: level },
   { key: "contextBudget", flag: "contextBudget", flagName: "--context-budget", env: "LEARN_CONTEXT_BUDGET", config: ["context_budget"], parse: budget },
+  { key: "contextWindow", flag: "contextWindow", flagName: "--context-window", env: "LEARN_CONTEXT_WINDOW", config: ["context_window"], parse: contextWindow },
   { key: "baseUrl", flag: "baseUrl", flagName: "--base-url", env: "LEARN_BASE_URL", config: ["provider", "base_url"], parse: url, show: (raw) => redactUrl(raw, { path: false }) },
   { key: "model", flag: "model", flagName: "--model", env: "LEARN_MODEL", config: ["provider", "model"], parse: text("a model name") },
   { key: "keyEnv", config: ["provider", "key_env"], parse: envName },
@@ -288,6 +297,10 @@ export function configPath(env: Record<string, string | undefined>, home: string
 export const EXAMPLE_CONFIG = `level = "intermediate"
 notes_dir = "~/learn-notes"
 
+# For a local model in --chat: its context window in tokens (Ollama's default is about 4096 below 24 GiB of VRAM).
+# Raise it here after raising it in Ollama; a longer chat is then kept before old turns are dropped.
+# context_window = 4096
+
 # Provider: uncomment exactly ONE of the blocks below. They are alternatives to each other.
 
 # Alternative 1: Ollama, local and free
@@ -303,7 +316,7 @@ notes_dir = "~/learn-notes"
 
 /** Shown when there is no config file yet. */
 export const firstRunMessage = (file: string): string =>
-  `No config file at ${file}. Settings can also come from flags or LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL and LEARN_CONTEXT_BUDGET.
+  `No config file at ${file}. Settings can also come from flags or LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET and LEARN_CONTEXT_WINDOW.
 To create one, save this there (uncomment one "Alternative" block; they are alternatives to each other, not additions):
 
 ${EXAMPLE_CONFIG}`;

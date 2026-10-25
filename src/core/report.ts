@@ -34,7 +34,9 @@ export type ContextReport =
       /** Sensitive files that were sent anyway, and why. Absent unless a file actually matched a rule. */
       overrides?: SensitiveBypass[];
     }
-  | { kind: "refused"; file: string; rule: string };
+  | { kind: "refused"; file: string; rule: string }
+  /** The Session was over its cap, so the oldest turns were left out of this request. Turn 1 is the first explanation. */
+  | { kind: "session-trimmed"; turns: number[]; files: string[]; capChars: number };
 
 export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
   const source = excerpt.source;
@@ -68,8 +70,28 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const BUDGET_LABEL = { "hosted default": "hosted endpoint budget", "local default": "local endpoint budget", setting: "budget" } as const;
 const PART_LABEL = { imports: "imports", before: "before the Excerpt", excerpt: "the Excerpt", after: "after the Excerpt" } as const;
 
+/** `[2, 3, 5]` as `2-3, 5`. */
+function ranges(numbers: readonly number[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < numbers.length; ) {
+    let j = i;
+    while (numbers[j + 1] === numbers[j]! + 1) j++;
+    out.push(j > i ? `${numbers[i]}-${numbers[j]}` : `${numbers[i]}`);
+    i = j + 1;
+  }
+  return out.join(", ");
+}
+
 /** The report as the text a frontend shows the user before anything is sent. */
 export function formatContextReport(report: ContextReport): string {
+  if (report.kind === "session-trimmed") {
+    const out = [
+      `Context report: the Session is over its Session cap of ${report.capChars.toLocaleString("en-US")} characters, so the oldest turns are left out of this request`,
+      `  dropped ${report.turns.length === 1 ? "turn" : "turns"} ${ranges(report.turns)} (question and answer; the first explanation and the most recent turns are kept)`,
+    ];
+    if (report.files.length > 0) out.push(`  dropped @file material: ${report.files.join(", ")}`);
+    return out.join("\n");
+  }
   if (report.kind === "refused") {
     return `Context report\n  refused: ${report.file} (rule: ${report.rule}); its content is not sent`;
   }

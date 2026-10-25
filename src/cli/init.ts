@@ -98,7 +98,7 @@ export async function runInit(d: InitDeps): Promise<number> {
     const level = await ask("Level (" + LEVELS.join(", ") + ")", current?.level ?? "intermediate", setting("level"));
     const notesDir = await ask("Notes directory (used by /save, coming later)", d.existing && current ? tildeOf(current.notesDir, d.home) : "~/learn-notes", setting("notesDir"));
     // `setting` returned the expanded path; the file keeps what is portable.
-    const answers: InitAnswers = { baseUrl, model, keyEnv, level: level as InitAnswers["level"], notesDir: tildeOf(notesDir, d.home), contextBudget: current?.contextBudget };
+    const answers: InitAnswers = { baseUrl, model, keyEnv, level: level as InitAnswers["level"], notesDir: tildeOf(notesDir, d.home), contextBudget: current?.contextBudget, contextWindow: current?.contextWindow };
 
     if (d.existing) {
       const replace = await ask<boolean>(`Replace ${d.file}`, "n", yesNo);

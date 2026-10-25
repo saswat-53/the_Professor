@@ -28,6 +28,8 @@ export interface Settings {
   level?: Level;
   /** Most characters of Excerpt plus Context to send. Default: by endpoint, see `defaultBudget`. */
   contextBudget?: number;
+  /** The model's context window in tokens. Default: `DEFAULT_CONTEXT_WINDOW`, used only for local endpoints. */
+  contextWindow?: number;
 }
 
 export type ExplainEvent =

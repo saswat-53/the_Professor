@@ -11,10 +11,11 @@ describe("renderConfig", () => {
     expect(settings).toMatchObject({ ...answers, notesDir: `${home}/learn-notes` });
   });
 
-  it("omits key_env when there is none, and keeps a carried-over context budget", () => {
-    const text = renderConfig({ baseUrl: "http://localhost:11434/v1", model: "llama3.1", level: "intermediate", notesDir: "~/n", contextBudget: 5000 });
+  it("omits key_env when there is none, and keeps a carried-over context budget and window", () => {
+    const text = renderConfig({ baseUrl: "http://localhost:11434/v1", model: "llama3.1", level: "intermediate", notesDir: "~/n", contextBudget: 5000, contextWindow: 8192 });
     expect(text).not.toMatch(/^key_env/m);
-    expect(resolveSettings({ flags: {}, env: {}, config: parseConfig(text, "c.toml"), home }).settings.contextBudget).toBe(5000);
+    const settings = resolveSettings({ flags: {}, env: {}, config: parseConfig(text, "c.toml"), home }).settings;
+    expect([settings.contextBudget, settings.contextWindow]).toEqual([5000, 8192]);
   });
 
   it("escapes values, so a quote or newline cannot add a key", () => {

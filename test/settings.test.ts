@@ -18,10 +18,11 @@ const SETTINGS = [
   { key: "model", flag: ["model", "f"], env: ["LEARN_MODEL", "e"], cfg: [["provider", "model"], "c"], dflt: undefined },
   { key: "baseUrl", flag: ["baseUrl", "http://f/v1"], env: ["LEARN_BASE_URL", "http://e/v1"], cfg: [["provider", "base_url"], "http://c/v1"], dflt: undefined },
   { key: "contextBudget", flag: ["contextBudget", "100"], env: ["LEARN_CONTEXT_BUDGET", "200"], cfg: [["context_budget"], 300], dflt: undefined },
+  { key: "contextWindow", flag: ["contextWindow", "1000"], env: ["LEARN_CONTEXT_WINDOW", "2000"], cfg: [["context_window"], 3000], dflt: undefined },
 ] as const;
 
 /** What the setting resolves to when its value arrives from that source (a budget flag or variable is text, the resolved value a number). */
-const resolved = (key: string, value: unknown) => (key === "contextBudget" ? Number(value) : value);
+const resolved = (key: string, value: unknown) => (key === "contextBudget" || key === "contextWindow" ? Number(value) : value);
 
 describe("precedence: flag, then environment, then config file, then default (every setting, every combination of sources)", () => {
   for (const c of SETTINGS) {
@@ -42,6 +43,12 @@ describe("precedence: flag, then environment, then config file, then default (ev
       });
     }
   }
+
+  it("rejects a context window that is not a whole number of tokens above 0, naming where it came from", () => {
+    expect(() => resolve({}, { LEARN_CONTEXT_WINDOW: "0" })).toThrow(/LEARN_CONTEXT_WINDOW.*tokens/);
+    expect(() => resolve({ contextWindow: "4k" })).toThrow(/--context-window/);
+    expect(() => resolve({}, {}, "context_window = 1.5\n")).toThrow(/"context_window"/);
+  });
 
   it("notesDir and keyEnv are config-only: a flag or environment variable of the obvious name changes nothing", () => {
     const s = resolve({ notesDir: "/f" } as never, { LEARN_NOTES_DIR: "/e", LEARN_KEY_ENV: "E" }, 'notes_dir = "/c"\n[provider]\nkey_env = "C"\n').settings;

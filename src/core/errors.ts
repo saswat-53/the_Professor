@@ -78,6 +78,11 @@ export class ContextTooLongError extends RefusedError {
   override name = "ContextTooLongError";
 }
 
+/** A Session cannot hold what it is asked to: its pinned part is over the cap, or a question cannot fit beside it. */
+export class SessionTooLongError extends ContextTooLongError {
+  override name = "SessionTooLongError";
+}
+
 /** The file resolves outside the project root; `--root` widens the root for one run. */
 export class PathEscapeError extends RefusedError {
   override name = "PathEscapeError";
