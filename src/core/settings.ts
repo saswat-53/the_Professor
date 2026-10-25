@@ -128,9 +128,23 @@ const url = (raw: unknown) => {
 const text = (what: string): Def<"model">["parse"] => (raw) =>
   typeof raw === "string" && raw !== "" ? { value: raw } : { error: `${what} must be a non-empty string` };
 
-/** A variable name, not a key: a pasted key would otherwise be echoed back in the "not set" error. */
-const envName = (raw: unknown) =>
-  typeof raw === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(raw) ? { value: raw } : { error: "must be the NAME of an environment variable (letters, digits and underscores), not the key itself" };
+/**
+ * Prefixes real API keys start with (`sk-`, `ghp_`, `AIza`...), in the case real keys use (a variable is SHOUTING_CASE). A name that starts like one is a pasted key: the
+ * letters, digits and underscores of many keys also make a valid variable name, so shape alone cannot tell them apart.
+ */
+const KEY_PREFIX = /^(sk|pk|rk|ghp|gho|ghu|ghs|github_pat|xox[a-z]|gsk|hf)[-_]|^(AIza|AKIA)/;
+
+/** A variable name, not a key: a pasted key would otherwise be echoed back in the "not set" error, or written to the config file. */
+const envName = (raw: unknown) => {
+  const ok =
+    typeof raw === "string" &&
+    /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(raw) &&
+    raw.length <= 64 &&
+    !KEY_PREFIX.test(raw) &&
+    // Mixed case with digits (`Xk9aQ2...`) is how a token looks; variable names are SHOUTING_CASE or lowercase words.
+    !(/[a-z]/.test(raw) && /[A-Z]/.test(raw) && /[0-9]/.test(raw));
+  return ok ? { value: raw } : { error: "must be the NAME of an environment variable (letters, digits and underscores), not the key itself" };
+};
 
 const budget = (raw: unknown) => {
   const n = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;

@@ -44,6 +44,18 @@ describe("validateSetting", () => {
   });
 });
 
+describe("a pasted key is not a variable name", () => {
+  const keys = ["sk-proj-Ab12Cd34Ef56", "sk_live_abcdef123456", "sk-ant-api03-XyZ", "Xk9aQ2mZp7LwR4tYb8", "AIzaSyD4abc123", "ghp_abcDEF123456", "AKIAIOSFODNN7EXAMPLE", "a".repeat(80)];
+  it.each(keys)("refuses %s without echoing it", (key) => {
+    const r = validateSetting("keyEnv", key, home);
+    expect("error" in r).toBe(true);
+    expect(JSON.stringify(r)).not.toContain(key);
+  });
+  it.each(["OPENAI_API_KEY", "MY_KEY", "KEY_VAR", "anthropic_key", "GEMINI_API_KEY2", "_X"])("accepts the variable name %s", (name) => {
+    expect(validateSetting("keyEnv", name, home)).toEqual({ value: name });
+  });
+});
+
 describe("presets", () => {
   it("ollama is local and keyless; openai names its key variable", () => {
     expect(INIT_PRESETS.ollama).toMatchObject({ baseUrl: "http://localhost:11434/v1" });

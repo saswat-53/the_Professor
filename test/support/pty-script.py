@@ -2,7 +2,7 @@
 
 usage: pty-script.py '<json list of [wait-for-text, text-to-send]>' <command...>
 For each step it waits until the text shows up in the output printed since the previous step, then sends the
-text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). Prints the output and ends with
+text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). A text of the form "signal:SIGINT" sends that signal to the command itself, as `kill` would. Prints the output and ends with
 "exit <code>" on the last line (128 + n if the command died of a signal n).
 """
 import json, os, pty, select, signal, sys, time
@@ -27,7 +27,11 @@ while time.time() < deadline:
         out += data
     if steps and steps[0][0].encode() in out[mark:]:
         mark = len(out)
-        os.write(fd, steps.pop(0)[1].encode())
+        text = steps.pop(0)[1]
+        if text.startswith("signal:"):
+            os.kill(pid, getattr(signal, text[len("signal:"):]))
+        else:
+            os.write(fd, text.encode())
 if time.time() >= deadline:
     os.kill(pid, signal.SIGKILL)
 _, status = os.waitpid(pid, 0)

@@ -35,6 +35,9 @@ export async function runInit(d: InitDeps): Promise<number> {
   // Ctrl-C in raw mode arrives as a key (rl "SIGINT"); the end of input is the same wish to stop.
   rl.on("SIGINT", () => controller.abort());
   rl.on("close", () => controller.abort());
+  // A signal sent to the process (`kill -INT`, or Ctrl-C once the terminal is cooked) is the same wish; without this the default action would end the process before it could say what was saved.
+  const onSignal = () => controller.abort();
+  process.once("SIGINT", onSignal);
   const { signal } = controller;
   let saved = false;
 
@@ -93,7 +96,7 @@ export async function runInit(d: InitDeps): Promise<number> {
     });
 
     const level = await ask("Level (" + LEVELS.join(", ") + ")", current?.level ?? "intermediate", setting("level"));
-    const notesDir = await ask("Notes directory", d.existing && current ? tildeOf(current.notesDir, d.home) : "~/learn-notes", setting("notesDir"));
+    const notesDir = await ask("Notes directory (used by /save, coming later)", d.existing && current ? tildeOf(current.notesDir, d.home) : "~/learn-notes", setting("notesDir"));
     // `setting` returned the expanded path; the file keeps what is portable.
     const answers: InitAnswers = { baseUrl, model, keyEnv, level: level as InitAnswers["level"], notesDir: tildeOf(notesDir, d.home), contextBudget: current?.contextBudget };
 
@@ -130,6 +133,7 @@ export async function runInit(d: InitDeps): Promise<number> {
     }
     throw err;
   } finally {
+    process.off("SIGINT", onSignal);
     rl.close();
   }
 }
@@ -149,6 +153,8 @@ async function sendTest(a: InitAnswers, d: InitDeps, controller: AbortController
       reply += piece;
       if (reply.length > 200) break;
     }
+    // An aborted stream can simply end instead of throwing: that is a cancellation, not an empty answer.
+    if (controller.signal.aborted) throw new CancelledError();
     say(reply.trim() === "" ? "The endpoint answered, but with no text. Check the model name." : "It works: the endpoint answered.");
     return 0;
   } catch (err) {
