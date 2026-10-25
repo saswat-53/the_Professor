@@ -59,6 +59,18 @@ describe("provider failures", () => {
     expect(r.stderr).toMatch(/^\S/);
   });
 
+  it("tells the user how long to wait when the 429 has a Retry-After, and still does not retry", async () => {
+    respond = (res) => {
+      res.writeHead(429, { "content-type": "application/json", "retry-after": "30" });
+      res.end(JSON.stringify({ error: { message: SENTINEL } }));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("wait about 30 seconds");
+    expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    expect(requestCount).toBe(1);
+  });
+
   it("does not retry after a 429", async () => {
     respond = failWith(429);
     await run([file], env());

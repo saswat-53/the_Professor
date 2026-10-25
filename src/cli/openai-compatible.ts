@@ -3,11 +3,34 @@ import { APICallError, streamText } from "ai";
 import { BadKeyError, ModelNotFoundError, NetworkError, ProviderError, RateLimitError } from "../core/index.js";
 import type { LanguageModel } from "../core/index.js";
 
+const IMF_FIXDATE = /^[A-Z][a-z]{2}, \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+
+/**
+ * How many seconds a `Retry-After` header asks for: a whole number of seconds, or an HTTP date (the one fixed format
+ * HTTP uses). Anything else, and any wait that is not in the future, is undefined. The header's text is only ever parsed,
+ * never shown, so what the provider put in it cannot reach the terminal.
+ */
+function retryAfterSeconds(value: string | undefined, now: number): number | undefined {
+  const text = value?.trim();
+  if (text === undefined) return undefined;
+  const seconds = /^\d{1,7}$/.test(text) ? Number(text) : IMF_FIXDATE.test(text) ? Math.ceil((Date.parse(text) - now) / 1000) : NaN;
+  return seconds > 0 ? seconds : undefined;
+}
+
+/** A wait in plain words, rounded: seconds under two minutes, then minutes, then hours. */
+function describeWait(seconds: number): string {
+  const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  if (seconds > 86_400) return "more than 24 hours";
+  if (seconds < 120) return `about ${unit(seconds, "second")}`;
+  if (seconds < 7_200) return `about ${unit(Math.round(seconds / 60), "minute")}`;
+  return `about ${unit(Math.round(seconds / 3_600), "hour")}`;
+}
+
 /**
  * Turns whatever the SDK threw into one of learn's typed errors. The provider's response body is
  * deliberately dropped: only the status code is used, so raw provider output cannot reach the user.
  */
-export function classifyProviderError(err: unknown, keyEnv?: string): Error {
+export function classifyProviderError(err: unknown, keyEnv?: string, now = Date.now()): Error {
   // Only the variable's name is ever shown, never its value.
   const keyHint = keyEnv === undefined ? "set key_env in the config file to the variable that holds your key" : `check $${keyEnv}`;
   // Cancellation is not a provider failure; explain() turns it into a CancelledError.
@@ -22,8 +45,12 @@ export function classifyProviderError(err: unknown, keyEnv?: string): Error {
       return new BadKeyError(
         `the provider rejected the request (key invalid or not permitted for this model); ${keyHint}, and --model`,
       );
-    case 429:
-      return new RateLimitError("the provider says you are sending too many requests; wait a moment and try again");
+    case 429: {
+      const wait = retryAfterSeconds(err.responseHeaders?.["retry-after"], now);
+      return new RateLimitError(
+        `the provider says you are sending too many requests; ${wait === undefined ? "wait a moment and try again" : `wait ${describeWait(wait)} and try again`}`,
+      );
+    }
     case 404:
       return new ModelNotFoundError("the provider does not know that model; check --model or LEARN_MODEL");
     case undefined:

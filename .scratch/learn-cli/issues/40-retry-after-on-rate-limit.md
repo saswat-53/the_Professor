@@ -4,9 +4,9 @@
 
 **Blocked by:** 05 (Typed errors and exit codes)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The fake server sends a 429 with `Retry-After: 30`; stderr says to wait about 30 seconds
-- [ ] `Retry-After` given as an HTTP date is handled as well as seconds
-- [ ] Without the header the message is unchanged, and there is still no automatic retry
-- [ ] The header value is parsed, never echoed raw, so it cannot carry raw provider output to the terminal
+- [x] The fake server sends a 429 with `Retry-After: 30`; stderr says to wait about 30 seconds
+- [x] `Retry-After` given as an HTTP date is handled as well as seconds
+- [x] Without the header the message is unchanged, and there is still no automatic retry
+- [x] The header value is parsed, never echoed raw, so it cannot carry raw provider output to the terminal
