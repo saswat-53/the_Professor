@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Hardened git runner), 14 (Context report (the gate))
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] `--diff` explains uncommitted changes (staged and unstaged) against HEAD; `--diff <ref>` compares against that ref
 - [ ] Untracked files and a repository with no commits are handled

@@ -5,7 +5,7 @@ import { BlockedFileError, ruleName } from "./errors.js";
 import type { BlockReason } from "./errors.js";
 import { findRepo, runGit } from "./git.js";
 import { readTextFile } from "./read-file.js";
-import { locateFile } from "./root.js";
+import { isInside, locateFile } from "./root.js";
 
 interface Rule {
   name: string;
@@ -174,6 +174,12 @@ export interface FileReader {
    * which made a search of a large project take minutes. The root check and the file reading rules still apply.
    */
   readSearchable(path: SearchablePath): Promise<{ text: string; name: string }>;
+  /**
+   * The Sensitive-file check for a file named in a diff, by name alone: a deleted file has nothing to open, and its old
+   * content is in git's output all the same. Returns why the file must be left out, or undefined when it may be sent
+   * (including when `--allow-sensitive` or a local endpoint lets it through, which is then recorded in `bypassed`).
+   */
+  vetChanged(repoRoot: string, file: string): Promise<{ rule: string } | undefined>;
   /** Where the content goes. The exemption and the host in `bypassed` both come from this one parse. */
   readonly endpoint: Endpoint;
   /** Every Sensitive file this reader has read despite its rule, once each. */
@@ -211,6 +217,21 @@ export function createFileReader(options: FileReaderOptions): FileReader {
         if (!bypassed.some((b) => b.file === name)) bypassed.push({ file: name, rule: ruleName(reason), by, ...(host !== undefined && { host }) });
       }
       return { text: await readText(real), name };
+    },
+    async vetChanged(repoRoot, file) {
+      const full = resolve(repoRoot, file);
+      if (!isInside(options.root, full)) return { rule: "outside the project root" };
+      const check = async (): Promise<BlockReason | undefined> => {
+        const rule = denylistRule(file);
+        if (rule) return { kind: "denylist", name: rule };
+        return interpretCheckIgnore(await runGit(repoRoot, "check-ignore", { args: ["--no-index", "-v"], paths: [file] }));
+      };
+      const reason = by ? await check().catch(() => undefined) : await check();
+      if (!reason) return undefined;
+      if (!by) return { rule: ruleName(reason) };
+      const name = relative(options.root, full);
+      if (!bypassed.some((b) => b.file === name)) bypassed.push({ file: name, rule: ruleName(reason), by, ...(host !== undefined && { host }) });
+      return undefined;
     },
     async readSearchable(path) {
       const { real, name } = await locateFile(options.root, options.cwd, path);

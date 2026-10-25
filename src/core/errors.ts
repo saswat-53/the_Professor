@@ -112,6 +112,11 @@ export class SessionTooLongError extends ContextTooLongError {
   override name = "SessionTooLongError";
 }
 
+/** Every file in the diff is one a safety rule leaves out, so there is nothing left to send. */
+export class DiffExcludedError extends RefusedError {
+  override name = "DiffExcludedError";
+}
+
 /** The file resolves outside the project root; `--root` widens the root for one run. */
 export class PathEscapeError extends RefusedError {
   override name = "PathEscapeError";

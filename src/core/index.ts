@@ -7,6 +7,7 @@ export {
   BadKeyError,
   BlockedFileError,
   CancelledError,
+  DiffExcludedError,
   ContextTooLongError,
   ExitCode,
   FileNotFoundError,
@@ -48,7 +49,7 @@ export { assertExcerptFits, defaultBudget, isValidBudget, isValidContextWindow, 
 export type { Budget, BudgetSource, Dropped } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";
-export { buildContextReport, formatContextReport, hasOverride, reportForError } from "./report.js";
+export { buildContextReport, buildDiffReport, formatContextReport, hasOverride, reportForError } from "./report.js";
 export type { ContextReport, ReportedRange } from "./report.js";
 export { EXAMPLE_CONFIG, configPath, describeMissing, firstRunMessage, parseConfig, redactUrl, HIDDEN, resolveSettings, trimEnds, validateSetting } from "./settings.js";
 export type { Config, Flags, Resolution, ResolvedSettings } from "./settings.js";

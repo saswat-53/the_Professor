@@ -1,6 +1,7 @@
 import { BlockedFileError } from "./errors.js";
 import type { Budget, Dropped } from "./budget.js";
 import type { Context } from "./context.js";
+import type { GatheredDiff } from "./diff.js";
 import type { Excerpt, WordSearchNote } from "./reference.js";
 import type { SensitiveBypass } from "./sensitive.js";
 
@@ -36,12 +37,35 @@ export type ContextReport =
       /** A word Reference: the other definitions it found, and the limit if the search was cut short. */
       search?: WordSearchNote;
     }
+  | {
+      /** `--diff`: the working tree's changes against a revision. */
+      kind: "diff";
+      against: string;
+      /** Files whose changes are sent, by repository-relative name. */
+      files: string[];
+      /** How many of `files` are untracked and shown as new files. */
+      untracked: number;
+      /** Changed files left out by a safety rule, with the rule. */
+      excluded: { file: string; rule: string }[];
+      /** Untracked files that could not be shown as text, with why. */
+      skipped: { file: string; why: string }[];
+      /** A shallow clone: history, and so any ref to compare with, is incomplete. */
+      shallow: boolean;
+      budget: Budget;
+      local: boolean;
+      overrides?: SensitiveBypass[];
+    }
   | { kind: "refused"; file: string; rule: string }
   /** The Session was over its cap, so the oldest turns were left out of this request. Turn 1 is the first explanation. */
   | { kind: "session-trimmed"; turns: number[]; files: string[]; capChars: number };
 
 /** The report says a Sensitive file was sent anyway (`--allow-sensitive`, or a local endpoint). */
-export const hasOverride = (report: ContextReport): boolean => report.kind === "sent" && (report.overrides?.length ?? 0) > 0;
+export const hasOverride = (report: ContextReport): boolean => (report.kind === "sent" || report.kind === "diff") && (report.overrides?.length ?? 0) > 0;
+
+export function buildDiffReport(diff: GatheredDiff, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
+  const { against, files, untracked, excluded, skipped, shallow } = diff;
+  return { kind: "diff", against, files, untracked, excluded, skipped, shallow, budget, local, ...(bypassed.length > 0 && { overrides: [...bypassed] }) };
+}
 
 export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
   const source = excerpt.source;
@@ -88,6 +112,24 @@ function ranges(numbers: readonly number[]): string {
   return out.join(", ");
 }
 
+const overrideLines = (overrides: readonly SensitiveBypass[] = []): string[] =>
+  overrides.map((o) =>
+    o.by === "flag"
+      ? `  overridden: ${o.file} (rule: ${o.rule}) is being sent to ${o.host ?? "the endpoint"} because --allow-sensitive was passed`
+      : `  sensitive-file check skipped: ${o.file} (rule: ${o.rule}); endpoint is local (${o.host ?? "unknown host"})`,
+  );
+
+function budgetLines(report: { budget: Budget; local: boolean }): string[] {
+  const { chars, source } = report.budget;
+  const out = [`  ${BUDGET_LABEL[source]} ${chars.toLocaleString("en-US")} characters (${source === "setting" ? "setting" : "default"})`];
+  if (report.local) {
+    out.push(
+      "  note: Ollama's context window is small by default; raise it with the app's context-length slider, or start the server with OLLAMA_CONTEXT_LENGTH set, and check with `ollama ps`",
+    );
+  }
+  return out;
+}
+
 /** The report as the text a frontend shows the user before anything is sent. */
 export function formatContextReport(report: ContextReport): string {
   if (report.kind === "session-trimmed") {
@@ -102,6 +144,15 @@ export function formatContextReport(report: ContextReport): string {
     return `Context report\n  refused: ${report.file} (rule: ${report.rule}); its content is not sent`;
   }
   const out = ["Context report: this is what will be sent"];
+  if (report.kind === "diff") {
+    out.push(`  the working tree's changes against ${report.against}${report.untracked > 0 ? ` (${plural(report.untracked, "untracked file")} shown as new)` : ""}`);
+    for (const file of report.files) out.push(`    ${file}`);
+    for (const e of report.excluded) out.push(`  left out: ${e.file} (rule: ${e.rule}); its changes are not sent`);
+    for (const s of report.skipped) out.push(`  left out: ${s.file} (${s.why})`);
+    if (report.shallow) out.push("  shallow clone: history is incomplete, so a ref older than this clone's depth cannot be compared");
+    out.push(...overrideLines(report.overrides), ...budgetLines(report));
+    return out.join("\n");
+  }
   if (report.path === null) out.push(`  ${report.label}`, "    the whole text, with no surrounding Context");
   else {
     out.push(`  ${report.path}`);
@@ -117,13 +168,7 @@ export function formatContextReport(report: ContextReport): string {
     out.push(`  search stopped at its limit of ${search.truncatedAt.toLocaleString("en-US")} files, so a better definition may be in a file that was not searched`);
   }
   if (report.unnamed) out.push(`  no filename checks applied: ${report.unnamed} has no filename, so the sensitive-file rules could not be checked; look over it before sending`);
-  for (const o of report.overrides ?? []) {
-    out.push(
-      o.by === "flag"
-        ? `  overridden: ${o.file} (rule: ${o.rule}) is being sent to ${o.host ?? "the endpoint"} because --allow-sensitive was passed`
-        : `  sensitive-file check skipped: ${o.file} (rule: ${o.rule}); endpoint is local (${o.host ?? "unknown host"})`,
-    );
-  }
+  out.push(...overrideLines(report.overrides));
   const { dropped } = report;
   if (dropped) {
     const parts: string[] = [];
@@ -137,12 +182,6 @@ export function formatContextReport(report: ContextReport): string {
     if (dropped.lines > 0) parts.push(`${plural(dropped.lines, "nearby line")} dropped`);
     out.push(`  dropped for budget: ${parts.join("; ")}`);
   }
-  const { chars, source } = report.budget;
-  out.push(`  ${BUDGET_LABEL[source]} ${chars.toLocaleString("en-US")} characters (${source === "setting" ? "setting" : "default"})`);
-  if (report.local) {
-    out.push(
-      "  note: Ollama's context window is small by default; raise it with the app's context-length slider, or start the server with OLLAMA_CONTEXT_LENGTH set, and check with `ollama ps`",
-    );
-  }
+  out.push(...budgetLines(report));
   return out.join("\n");
 }

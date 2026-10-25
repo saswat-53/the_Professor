@@ -242,3 +242,66 @@ describe("secret canary: the override", () => {
     });
   });
 });
+
+describe("secret canary: --diff", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd, encoding: "utf8" });
+
+  /** The secret project with everything committed (the gitignored file by force), then changed, plus untracked ones. */
+  async function changedProject() {
+    const { home, repo } = await secretProject();
+    await writeFile(join(repo, "ignored.txt"), "old\n");
+    await writeFile(join(repo, ".env"), "TOKEN=old\n");
+    git(repo, "add", "-f", ".gitignore", "ignored.txt", ".env", "app.ts");
+    git(repo, "commit", "-qm", "base");
+    await writeFile(join(repo, "ignored.txt"), `${CANARY}\n`);
+    await writeFile(join(repo, ".env"), `TOKEN=${CANARY}\n`);
+    await writeFile(join(repo, "app.ts"), "export const x = 2;\n");
+    await writeFile(join(repo, "untracked.pem"), `${CANARY}\n`);
+    return { home, repo };
+  }
+
+  // 127.1 is loopback but counts as hosted, so the Sensitive-file check applies while the request still reaches the fake server.
+  const hostedLoopback = (url: string) => url.replace("127.0.0.1", "127.1");
+
+  it.each(MODES)("$name: the canary is in no output or request body, and the report names the excluded files", async ({ flags }) => {
+    const { home, repo } = await changedProject();
+    await withServer(async (url, seen) => {
+      const r = await run(["--diff", ...flags], await envFor(hostedLoopback(url), home), repo);
+      expect(r.code).toBe(0);
+      const everything = r.stdout + r.stderr + seen.body();
+      expect(everything).not.toContain(CANARY);
+      expect(everything).not.toContain(KEY_CANARY);
+      expect(everything).not.toContain(home);
+      expect(r.stderr).toContain("left out: .env (rule: .env)");
+      expect(r.stderr).toContain("left out: ignored.txt (rule: gitignore)");
+      expect(r.stderr).toContain("left out: untracked.pem (rule: *.pem)");
+      // Not vacuous: the ordinary change did get through.
+      const shown = flags.includes("--dry-run") ? r.stderr : (JSON.parse(seen.body()) as { messages: { content: string }[] }).messages[1]!.content;
+      expect(shown).toContain("+export const x = 2;");
+      expect(seen.requests()).toBe(flags.includes("--dry-run") ? 0 : 1);
+    });
+  });
+
+  it("--allow-sensitive sends the canary and the report says so; the key still appears nowhere", async () => {
+    const { home, repo } = await changedProject();
+    await withServer(async (url, seen) => {
+      const r = await run(["--diff", "--allow-sensitive"], await envFor(hostedLoopback(url), home), repo);
+      expect(r.code).toBe(0);
+      expect(seen.body()).toContain(CANARY);
+      expect(r.stderr).toMatch(/overridden: \.env \(rule: \.env\) is being sent to 127\.0\.0\.1 because --allow-sensitive was passed/);
+      expect(r.stderr).toContain("overridden: untracked.pem");
+      expect(r.stdout + r.stderr + seen.body()).not.toContain(KEY_CANARY);
+    });
+  });
+
+  it("does not read standard input, and refuses a file reference beside it", async () => {
+    const { home, repo } = await changedProject();
+    const env = await envFor(HOSTED, home);
+    const dry = await run(["--diff", "--dry-run"], env, repo, undefined, `TOKEN=${CANARY}\n`);
+    expect(dry.code).toBe(0);
+    expect(dry.stderr).not.toContain(CANARY);
+    const both = await run(["app.ts", "--diff", "--dry-run"], env, repo);
+    expect(both.code).toBe(2);
+    expect(both.stderr).toContain("--diff cannot be combined with a file reference");
+  });
+});

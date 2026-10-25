@@ -5,6 +5,7 @@ import { ExitCode, LEVELS } from "../core/index.js";
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
 export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
+       learn --diff [<ref>] [same options]
        cat <file> | learn [--lang <language>] [same options]
        learn --clip [--lang <language>] [same options]
        learn <command>
@@ -14,6 +15,7 @@ Commands: ${SUBCOMMANDS.join(", ")}
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET, LEARN_CONTEXT_WINDOW),
 then the config file (~/.config/learn/config.toml), then the default.
+--diff explains your uncommitted changes (staged and unstaged, plus untracked files) against HEAD, or against <ref> when given; it takes no file reference.
 --chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved). A long chat drops its oldest turns to stay inside the model's window;
 for a local model that window is --context-window (default 4096 tokens, Ollama's default).
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
@@ -50,6 +52,8 @@ export type Flags = {
   lang?: string;
   clip?: boolean;
   chat?: boolean;
+  /** `--diff` alone is true; `--diff <ref>` is the ref. */
+  diff?: string | true;
 };
 
 export type Parsed =
@@ -100,6 +104,7 @@ export function parseCommandLine(argv: string[]): Parsed {
     .option("--lang <language>")
     .option("--clip")
     .option("--chat")
+    .option("--diff [ref]")
     .option("-h, --help")
     .option("-v, --version")
     .action((reference: string | undefined, { help, version, ...flags }: Flags & { help?: boolean; version?: boolean }) => {

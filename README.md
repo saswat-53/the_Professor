@@ -86,6 +86,7 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `--allow-sensitive` | Send Sensitive files anyway, for this run. Flag only |
 | `--clip` | Explain the clipboard text (`pbpaste`, `wl-paste` or `xclip`) |
 | `--lang <name>` | Language hint for piped or clipboard input |
+| `--diff [ref]` | Explain your uncommitted changes (staged and unstaged, plus untracked files as new files) against HEAD, or against `ref`. Takes no file reference. Every changed file goes through the Sensitive-file rules; excluded files are named in the Context report and their changes are not sent. The diff must fit the budget (exit 3 otherwise) |
 | `--chat` | After the explanation, keep a Session going: ask follow-up questions at a `learn>` prompt. Needs a terminal (exit 2 otherwise) and cannot be combined with `--dry-run` |
 | `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally, and also print the request (system and user prompts) on stderr. With `--chat` it prints every follow-up request too, including all earlier turns, so the first Excerpt (and anything secret-looking in it) appears again each turn: that is what is sent, but do not paste this output into a bug report |

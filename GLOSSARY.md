@@ -57,6 +57,10 @@ The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` /
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
+**Diff**:
+What `--diff` explains: the working tree's changes against HEAD (or a ref), staged and unstaged together, plus untracked files shown as new files; a repository with no commits is all new files. Every changed file name, including the old side of a rename and a deleted file, goes through the Sensitive-file rules before git is asked for any content, so an excluded file's changes are never read; the Context report names what was left out. The diff counts against the **Budget** whole (there is no Context, so no half-budget rule); over it is refused. It is sent inside a fence as data, and a shallow clone adds a note to the report.
+_Avoid_: Patch, changeset
+
 **Quiz**:
 Five questions the model writes from the current Session when the user types `/quiz`, asked one at a time with each free-text answer graded and a suggested answer given. It is not part of the Session and nothing from it, scores included, is stored.
 _Avoid_: Test, exam

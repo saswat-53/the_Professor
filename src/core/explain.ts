@@ -5,7 +5,8 @@ import { CancelledError, LearnError, ProviderError, UnexpectedError, UsageError 
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, type Context, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
-import { type ContextReport, buildContextReport, hasOverride, reportForError } from "./report.js";
+import { formatDiffRequest, gatherDiff } from "./diff.js";
+import { type ContextReport, buildContextReport, buildDiffReport, hasOverride, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
@@ -39,6 +40,8 @@ export interface ExplainInput {
   blockFinder?: BlockFinder;
   /** When given, the finished explanation is recorded here so follow-up questions can build on it. */
   session?: Session;
+  /** `--diff`: explain the working tree's changes against `ref` (default HEAD) instead of a Reference. Excludes `reference` and `piped`; the frontend rejects the combination. */
+  diff?: { ref?: string };
   /** How each kind of Reference becomes an Excerpt. Default: the built-in file, line, range and word resolvers; pass more to add a kind without touching the callers. */
   resolvers?: Resolvers;
 }
@@ -54,6 +57,22 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
     user: formatRequest(excerpt, context),
   });
+  if (input.diff) {
+    const cwd = input.cwd ?? process.cwd();
+    const { root } = await findProjectRoot(cwd, input.root);
+    const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl });
+    const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
+    const diff = await gatherDiff({ cwd, ...(input.diff.ref !== undefined && { ref: input.diff.ref }), reader, budget });
+    return {
+      request: {
+        baseUrl: input.settings.baseUrl,
+        model: input.settings.model,
+        system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
+        user: formatDiffRequest(diff),
+      },
+      report: buildDiffReport(diff, budget, reader.endpoint.local, reader.bypassed),
+    };
+  }
   if (input.reference === undefined) {
     if (!input.piped) throw new UsageError("nothing to explain: give a file reference or pipe text in");
     // No file is read, so there is no file reader and no filename rule; the report says so.
