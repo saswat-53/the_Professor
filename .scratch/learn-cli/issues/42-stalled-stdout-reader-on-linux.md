@@ -58,3 +58,12 @@ The vitest version of the stall test hung until its timeout on Linux (Node 22 an
 - [x] Cause confirmed on Linux with the plain script and with `dist/cli.js`: not the product
 - [ ] The macOS-only gate on the stall test is removed, or the reason it stays is written here
 - [ ] A decision is recorded: product needs no change; document the test-side cause
+
+## Likely cause found in the test (unverified on Linux CI)
+
+Stage logging on macOS showed that the test's `data` handler ran a second time after the child exited. The `exit` handler calls `child.stdout.resume()` to drain what is left; that data re-entered the handler, which saw `read >= 1 MB` with the stream no longer paused, paused stdout again and sent another SIGINT to a dead process. `run()` resolves on `close`, which needs stdout fully read, so a re-pause with output still queued waits until the 20 s timeout. On macOS little is left after exit, so `close` still arrives; on Linux more can be left. That is candidate 3 (exit/close ordering with `pause()` in the test helper), and it is a test bug, not a product bug.
+
+Change on branch `ticket-42-stall-test-logging`: the stall branch runs once (`stalled` flag), the macOS-only gate is lifted, and each stage is logged to stderr (plus a state line every 2 s) so a hang on CI shows which stage was missing.
+
+- [ ] Green run of `CI` on the branch (Node 22, 24, 26 on ubuntu-24.04), with the stage log read
+- [ ] After that: drop the stage logging, keep the `stalled` guard, record the decision (product needs no change; the cause was the re-pause in the test)

@@ -66,9 +66,9 @@ describe("cancellation", () => {
     expect(r.stderr).toContain("cancelled");
   });
 
-  // Needs stdout writes that queue instead of blocking, which is how Node treats pipes on macOS. On Linux (CI) a full pipe blocks the main
-  // thread inside the write, so no signal handler can run until the reader drains: that test hung there. The timing-free test below runs everywhere.
-  it.skipIf(process.platform !== "darwin").each([
+  // Ticket 42: this test hung on Linux CI while a standalone script doing the same sequence did not, and the product is cleared. The gate is lifted
+  // and every stage is logged to stderr (with a state line every 2 s), so a CI run shows which stage never happened. Once CI is green, drop the logging and keep the `stalled` guard.
+  it.each([
     ["SIGINT", 130],
     ["SIGTERM", 143],
   ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
@@ -89,31 +89,62 @@ describe("cancellation", () => {
     const STALL_DEADLINE_MS = 5000;
     let aliveAfterFirst = false;
     let secondSentAt = 0;
-    const r = await run([file], env(), tmpdir(), (child) => {
-      let read = 0;
-      // `run` resolves on "close", which waits for stdout to end: once the process is gone, drain what is left.
-      child.on("exit", () => child.stdout!.resume());
-      child.stdout!.on("data", (data: Buffer) => {
-        read += data.length;
-        if (read < READ_BEFORE_STOPPING || child.stdout!.isPaused()) return;
-        child.stdout!.pause();
-        // The stall is established when the CLI has taken all 8 MB from the server while we hold 1 MB at most: the rest is queued in the CLI.
-        // If that never happens the setup is broken (the failure below says so); the signal goes out anyway so the run still ends.
-        const deadline = new Promise((resolve) => setTimeout(resolve, STALL_DEADLINE_MS));
-        void Promise.race([allAccepted, deadline]).then(() => child.kill("SIGINT"));
+    const t0 = Date.now();
+    const seen = { read: 0, accepted: false, firstSent: false, closed: false, exited: false, reentered: false };
+    let stalled = false;
+    const stage = (what: string) => console.error(`[ticket 42 +${Date.now() - t0}ms ${second}] ${what}`);
+    // unref: a hung run never reaches the finally, and the ticker must not keep the worker alive.
+    const ticker = setInterval(() => stage(`state ${JSON.stringify(seen)}`), 2000).unref();
+    try {
+      const r = await run([file], env(), tmpdir(), (child) => {
+        stage(`spawned pid ${child.pid}`);
+        // `run` resolves on "close", which waits for stdout to end: once the process is gone, drain what is left.
+        child.on("exit", (exitCode, signal) => {
+          seen.exited = true;
+          stage(`exit code ${exitCode} signal ${signal}`);
+          child.stdout!.resume();
+        });
+        child.on("close", () => stage("close"));
+        child.stdout!.on("data", (data: Buffer) => {
+          seen.read += data.length;
+          // Once only: the drain after "exit" calls resume(), and without this flag that data would re-enter here, pause the stream again and leave "close" waiting for output nobody reads.
+          if (seen.read >= READ_BEFORE_STOPPING && stalled && !seen.reentered) {
+            seen.reentered = true;
+            stage("data after the stall was ignored (this is the re-entry the guard prevents)");
+          }
+          if (seen.read < READ_BEFORE_STOPPING || stalled) return;
+          stalled = true;
+          child.stdout!.pause();
+          stage(`reader paused after ${seen.read} bytes`);
+          // The stall is established when the CLI has taken all 8 MB from the server while we hold 1 MB at most: the rest is queued in the CLI.
+          // If that never happens the setup is broken (the failure below says so); the signal goes out anyway so the run still ends.
+          const deadline = new Promise<string>((resolve) => setTimeout(() => resolve("deadline"), STALL_DEADLINE_MS));
+          void Promise.race([allAccepted.then(() => "all accepted"), deadline]).then((why) => {
+            seen.accepted = why === "all accepted";
+            seen.firstSent = true;
+            stage(`first SIGINT sent (${why})`);
+            child.kill("SIGINT");
+          });
+        });
+        // The connection closing proves the first cancel took effect; a short grace period lets a process that could exit do so.
+        void closed.then(() => {
+          seen.closed = true;
+          stage("server saw the connection close");
+          setTimeout(() => {
+            aliveAfterFirst = child.exitCode === null && child.signalCode === null;
+            secondSentAt = Date.now();
+            stage(`second ${second} sent, alive ${aliveAfterFirst}`);
+            child.kill(second);
+          }, 300);
+        });
       });
-      // The connection closing proves the first cancel took effect; a short grace period lets a process that could exit do so.
-      void closed.then(() =>
-        setTimeout(() => {
-          aliveAfterFirst = child.exitCode === null && child.signalCode === null;
-          secondSentAt = Date.now();
-          child.kill(second);
-        }, 300),
-      );
-    });
-    expect(aliveAfterFirst, "the process exited before the stall was established: a problem with this test's setup (buffers or timing), not with the product").toBe(true);
-    expect(r.code).toBe(code);
-    expect(Date.now() - secondSentAt).toBeLessThan(2000);
+      stage(`run resolved with code ${r.code}`);
+      expect(aliveAfterFirst, "the process exited before the stall was established: a problem with this test's setup (buffers or timing), not with the product").toBe(true);
+      expect(r.code).toBe(code);
+      expect(Date.now() - secondSentAt).toBeLessThan(2000);
+    } finally {
+      clearInterval(ticker);
+    }
   }, 20_000);
 
   it("two signals back to back end the process with 130 and do not hang", async () => {
