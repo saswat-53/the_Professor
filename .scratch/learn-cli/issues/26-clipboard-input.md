@@ -18,5 +18,5 @@
 
 - `--clip` together with a file Reference is a usage error (exit 2). Both are explicit, so picking one silently would surprise; piped input differs because a pipe can be there by accident, so the file wins there. Standard input is not read under `--clip`.
 - On Linux both `wl-paste` and `xclip` are tried (the session type decides the order); only a tool that is not installed moves on to the next. The error lists both.
-- An empty or non-text clipboard says "the clipboard has no text".
+- An empty or non-text clipboard says "the clipboard has no text". The tool's own stderr decides, matched loosely against the wording in the sources of wl-clipboard and xclip (incl. the older "target STRING not available"): "no text" cases map to that message, "can't open display" / "failed to connect to a Wayland server" map to "no display available; are you on a graphical session?" (and the other tool is not tried, since it would fail the same way), and anything else is "could not read the clipboard: <tool> exited with status N". The tool's output is never echoed.
 - The spawn check was shown to fail: a throwaway `sh -c true` in the CLI made both spawn tests fail, and the break was reverted.

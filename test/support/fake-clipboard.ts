@@ -5,9 +5,9 @@ import { delimiter, join } from "node:path";
 /**
  * A fake clipboard for black-box runs: a directory of scripts named like every platform's clipboard tool
  * (pbpaste, wl-paste, xclip by default, or just `tools`), put first on PATH. Each prints `text` and records how it was started, so a
- * test can show the exact arguments. `failWith` makes the tool exit with that status and print nothing.
+ * test can show the exact arguments. `failWith` makes the tool exit with that status and print nothing on stdout; `stderr` is what it then says on standard error (the real tools' wording).
  */
-export async function fakeClipboard(text: string, { failWith, tools = ["pbpaste", "wl-paste", "xclip"] }: { failWith?: number; tools?: string[] } = {}) {
+export async function fakeClipboard(text: string, { failWith, stderr, tools = ["pbpaste", "wl-paste", "xclip"] }: { failWith?: number; stderr?: string; tools?: string[] } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "learn-clip-"));
   const bin = join(dir, "bin");
   await mkdir(bin);
@@ -15,7 +15,9 @@ export async function fakeClipboard(text: string, { failWith, tools = ["pbpaste"
   const calls = join(dir, "calls");
   await writeFile(content, text);
   await writeFile(calls, "");
-  const script = `#!/bin/sh\nprintf '%s' "$(basename "$0")" >> '${calls}'\nfor a in "$@"; do printf ' [%s]' "$a" >> '${calls}'; done\nprintf '\\n' >> '${calls}'\n${failWith ? `exit ${failWith}` : `cat '${content}'`}\n`;
+  const errFile = join(dir, "stderr");
+  await writeFile(errFile, stderr ?? "");
+  const script = `#!/bin/sh\nprintf '%s' "$(basename "$0")" >> '${calls}'\nfor a in "$@"; do printf ' [%s]' "$a" >> '${calls}'; done\nprintf '\\n' >> '${calls}'\n${failWith ? `cat '${errFile}' >&2\nexit ${failWith}` : `cat '${content}'`}\n`;
   for (const name of tools) {
     await writeFile(join(bin, name), script);
     await chmod(join(bin, name), 0o755);
