@@ -2,10 +2,10 @@
 
 usage: pty-script.py '<json list of [wait-for-text, text-to-send]>' <command...>
 For each step it waits until the text shows up in the output printed since the previous step, then sends the
-text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). A text of the form "signal:SIGINT" sends that signal to the command itself, as `kill` would. Prints the output and ends with
+text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). A text of the form "signal:SIGINT" sends that signal to the command itself, as `kill` would. A text of the form "get:<url>" makes a GET request to the url instead (for a test that must release a fake server at a known point). Prints the output and ends with
 "exit <code>" on the last line (128 + n if the command died of a signal n).
 """
-import json, os, pty, select, signal, sys, time
+import json, os, pty, select, signal, sys, time, urllib.request
 
 steps = json.loads(sys.argv[1])
 cmd = sys.argv[2:]
@@ -30,6 +30,8 @@ while time.time() < deadline:
         text = steps.pop(0)[1]
         if text.startswith("signal:"):
             os.kill(pid, getattr(signal, text[len("signal:"):]))
+        elif text.startswith("get:"):
+            urllib.request.urlopen(text[len("get:"):]).read()
         else:
             os.write(fd, text.encode())
 if time.time() >= deadline:

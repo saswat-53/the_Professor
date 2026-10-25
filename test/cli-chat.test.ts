@@ -16,6 +16,8 @@ type Body = { messages: { role: string; content: string }[] };
 let server: Server;
 let baseUrl: string;
 let bodies: Body[];
+let release: () => void;
+let released: Promise<void>;
 let auths: (string | undefined)[];
 let dir: string;
 let file: string;
@@ -24,6 +26,11 @@ const chunk = (content: string) => ({ id: "1", object: "chat.completion.chunk", 
 
 beforeAll(async () => {
   server = createServer((req, res) => {
+    if (req.url === "/release") {
+      release();
+      res.end("released");
+      return;
+    }
     let raw = "";
     req.on("data", (d) => (raw += d));
     req.on("end", () => {
@@ -41,11 +48,11 @@ beforeAll(async () => {
       // A question of "hang" leaves the response open, so a test can cancel it.
       if (last === "hang") return;
       if (last === "slow") {
-        // Long enough for the test to paste while this is still streaming.
-        setTimeout(() => {
+        // Held open until the test asks for the release, which it does after the paste has been typed.
+        void released.then(() => {
           res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
           res.end("data: [DONE]\n\n");
-        }, 1500);
+        });
         return;
       }
       res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
@@ -62,6 +69,7 @@ afterAll(() => server.close());
 beforeEach(() => {
   bodies = [];
   auths = [];
+  released = new Promise((r) => (release = r));
 });
 
 /** Types `steps` into `learn <file> --chat` on a pseudo-terminal. */
@@ -127,15 +135,31 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   }, 30_000);
 
   it("discards a multi-line paste made while an answer streams, with a note, and sends no extra requests", async () => {
+    const releaseUrl = `${baseUrl.replace(/\/v1$/, "")}/release`;
     const out = await chat([
       ["learn> ", `slow${ENTER}`],
-      ["ANSWER2", `pasted one${ENTER}pasted two${ENTER}pasted three${ENTER}`],
+      ["ANSWER2", `PASTE-ONE-sk-live${ENTER}PASTE-TWO${ENTER}PASTE-THREE${ENTER}`],
+      // The terminal has echoed the last pasted line, so every line has been read; only now does the answer finish.
+      ["PASTE-THREE", `get:${releaseUrl}`],
       ["discarded 3 lines", `/exit${ENTER}`],
     ]);
     expect(out).toMatch(/\nexit 0\n$/);
     // The explanation and "slow" only: none of the pasted lines became a question.
     expect(bodies).toHaveLength(2);
-    expect(JSON.stringify(bodies)).not.toContain("pasted");
+    expect(JSON.stringify(bodies)).not.toContain("PASTE");
+    // The note gives a count only. The terminal's own echo of what was typed is the one occurrence of each line; a note repeating it would make two.
+    for (const text of ["PASTE-ONE-sk-live", "PASTE-TWO", "PASTE-THREE"]) expect(out.split(text)).toHaveLength(2);
+  }, 30_000);
+
+  it("caps a local endpoint's transcript at two times the context budget, not four", async () => {
+    // Budget 100: the cap is 200 characters locally (400 on a hosted endpoint). The 250-character question fits under the hosted cap only.
+    const out = await chat([
+      ["learn> ", `${"x".repeat(250)}${ENTER}`],
+      ["too long to continue", `/exit${ENTER}`],
+    ], { LEARN_CONTEXT_BUDGET: "100" });
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toContain("of 200 characters");
+    expect(bodies).toHaveLength(1);
   }, 30_000);
 
   it("Ctrl-C at an idle prompt ends the chat", async () => {

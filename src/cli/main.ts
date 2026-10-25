@@ -318,8 +318,10 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
-  // Interim hard cap on the transcript (four times the context budget, the hosted rule of the spec); ticket 34 replaces refusing with trimming.
-  const session = values.chat ? new Session(4 * resolveBudget(resolveEndpoint(baseUrl), settings.contextBudget).chars) : undefined;
+  // Interim hard cap on the transcript; ticket 34 replaces refusing with trimming. Hosted: four times the context budget (the spec's rule).
+  // Local: two times, a stopgap because small local windows (Ollama's default is about 4k tokens) would otherwise silently lose the start of the chat.
+  const endpoint = resolveEndpoint(baseUrl);
+  const session = values.chat ? new Session((endpoint.local ? 2 : 4) * resolveBudget(endpoint, settings.contextBudget).chars) : undefined;
   // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
   let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
