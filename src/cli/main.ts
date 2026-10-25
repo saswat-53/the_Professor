@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, trimEnds } from "../core/index.js";
+import { attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -102,6 +102,8 @@ async function loadSettings(values: Flags, { needsModel = true } = {}): Promise<
 /** The error's message, plus CLI-only advice where this frontend has a way to act on it. */
 const describe = (err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
+  // A bare lowercase word that nothing defines is more likely a mistyped command than a name to look up.
+  if (err instanceof WordNotFoundError && looksLikeCommand(err.word)) return `${message}; if you meant a command, the commands are: ${SUBCOMMANDS.join(", ")}`;
   if (err instanceof BlockedFileError) return `${message}; pass --allow-sensitive to send it anyway`;
   if (err instanceof SessionTooLongError) return `${message}; lower --context-budget or narrow the range, or for a local model raise --context-window (its context window in tokens)`;
   return err instanceof ContextTooLongError ? `${message}; or raise the limit with --context-budget` : message;
@@ -218,13 +220,6 @@ async function main(): Promise<number> {
   if (parsed.kind === "init") return await initCommand();
   if (parsed.kind === "auth") return await authCommand(parsed.action, parsed.flags);
   const { reference, flags: values } = parsed;
-  if (reference !== undefined && looksLikeCommand(reference) && !existsSync(reference)) {
-    record(2);
-    // Word references (ticket 35) will make a bare word a real reference; until then it can only be a mistyped command.
-    status("error", `"${reference}" is not a command (commands: ${SUBCOMMANDS.join(", ")}) and was not found as a file; word references are not supported yet`);
-    process.stderr.write(`${USAGE}\n`);
-    return 2;
-  }
   if (values.chat) {
     const problem = values.dryRun
       ? "--chat cannot be combined with --dry-run: a dry run sends nothing, so there is nothing to talk about"

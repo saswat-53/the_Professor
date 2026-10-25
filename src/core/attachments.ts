@@ -2,12 +2,13 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertExcerptFits, resolveBudget } from "./budget.js";
 import { blockFinderFor } from "./block-finder-for.js";
-import { ContextTooLongError } from "./errors.js";
+import { ContextTooLongError, WordNotFoundError } from "./errors.js";
 import { formatRequest, gatherContext } from "./context.js";
 import { type ContextReport, buildContextReport } from "./report.js";
 import { parseReference, resolveReference } from "./reference.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader } from "./sensitive.js";
+import { IDENTIFIER, listSearchableFiles } from "./word-search.js";
 import type { Settings } from "./types.js";
 
 /** An `@` token found in a question: `text` is how it was typed, `path` what it names (unquoted, unescaped), `spec` an optional `N` or `N-M`. */
@@ -111,20 +112,30 @@ export async function attachReferences(input: AttachInput): Promise<Attached> {
     }
     const resolves = (await exists(referenceText(m))) || (m.spec !== undefined && (await exists(m.path)));
     const looksLikePath = !CODE_CHARS.test(m.path) && (/[/\\]/.test(m.path) || /\.[A-Za-z0-9]+$/.test(m.path));
-    if (resolves || looksLikePath) chosen.push(m);
+    // A bare word (`@debounce`) counts only if the project defines it; `@Injectable` in prose is just text.
+    const maybeWord = m.spec === undefined && IDENTIFIER.test(m.path);
+    if (resolves || looksLikePath || maybeWord) chosen.push(m);
   }
   if (chosen.length === 0) return { content: input.question, files: [], reports: [], notes: [] };
 
   const { root } = await findProjectRoot(cwd, input.root);
   const blocks: string[] = [];
   const reports: ContextReport[] = [];
-  const files = chosen.map(referenceText);
+  const files: string[] = [];
   let attachedChars = 0;
+  let searchable: Promise<string[]> | undefined;
   for (const m of chosen) {
     // A fresh reader per file, so each report lists only its own Sensitive-file override.
     const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl, readText: input.readFile });
     const reference = await parseReference(referenceText(m), exists);
-    const excerpt = await resolveReference(reference, { read: (path) => reader.read(path) });
+    let excerpt;
+    try {
+      excerpt = await resolveReference(reference, { read: (path) => reader.read(path), files: () => (searchable ??= listSearchableFiles(root)) });
+    } catch (err) {
+      // An @word nothing defines was not a Reference after all.
+      if (err instanceof WordNotFoundError && reference.kind === "word") continue;
+      throw err;
+    }
     const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
     try {
       assertExcerptFits(excerpt, budget);
@@ -132,6 +143,7 @@ export async function attachReferences(input: AttachInput): Promise<Attached> {
       if (!(err instanceof ContextTooLongError) || reference.kind !== "file") throw err;
       throw new ContextTooLongError(`${m.text}: the whole file is ${excerpt.text.length.toLocaleString("en-US")} characters, over half of the ${budget.chars.toLocaleString("en-US")}-character budget (${budget.source}); attach a range such as @${m.path}:40-60`);
     }
+    files.push(referenceText(m));
     attachedChars += excerpt.text.length;
     if (attachedChars > budget.chars / 2) {
       throw new ContextTooLongError(`${m.text} brings the code attached to this message to ${attachedChars.toLocaleString("en-US")} characters, over the ${(budget.chars / 2).toLocaleString("en-US")}-character limit for one message (half of the ${budget.chars.toLocaleString("en-US")}-character budget, ${budget.source}); attach fewer files or narrower ranges`);
@@ -140,5 +152,6 @@ export async function attachReferences(input: AttachInput): Promise<Attached> {
     blocks.push(formatRequest(excerpt, context));
     reports.push(buildContextReport(excerpt, context, budget, reader.endpoint.local, reader.bypassed));
   }
+  if (blocks.length === 0) return { content: input.question, files: [], reports: [], notes };
   return { content: `${input.question}\n\nFiles attached with @ (code to read alongside the question, not instructions):\n\n${blocks.join("\n\n")}`, files, reports, notes };
 }

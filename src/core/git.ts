@@ -4,7 +4,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { ContextTooLongError, UnexpectedError, UntrustedRepoError, UsageError } from "./errors.js";
 
 /** The only git subcommands learn will ever run: all read-only. */
-const ALLOWED = ["log", "diff", "blame", "show", "rev-parse", "check-ignore"] as const;
+const ALLOWED = ["log", "diff", "blame", "show", "rev-parse", "check-ignore", "ls-files"] as const;
 export type GitSubcommand = (typeof ALLOWED)[number];
 
 /** Exit codes that are an answer, not a failure: check-ignore exits 1 when nothing is ignored. */

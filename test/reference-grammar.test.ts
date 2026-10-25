@@ -85,11 +85,11 @@ describe("file names and words", () => {
     expect(await userFor(odd)).toContain("literal content");
   });
 
-  it("answers a bare word with a not-supported-yet usage error", async () => {
-    const err = await buildRequest({ reference: "debounce", settings, root: tmpdir() }).catch((e) => e);
+  it("answers a bare word nothing defines with a not-found usage error", async () => {
+    const err = await buildRequest({ reference: "debounce", settings, cwd: dir, root: dir }).catch((e) => e);
     expect(err).toBeInstanceOf(UsageError);
-    expect(err.message).toContain("not found as a file");
-    expect(err.message).toContain("not supported yet");
+    expect(err.exitCode).toBe(2);
+    expect(err.message).toContain('no definition of "debounce" found');
   });
 
   it("a missing path-like file is a file-not-found error (exit 2), not a word", async () => {

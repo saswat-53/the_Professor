@@ -8,8 +8,9 @@ import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { type ContextReport, buildContextReport, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
-import { type Excerpt, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
+import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
 import type { Session } from "./session.js";
+import { listSearchableFiles } from "./word-search.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
 /**
@@ -38,6 +39,8 @@ export interface ExplainInput {
   blockFinder?: BlockFinder;
   /** When given, the finished explanation is recorded here so follow-up questions can build on it. */
   session?: Session;
+  /** How each kind of Reference becomes an Excerpt. Default: the built-in file, line, range and word resolvers; pass more to add a kind without touching the callers. */
+  resolvers?: Resolvers;
 }
 
 /**
@@ -70,9 +73,11 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
     baseUrl: input.settings.baseUrl,
     readText: input.readFile,
   });
-  const excerpt = await resolveReference(await parseReference(input.reference, exists), {
-    read: (path) => reader.read(path),
-  });
+  const excerpt = await resolveReference(
+    await parseReference(input.reference, exists),
+    { read: (path) => reader.read(path), files: () => listSearchableFiles(root) },
+    input.resolvers ?? defaultResolvers,
+  );
   const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
   assertExcerptFits(excerpt, budget);
   const finder = input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? "");

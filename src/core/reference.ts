@@ -1,5 +1,6 @@
 import { stat } from "node:fs/promises";
 import { UsageError } from "./errors.js";
+import { findDefinition, IDENTIFIER } from "./word-search.js";
 
 /** A Reference says which code to explain. `kind` is open: new kinds register a resolver. */
 export interface Reference {
@@ -32,6 +33,8 @@ export interface Excerpt {
 export interface ResolverDeps {
   /** Reads a file inside the project; `name` is its project-relative path, the only name a label may use. */
   read: (path: string) => Promise<{ text: string; name: string }>;
+  /** The files a word may be searched in, as paths `read` accepts. Absent when there is no project to search. */
+  files?: () => Promise<string[]>;
 }
 export type Resolver<R extends Reference = Reference> = (ref: R, deps: ResolverDeps) => Promise<Excerpt>;
 export type Resolvers = Record<string, Resolver<any>>;
@@ -106,10 +109,17 @@ export const defaultResolvers: Resolvers = {
       source: { path: name, text, start: ref.start, end: ref.end },
     };
   },
-  word: async (ref: WordReference) => {
-    throw new UsageError(
-      `"${ref.word}" was not found as a file. Word references are not supported yet; use a file or path:N-M`,
-    );
+  word: async (ref: WordReference, { read, files }) => {
+    if (!IDENTIFIER.test(ref.word)) {
+      throw new UsageError(`"${ref.word}" was not found as a file and is not an identifier, so it cannot be searched for`);
+    }
+    if (!files) throw new UsageError(`"${ref.word}": a word is searched for in a project, and there is none to search`);
+    const { name, text, start, end } = await findDefinition(ref.word, { read, files });
+    return {
+      label: `${name}:${formatRange(start, end)}`,
+      text: text.split(/\r\n|\r|\n/).slice(start - 1, end).join("\n"),
+      source: { path: name, text, start, end },
+    };
   },
 };
 

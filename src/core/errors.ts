@@ -18,6 +18,18 @@ export class FileNotFoundError extends UsageError {
   override name = "FileNotFoundError";
 }
 
+/** A word Reference matched no definition in the project. A frontend can tell this apart from a bad argument (for example to suggest a command). */
+export class WordNotFoundError extends UsageError {
+  override name = "WordNotFoundError";
+  constructor(
+    readonly word: string,
+    /** How many files were read and searched. */
+    readonly searched: number,
+  ) {
+    super(`no definition of "${word}" found in the project (searched ${searched} file${searched === 1 ? "" : "s"})`);
+  }
+}
+
 /** Learn declined to send something to the model, on purpose. */
 export abstract class RefusedError extends LearnError {
   readonly exitCode = ExitCode.Refused;

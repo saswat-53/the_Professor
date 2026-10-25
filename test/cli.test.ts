@@ -88,10 +88,21 @@ describe("learn CLI", () => {
     },
   );
 
-  it("exits 2 saying words are not supported yet", async () => {
-    const r = await run(["debounce"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+  it("explains the definition of a word found in the project", async () => {
+    const project = await mkdtemp(join(tmpdir(), "learn-cli-word-"));
+    await writeFile(join(project, "util.ts"), "export function debounce(fn: () => void) {\n  return fn;\n}\n");
+    const r = await run(["debounce", "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, project);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("util.ts:1-3");
+    expect(r.stderr).toContain("export function debounce");
+  });
+
+  it("exits 2 saying nothing was found for a word, and names the commands when it could be a mistyped one", async () => {
+    const project = await mkdtemp(join(tmpdir(), "learn-cli-noword-"));
+    const r = await run(["ini", "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, project);
     expect(r.code).toBe(2);
-    expect(r.stderr).toContain("not supported yet");
+    expect(r.stderr).toContain('no definition of "ini" found');
+    expect(r.stderr).toContain("the commands are: init");
   });
 
   it("exits 2 with usage when base URL and model are missing", async () => {

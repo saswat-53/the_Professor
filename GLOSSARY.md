@@ -58,8 +58,12 @@ The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` /
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
 **Mention**:
-An `@path` or `@path:N-M` token in a Chat question that attaches a file to that message. It counts only after whitespace and only if it names an existing file or looks like a path; it then goes through the same Sensitive-file check, Project root check and Excerpt limit as any Reference, and appears in the Context report for that message.
+An `@path`, `@path:N-M` or `@word` token in a Chat question that attaches code to that message. A `@word` counts only if the project defines it (see **Word search**). It counts only after whitespace and only if it names an existing file, looks like a path, or (for a bare `@word`) names something the project defines; it then goes through the same Sensitive-file check, Project root check and Excerpt limit as any Reference, and appears in the Context report for that message.
 _Avoid_: Tag
+
+**Word search**:
+How a bare-word Reference (`learn debounce`, or `@debounce` in Chat) becomes an Excerpt: the source files of the Project root are scanned for lines that define the identifier, and the best one wins (a source file over a test file; then a declaration, then a variable or property bound to it, then a method; then the shallower path). The Excerpt is the definition's enclosing block, or its first line if the block is over 80 lines. It never searches a Sensitive file, a git-ignored file, a symbolic link or vendored code, and not even when `--allow-sensitive` or a local endpoint lifts the Sensitive-file refusal for a named file.
+_Avoid_: Grep, lookup
 
 **Plain mode / Terminal mode**:
 Whether stdout is a terminal. In terminal mode the model's text has escape sequences, control characters (except newline and tab) and invisible bidi and zero-width characters removed, since the model's text is untrusted and could move the cursor, retitle the window or disguise a command. Colour on status lines is a separate choice (both streams terminals, `NO_COLOR` unset, `TERM` not `dumb`); stripping stays on whatever the colour preference. In plain mode (piped or redirected) the text is exactly as the model sent it. Decided in one place, `outputMode`.
