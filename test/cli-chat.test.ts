@@ -1,7 +1,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +16,7 @@ type Body = { messages: { role: string; content: string }[] };
 let server: Server;
 let baseUrl: string;
 let bodies: Body[];
+let auths: (string | undefined)[];
 let dir: string;
 let file: string;
 
@@ -28,11 +29,25 @@ beforeAll(async () => {
     req.on("end", () => {
       const body = JSON.parse(raw) as Body;
       bodies.push(body);
+      auths.push(req.headers.authorization);
       const last = body.messages.at(-1)!.content;
+      if (last === "badkey") {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: `bad key ${req.headers.authorization}` } }));
+        return;
+      }
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(`data: ${JSON.stringify(chunk(`ANSWER${bodies.length}`))}\n\n`);
       // A question of "hang" leaves the response open, so a test can cancel it.
       if (last === "hang") return;
+      if (last === "slow") {
+        // Long enough for the test to paste while this is still streaming.
+        setTimeout(() => {
+          res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+          res.end("data: [DONE]\n\n");
+        }, 1500);
+        return;
+      }
       res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
       res.end("data: [DONE]\n\n");
     });
@@ -46,13 +61,14 @@ beforeAll(async () => {
 afterAll(() => server.close());
 beforeEach(() => {
   bodies = [];
+  auths = [];
 });
 
 /** Types `steps` into `learn <file> --chat` on a pseudo-terminal. */
-async function chat(steps: [string, string][]): Promise<string> {
+async function chat(steps: [string, string][], extraEnv: Record<string, string> = {}, target = file): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "learn-chat-home-"));
   return await new Promise((resolve, reject) => {
-    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, file, "--chat"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, cwd: dir }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, target, "--chat"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...extraEnv }, cwd: dir }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 }
 
@@ -110,8 +126,57 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(bodies[2]!.messages.map((m) => m.content)).not.toContain("hang");
   }, 30_000);
 
+  it("discards a multi-line paste made while an answer streams, with a note, and sends no extra requests", async () => {
+    const out = await chat([
+      ["learn> ", `slow${ENTER}`],
+      ["ANSWER2", `pasted one${ENTER}pasted two${ENTER}pasted three${ENTER}`],
+      ["discarded 3 lines", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    // The explanation and "slow" only: none of the pasted lines became a question.
+    expect(bodies).toHaveLength(2);
+    expect(JSON.stringify(bodies)).not.toContain("pasted");
+  }, 30_000);
+
   it("Ctrl-C at an idle prompt ends the chat", async () => {
     const out = await chat([["learn> ", "\u0003"]]);
     expect(out).toMatch(/\nexit 0\n$/);
+  }, 30_000);
+});
+
+describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's safety path", () => {
+  const CANARY = "CANARY-9f3a-never-leave";
+  const KEY_CANARY = "sk-CANARY-key-never-leave";
+
+  it("sends the key only as the Authorization header of each turn, and no turn, error or output leaks the key or the Excerpt", async () => {
+    const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+    await mkdir(join(xdg, "learn"));
+    await writeFile(join(xdg, "learn", "config.toml"), '[provider]\nkey_env = "KEY_VAR"\n');
+    const secretFile = join(dir, "secret.ts");
+    await writeFile(secretFile, `export const token = "${CANARY}";\n`);
+    const out = await chat(
+      [
+        ["learn> ", `first${ENTER}`],
+        ["ANSWER2", `second${ENTER}`],
+        ["ANSWER3", `badkey${ENTER}`],
+        ["rejected the API key", `third${ENTER}`],
+        ["ANSWER5", `/exit${ENTER}`],
+      ],
+      { KEY_VAR: KEY_CANARY, XDG_CONFIG_HOME: xdg },
+      secretFile,
+    );
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(5);
+    // Same key, same header, every turn, including the one the provider rejected.
+    expect(auths).toEqual(Array(5).fill(`Bearer ${KEY_CANARY}`));
+    // The key is in the header and nowhere else: not the bodies, not the output, not the error message.
+    expect(JSON.stringify(bodies)).not.toContain(KEY_CANARY);
+    expect(out).not.toContain(KEY_CANARY);
+    expect(out).not.toContain("bad key");
+    // The Excerpt was chosen by the user and goes to the model (as the pinned first turn), but is never echoed to the terminal.
+    expect(bodies[4]!.messages[1]!.content).toContain(CANARY);
+    expect(out).not.toContain(CANARY);
+    // The error turn left no trace in the history of the next one.
+    expect(bodies[4]!.messages.map((m) => m.content)).not.toContain("badkey");
   }, 30_000);
 });

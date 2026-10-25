@@ -91,7 +91,7 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `-h`, `--help` | Print usage and the exit-code table to stdout, exit 0 |
 | `-v`, `--version` | Print the version to stdout, exit 0 |
 
-`--chat` input: type a question and press Enter. To paste code or several lines, type `<<<` on a line of its own, paste, then type `>>>` on a line of its own (these markers are used rather than `"""` or a trailing backslash because code contains those). `/exit` or Ctrl-D ends the chat, and so does Ctrl-C at the prompt (exit 0). Ctrl-C while an answer is streaming cancels only that answer, and that turn is not remembered; SIGTERM ends the chat with 143. Follow-ups carry the earlier turns, so the model remembers them. The Session lives in memory only; nothing is written to disk. There is no cap on the transcript yet.
+`--chat` input: type a question and press Enter. To paste code or several lines, type `<<<` on a line of its own, paste, then type `>>>` on a line of its own (these markers are used rather than `"""` or a trailing backslash because code contains those). `/exit` or Ctrl-D ends the chat, and so does Ctrl-C at the prompt (exit 0). Ctrl-C while an answer is streaming cancels only that answer, and that turn is not remembered; SIGTERM ends the chat with 143. Follow-ups carry the earlier turns, so the model remembers them. The Session lives in memory only; nothing is written to disk. Anything typed or pasted while an answer is streaming is discarded (with a note), so a pasted block cannot turn into several questions. Until trimming lands (ticket 34), the transcript has a hard limit of four times the context budget: past it, new questions are refused with a message and you start a new Session.
 
 `learn auth` is a reserved subcommand (not available yet; it exits 2). A bare lowercase word that is neither a command nor an existing file is reported as an unknown command, listing the valid ones. A file named `init` is still reachable as `./init`. A flag's value may not start with `-` (`--model --dry-run` is a usage error, exit 2, not a model called `--dry-run`).
 
@@ -107,8 +107,10 @@ Output goes to stdout; the Context report, warnings and errors go to stderr. Whe
 | 1 | Runtime or provider error |
 | 2 | Usage or config error |
 | 3 | Refused: a Sensitive file, a file that fails the reading rules, a file outside the project root, an excerpt over budget, or a git repository owned by another user (git's own safety check, never overridden) |
-| 130 | Cancelled by Ctrl-C (SIGINT) |
+| 130 | Cancelled by Ctrl-C (SIGINT) while a request is running |
 | 143 | Cancelled by SIGTERM |
+
+In `--chat`, Ctrl-C at the idle `learn>` prompt is an ordinary way to leave and exits 0, as in `python` or `sqlite3`; 130 stays for cancelling a request. Ctrl-C during a streaming answer cancels only that answer and the chat goes on.
 
 A second Ctrl-C exits immediately.
 

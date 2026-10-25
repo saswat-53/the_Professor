@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { CancelledError, followUp } from "../core/index.js";
-import type { LanguageModel, LearnError, Session } from "../core/index.js";
+import type { LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
 
 /** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
 export const BLOCK_OPEN = "<<<";
@@ -19,6 +19,8 @@ export interface ChatOptions {
   /** Shows an error or note on the status stream. */
   report: (kind: "error" | "info", text: string) => void;
   describe: (err: LearnError) => string;
+  /** Called with each follow-up request just before it is sent (`--show-prompt`). */
+  onRequest?: (request: ModelRequest) => void;
   /** Hands over the process's signal handling for as long as the chat runs. The handler gets the exit code the signal stands for (130 or 143). */
   takeSignals: (handler: (code: number) => void) => void;
 }
@@ -29,12 +31,19 @@ export interface ChatOptions {
  */
 export async function runChat(opts: ChatOptions): Promise<number> {
   const rl = createInterface({ input: opts.input, output: opts.output, terminal: true, prompt: "learn> " });
+  let current: AbortController | undefined;
   // Lines are queued as they arrive, so none is lost between one answer finishing and the next prompt.
   const lines: string[] = [];
   let closed = false;
   let waiting: (() => void) | undefined;
   const wake = () => waiting?.();
+  // Lines that arrive while an answer streams are discarded, not queued: a pasted block would otherwise become several questions.
+  let discarded = 0;
   rl.on("line", (line) => {
+    if (current) {
+      discarded += 1;
+      return;
+    }
     lines.push(line);
     wake();
   });
@@ -47,7 +56,6 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     return lines.shift();
   };
 
-  let current: AbortController | undefined;
   let endedBy: number | undefined;
   // Ctrl-C at the keyboard reaches readline (raw mode), a SIGINT sent from outside reaches the process; both mean the same thing.
   const interrupt = (code: number) => {
@@ -86,7 +94,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     }
     current = new AbortController();
     const strip = opts.stripper();
-    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal })) {
+    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, onRequest: opts.onRequest })) {
       if (event.type === "text-delta") {
         const text = strip(event.text);
         opts.output.write(text);
@@ -102,6 +110,11 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       }
     }
     current = undefined;
+    // Lines that were already queued in the same read as the question are typed-ahead too, and so is a half-typed line.
+    discarded += lines.splice(0).length;
+    rl.write(null, { ctrl: true, name: "u" });
+    if (discarded > 0) opts.report("info", `discarded ${discarded} line${discarded === 1 ? "" : "s"} typed while the answer was streaming; type again to ask`);
+    discarded = 0;
     if (endedBy !== undefined) break;
   }
   rl.close();

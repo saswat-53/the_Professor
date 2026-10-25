@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveBudget, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -300,7 +300,7 @@ async function main(): Promise<number> {
   }
   const printRequest = (request: ModelRequest) =>
     process.stderr.write(
-      `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
+      `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n${(request.history ?? []).map((m) => `--- ${m.role} (earlier) ---\n${m.content}\n`).join("")}--- user ---\n${request.user}\n`,
     );
 
   if (values.dryRun) {
@@ -318,7 +318,8 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
-  const session = values.chat ? new Session() : undefined;
+  // Interim hard cap on the transcript (four times the context budget, the hosted rule of the spec); ticket 34 replaces refusing with trimming.
+  const session = values.chat ? new Session(4 * resolveBudget(resolveEndpoint(baseUrl), settings.contextBudget).chars) : undefined;
   // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
   let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
@@ -378,6 +379,7 @@ async function main(): Promise<number> {
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),
       report: (kind, text) => status(kind, text),
       describe,
+      onRequest: values.showPrompt ? printRequest : undefined,
       takeSignals: (handler) => {
         onSignal = (code) => {
           // The same "stop now" rule: a repeated SIGTERM while already winding down leaves at once.
