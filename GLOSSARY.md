@@ -44,6 +44,9 @@ _Avoid_: Workspace, base directory
 One conversation: the first explanation of a Reference plus its follow-up questions.
 _Avoid_: Chat, thread, conversation
 
+**Chat**:
+The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
+
 **Plain mode / Terminal mode**:
 Whether stdout is a terminal. In terminal mode the model's text has escape sequences, control characters (except newline and tab) and invisible bidi and zero-width characters removed, since the model's text is untrusted and could move the cursor, retitle the window or disguise a command. Colour on status lines is a separate choice (both streams terminals, `NO_COLOR` unset, `TERM` not `dumb`); stripping stays on whatever the colour preference. In plain mode (piped or redirected) the text is exactly as the model sent it. Decided in one place, `outputMode`.
 _Avoid_: Interactive mode, TTY mode

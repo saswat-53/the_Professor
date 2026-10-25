@@ -41,7 +41,7 @@ export function openAICompatibleModel(apiKey: string | undefined, keyEnv?: strin
       const result = streamText({
         model: provider(request.model),
         system: request.system,
-        prompt: request.user,
+        messages: [...(request.history ?? []), { role: "user" as const, content: request.user }],
         abortSignal: signal,
         maxRetries: 0,
         onError: () => {}, // errors surface through the stream below

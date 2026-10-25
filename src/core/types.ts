@@ -2,10 +2,18 @@ import type { LearnError } from "./errors.js";
 import type { Level } from "./prompt.js";
 import type { ContextReport } from "./report.js";
 
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface ModelRequest {
   baseUrl: string;
   model: string;
   system: string;
+  /** Earlier turns of the Session, oldest first; absent for a first explanation. */
+  history?: readonly Message[];
+  /** The newest user message. */
   user: string;
 }
 

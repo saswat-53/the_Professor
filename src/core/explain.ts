@@ -9,6 +9,7 @@ import { type ContextReport, buildContextReport, reportForError } from "./report
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
+import type { Session } from "./session.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
 
 /**
@@ -35,6 +36,8 @@ export interface ExplainInput {
   allowSensitive?: boolean;
   /** Finds the Enclosing block. Default: the built-in Python and brace-language finders; other file types use the fixed window. */
   blockFinder?: BlockFinder;
+  /** When given, the finished explanation is recorded here so follow-up questions can build on it. */
+  session?: Session;
 }
 
 /**
@@ -107,12 +110,15 @@ export async function* explain(
     return;
   }
   input.onRequest?.(request);
+  let answer = "";
   try {
     for await (const text of input.model.stream(request, input.signal)) {
       if (input.signal.aborted) break;
+      answer += text;
       yield { type: "text-delta", text };
     }
     // An abort that ends the stream quietly is still a cancel, not a success.
+    if (!input.signal.aborted) input.session?.begin(request, answer);
     yield input.signal.aborted ? { type: "error", error: new CancelledError() } : { type: "done" };
   } catch (err) {
     // Whatever the model threw after an abort is the abort's echo, not a provider failure.

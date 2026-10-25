@@ -4,7 +4,7 @@ import { ExitCode, LEVELS } from "../core/index.js";
 /** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
-export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
+export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
        cat <file> | learn [--lang <language>] [same options]
        learn --clip [--lang <language>] [same options]
        learn <command>
@@ -14,6 +14,7 @@ Commands: ${SUBCOMMANDS.join(", ")}
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
 then the config file (~/.config/learn/config.toml), then the default.
+--chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved).
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
 /** The exit codes scripts can rely on, with what each means. */
@@ -46,6 +47,7 @@ export type Flags = {
   dryRun?: boolean;
   lang?: string;
   clip?: boolean;
+  chat?: boolean;
 };
 
 export type Parsed =
@@ -94,6 +96,7 @@ export function parseCommandLine(argv: string[]): Parsed {
     .option("--dry-run")
     .option("--lang <language>")
     .option("--clip")
+    .option("--chat")
     .option("-h, --help")
     .option("-v, --version")
     .action((reference: string | undefined, { help, version, ...flags }: Flags & { help?: boolean; version?: boolean }) => {

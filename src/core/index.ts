@@ -1,5 +1,6 @@
 export { explain, buildRequest, prepareRequest } from "./explain.js";
-export type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
+export { Session, followUp } from "./session.js";
+export type { ExplainEvent, LanguageModel, Message, ModelRequest, Settings } from "./types.js";
 export {
   BadKeyError,
   BlockedFileError,

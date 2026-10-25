@@ -1,9 +1,10 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSettings, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
+import { runChat } from "./chat.js";
 import { writeFileAtomic } from "./atomic-write.js";
 import { readHidden } from "./hidden-input.js";
 import { runInit } from "./init.js";
@@ -223,6 +224,18 @@ async function main(): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
+  if (values.chat) {
+    const problem = values.dryRun
+      ? "--chat cannot be combined with --dry-run: a dry run sends nothing, so there is nothing to talk about"
+      : !process.stdin.isTTY || !process.stdout.isTTY
+        ? "--chat needs a terminal (standard input and output must both be one), because it asks you questions; run it directly in your shell, without a pipe"
+        : undefined;
+    if (problem) {
+      record(2);
+      status("error", problem);
+      return 2;
+    }
+  }
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
@@ -305,17 +318,18 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
+  const session = values.chat ? new Session() : undefined;
   // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
   const SIGNAL_EXIT_CODES = { SIGINT: 130, SIGTERM: 143 } as const;
   let cancelCode: number = SIGNAL_EXIT_CODES.SIGINT;
-  for (const [name, code] of Object.entries(SIGNAL_EXIT_CODES)) {
-    process.on(name, () => {
-      // A second signal means "stop now": leave at once instead of waiting for the request to wind down.
-      if (controller.signal.aborted) process.exit(code);
-      cancelCode = code;
-      controller.abort();
-    });
-  }
+  // What a signal does is replaceable: the chat takes it over once the first explanation is done.
+  let onSignal = (code: number) => {
+    // A second signal means "stop now": leave at once instead of waiting for the request to wind down.
+    if (controller.signal.aborted) process.exit(code);
+    cancelCode = code;
+    controller.abort();
+  };
+  for (const [name, code] of Object.entries(SIGNAL_EXIT_CODES)) process.on(name, () => onSignal(code));
   let apiKey: string | undefined;
   try {
     apiKey = await resolveApiKey({ keyEnv, baseUrl, env: process.env, store: osKeychain() });
@@ -332,6 +346,7 @@ async function main(): Promise<number> {
     settings,
     root: values.root,
     allowSensitive: values.allowSensitive,
+    session,
     model: llm,
     signal: controller.signal,
     onRequest: values.showPrompt ? printRequest : undefined,
@@ -352,7 +367,26 @@ async function main(): Promise<number> {
     }
   }
   process.stdout.write("\n");
-  return 0;
+  if (!session) return 0;
+  let chatSignals = 0;
+  return record(
+    await runChat({
+      input: process.stdin,
+      output: process.stdout,
+      session,
+      model: llm,
+      stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),
+      report: (kind, text) => status(kind, text),
+      describe,
+      takeSignals: (handler) => {
+        onSignal = (code) => {
+          // The same "stop now" rule: a repeated SIGTERM while already winding down leaves at once.
+          if (code === 143 && chatSignals++ > 0) process.exit(code);
+          handler(code);
+        };
+      },
+    }),
+  );
 }
 
 process.exitCode = await main();
