@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { parseArgs } from "node:util";
-import { BlockedFileError, CancelledError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
+import { BlockedFileError, CancelledError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
@@ -30,14 +30,15 @@ declare const __VERSION__: string;
 
 const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
        cat <file> | learn [--lang <language>] [same options]
+       learn --clip [--lang <language>] [same options]
        learn -h | --help | -v | --version
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
 then the config file (~/.config/learn/config.toml), then the default.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
-/** Piped text is read only up to this many bytes, so an endless pipe cannot fill memory; the context budget is the real limit and is far smaller. */
-const STDIN_MAX_BYTES = 1024 * 1024;
+/** Piped or clipboard text is read only up to this many bytes, so an endless pipe cannot fill memory; the context budget is the real limit and is far smaller. */
+const INPUT_MAX_BYTES = 1024 * 1024;
 
 /** All of standard input as text, or a ContextTooLongError once it passes the cap. */
 async function readStdin(): Promise<string> {
@@ -45,7 +46,7 @@ async function readStdin(): Promise<string> {
   let size = 0;
   for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
     size += chunk.length;
-    if (size > STDIN_MAX_BYTES) throw new ContextTooLongError(`the piped input is over ${STDIN_MAX_BYTES.toLocaleString("en-US")} bytes; pipe a smaller piece (for example \`sed -n 40,60p file\`)`);
+    if (size > INPUT_MAX_BYTES) throw new ContextTooLongError(`the piped input is over ${INPUT_MAX_BYTES.toLocaleString("en-US")} bytes; pipe a smaller piece (for example \`sed -n 40,60p file\`)`);
     chunks.push(chunk);
   }
   return Buffer.concat(chunks).toString("utf8");
@@ -125,6 +126,7 @@ async function main(): Promise<number> {
         "show-prompt": { type: "boolean" },
         "dry-run": { type: "boolean" },
         lang: { type: "string" },
+        clip: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -157,11 +159,30 @@ async function main(): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
+  const codeFor = (err: unknown) => (err instanceof LearnError ? err.exitCode : 1);
+  const fail = (err: unknown) => {
+    const code = record(codeFor(err));
+    status("error", describe(err));
+    return code;
+  };
   // A file Reference wins over piped input: standard input is then not read at all (so a pipe that never closes cannot hang the run).
   // With no Reference, piped text is the input; a terminal on stdin, or a pipe that carries nothing, is a usage error.
-  let piped: { text: string; lang?: string } | undefined;
+  // --clip asked for the clipboard by name, so a Reference beside it is a conflict rather than something to pick between; standard input is not read.
+  let piped: { text: string; lang?: string; origin?: "clipboard" } | undefined;
+  if (values.clip && reference) {
+    record(2);
+    status("error", "--clip cannot be combined with a file reference; give one or the other");
+    process.stderr.write(`${USAGE}\n`);
+    return 2;
+  }
   if (reference) {
-    if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and is ignored for a file reference");
+    if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and clipboard text and is ignored for a file reference");
+  } else if (values.clip) {
+    try {
+      piped = { text: await readClipboard({ maxBytes: INPUT_MAX_BYTES }), lang: values.lang, origin: "clipboard" };
+    } catch (err) {
+      return fail(err);
+    }
   } else {
     let text = "";
     try {
@@ -181,12 +202,6 @@ async function main(): Promise<number> {
   const settings = { baseUrl, model, level, contextBudget };
   const transportWarning = insecureTransportWarning(baseUrl);
   if (transportWarning) status("warning", transportWarning);
-  const codeFor = (err: unknown) => (err instanceof LearnError ? err.exitCode : 1);
-  const fail = (err: unknown) => {
-    const code = record(codeFor(err));
-    status("error", describe(err));
-    return code;
-  };
   try {
     const project = await findProjectRoot(process.cwd(), values.root);
     if (project.isHome) {

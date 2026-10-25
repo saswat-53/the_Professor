@@ -7,6 +7,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
+import { fakeClipboard } from "./support/fake-clipboard.js";
 
 // ADR 0003: the only connection the tool opens is to the configured endpoint. The CLI runs with a
 // preload (support/net-spy.mjs) that logs every connect, DNS lookup and UDP send it starts; each
@@ -143,6 +144,20 @@ describe("no network except the configured endpoint", () => {
     expectOnlyConnectionsTo(r.operations, endpointPort);
   });
 
+  it("opens nothing for clipboard input under --dry-run, and only the endpoint otherwise", async () => {
+    const clip = await fakeClipboard("export const a = 1;\n");
+    const dry = await runWithSpy(["--clip", "--dry-run"], { ...configuredEnv(), ...clip.env });
+    expect(dry.code).toBe(0);
+    expect(dry.operations).toEqual([]);
+    respond = (res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end("{}");
+    };
+    const r = await runWithSpy(["--clip"], { ...configuredEnv(), ...clip.env });
+    expect(r.code).toBe(1);
+    expectOnlyConnectionsTo(r.operations, endpointPort);
+  });
+
   it("contacts only the endpoint when the endpoint comes from the config file", async () => {
     respond = (res) => {
       res.writeHead(500, { "content-type": "application/json" });
@@ -166,10 +181,24 @@ describe("no network except the configured endpoint", () => {
     };
     for (const args of [["a.ts", "--dry-run"], ["a.ts"], ["--help"]]) {
       const r = await runWithSpy(args, configuredEnv(), [], repo);
-      expect(new Set(r.spawned) <= new Set(["git"])).toBe(true);
+      expect(r.spawned.filter((name) => name !== "git")).toEqual([]);
     }
     const used = await runWithSpy(["a.ts", "--dry-run"], configuredEnv(), [], repo);
     expect(used.spawned).toContain("git"); // so the check above is not vacuously true
+  });
+
+  it("spawns only git and the platform's clipboard tool for --clip runs, and the tool for no other run", async () => {
+    const tool = process.platform === "darwin" ? "pbpaste" : "xclip";
+    const clip = await fakeClipboard("export const a = 1;\n");
+    const env = { ...configuredEnv(), ...clip.env, WAYLAND_DISPLAY: "" };
+    const withClip = await runWithSpy(["--clip", "--dry-run"], env);
+    expect(withClip.code).toBe(0);
+    expect(withClip.spawned.filter((name) => name !== "git" && name !== tool)).toEqual([]);
+    expect(withClip.spawned).toContain(tool);
+    // Without --clip the tool is never started, even with it on PATH.
+    for (const args of [[file, "--dry-run"], ["--help"]]) {
+      expect((await runWithSpy(args, env)).spawned).not.toContain(tool);
+    }
   });
 
   // A negative control: the same guard, run against a build that has an update check added, must fail.

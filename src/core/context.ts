@@ -125,7 +125,7 @@ export function gatherContext(excerpt: Excerpt, finder: BlockFinder, budget: num
 
 /** The user message: the Excerpt first, then the Context, each in its own fence so they cannot be confused. */
 export function formatRequest(excerpt: Excerpt, context: Context | null): string {
-  const parts = [`${excerpt.origin === "piped" ? "Input" : "File"}: ${excerpt.label}`, fenceCode(excerpt.text)];
+  const parts = [`${excerpt.origin ? "Input" : "File"}: ${excerpt.label}`, fenceCode(excerpt.text)];
   if (context) {
     const { path } = context;
     const range = (s: LineSpan) => (s.start === s.end ? `line ${s.start}` : `lines ${s.start}-${s.end}`);

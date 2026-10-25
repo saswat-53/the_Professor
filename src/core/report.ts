@@ -29,8 +29,8 @@ export type ContextReport =
       budget: Budget;
       /** The endpoint is on this machine, so Ollama's context window may matter. */
       local: boolean;
-      /** The input had no filename (piped text), so the Sensitive-file rules could not be applied to it. */
-      unnamed?: true;
+      /** The input had no filename (piped or clipboard text), so the Sensitive-file rules could not be applied to it. */
+      unnamed?: "piped input" | "clipboard text";
       /** Sensitive files that were sent anyway, and why. Absent unless a file actually matched a rule. */
       overrides?: SensitiveBypass[];
     }
@@ -55,7 +55,7 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
     ...(context?.dropped && { dropped: context.dropped }),
     budget,
     local,
-    ...(excerpt.origin === "piped" && { unnamed: true as const }),
+    ...(excerpt.origin && { unnamed: excerpt.origin === "piped" ? ("piped input" as const) : ("clipboard text" as const) }),
     ...(bypassed.length > 0 && { overrides: [...bypassed] }),
   };
 }
@@ -80,7 +80,7 @@ export function formatContextReport(report: ContextReport): string {
     for (const r of report.ranges) out.push(`    ${r.start === r.end ? `line ${r.start}` : `lines ${r.start}-${r.end}`}: ${PART_LABEL[r.part]}`);
     if (report.method) out.push(`  Enclosing block found by: ${report.method}${report.finder && report.finder !== "none" ? ` (${report.finder})` : ""}`);
   }
-  if (report.unnamed) out.push("  no filename checks applied: piped input has no filename, so the sensitive-file rules could not be checked; look over it before sending");
+  if (report.unnamed) out.push(`  no filename checks applied: ${report.unnamed} has no filename, so the sensitive-file rules could not be checked; look over it before sending`);
   for (const o of report.overrides ?? []) {
     out.push(
       o.by === "flag"

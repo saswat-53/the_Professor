@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
+import { fakeClipboard } from "./support/fake-clipboard.js";
 
 // Ticket 21: a planted secret can never leave through any path the tool has. Black-box, against the built CLI and a real
 // temp project, so a new output path that forgets the gate shows up here. The cases that need a hosted URL never
@@ -131,6 +132,26 @@ describe("secret canary: piped input", () => {
         expect(r.stdout + r.stderr + seen.body()).not.toContain(home);
       }
       // The two sending runs carried the text (it is what the user chose to pipe); the dry run sent nothing.
+      expect(seen.requests()).toBe(2);
+      expect(seen.body()).toContain(CANARY);
+      expect(seen.auth()).toBe(`Bearer ${KEY_CANARY}`);
+    });
+  });
+});
+
+describe("secret canary: clipboard input", () => {
+  it("is like piped input: no filename check, said in the report, and the key still appears nowhere", async () => {
+    const { home, repo } = await secretProject();
+    const clip = await fakeClipboard(`TOKEN=${CANARY}\n`);
+    await withServer(async (url, seen) => {
+      for (const flags of [[], ["--show-prompt"], ["--dry-run"]]) {
+        const r = await run(["--clip", ...flags], { ...(await envFor(url, home)), ...clip.env }, repo);
+        expect(r.code).toBe(0);
+        expect(r.stderr).toContain("no filename checks applied");
+        expect(r.stdout + r.stderr + seen.body()).not.toContain(KEY_CANARY);
+        expect(r.stdout + r.stderr + seen.body()).not.toContain(home);
+      }
+      // The two sending runs carried the text (it is what the user chose to copy); the dry run sent nothing.
       expect(seen.requests()).toBe(2);
       expect(seen.body()).toContain(CANARY);
       expect(seen.auth()).toBe(`Bearer ${KEY_CANARY}`);

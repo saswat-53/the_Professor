@@ -24,7 +24,7 @@ export interface ExplainInput {
   /** Which code to explain. Required unless `piped` is given. */
   reference?: string;
   /** Text read from standard input, explained instead of a file. A `reference` takes precedence; the frontend decides whether to read it. */
-  piped?: { text: string; lang?: string };
+  piped?: { text: string; lang?: string; /** Where the text came from. Default: standard input. */ origin?: "piped" | "clipboard" };
   settings: Settings;
   readFile?: (path: string) => Promise<string>;
   /** Directory relative paths are resolved from. Default: the process's current directory. */
@@ -51,7 +51,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
   if (input.reference === undefined) {
     if (!input.piped) throw new UsageError("nothing to explain: give a file reference or pipe text in");
     // No file is read, so there is no file reader and no filename rule; the report says so.
-    const excerpt = pipedExcerpt(input.piped.text, input.piped.lang);
+    const excerpt = pipedExcerpt(input.piped.text, input.piped.lang, input.piped.origin);
     const endpoint = resolveEndpoint(input.settings.baseUrl);
     const budget = resolveBudget(endpoint, input.settings.contextBudget);
     assertExcerptFits(excerpt, budget);

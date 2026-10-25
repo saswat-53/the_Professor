@@ -65,6 +65,10 @@ Before the first streamed output, `learn` prints on **stderr** exactly what it i
 
 If you give both a file Reference and piped input, the file wins and standard input is not read. With neither (a terminal on stdin, or an empty pipe), `learn` prints the usage and exits 2.
 
+## Clipboard input
+
+`learn --clip` explains whatever is on the clipboard, handled like piped input: the whole text is the Excerpt with no Enclosing block or imports, `--lang <name>` works, the Excerpt size limit and the 1 MiB cap apply, and the Context report says `no filename checks applied`. It reads the clipboard with `pbpaste` on macOS, and on Linux with `wl-paste` (under Wayland) or `xclip` (otherwise). The tool is started directly with fixed arguments, never through a shell. If it is not installed, `learn` names it and how to install it (for example `sudo apt install xclip`); piping the text in works everywhere. `--clip` cannot be combined with a file reference (exit 2), and standard input is not read.
+
 ## Configuration
 
 Each setting comes from its flag, then its environment variable (`LEARN_BASE_URL`, `LEARN_MODEL`, `LEARN_LEVEL`, `LEARN_CONTEXT_BUDGET`), then the config file (`~/.config/learn/config.toml`, or `$XDG_CONFIG_HOME/learn/config.toml` when that variable is set to an absolute path; if it is unset or relative, `~/.config` is used), then a default. Run `learn <file>` with no config to see an example. Only a flag can set `--root` or `--allow-sensitive`. `root` or `allow_sensitive` in the config file, and `LEARN_ROOT` or `LEARN_ALLOW_SENSITIVE` in the environment, are ignored with a warning.
@@ -78,7 +82,8 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `--level <beginner\|intermediate\|expert>` | How much background to assume (default `intermediate`) |
 | `--root <dir>` | Treat this directory as the project root. Flag only |
 | `--allow-sensitive` | Send Sensitive files anyway, for this run. Flag only |
-| `--lang <name>` | Language hint for piped input |
+| `--clip` | Explain the clipboard text (`pbpaste`, `wl-paste` or `xclip`) |
+| `--lang <name>` | Language hint for piped or clipboard input |
 | `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally, and also print the request (system and user prompts) on stderr |
 | `--base-url`, `--model`, `--context-budget` | Override those settings for one run |
