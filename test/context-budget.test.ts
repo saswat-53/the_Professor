@@ -24,11 +24,11 @@ async function project(name: string, header: string[], total: number) {
 const sent = (user: string) => [...user.matchAll(/^l(\d\d)$/gm)].map((m) => Number(m[1])).sort((a, b) => a - b);
 
 describe("default budget", () => {
-  it("is 24,000 characters for hosted endpoints and 8,000 for localhost, 127.0.0.1 and ::1", () => {
+  it("is 24,000 characters for hosted endpoints and 4,096 for localhost, 127.0.0.1 and ::1", () => {
     expect(defaultBudget("https://api.openai.com/v1")).toBe(24_000);
-    expect(defaultBudget("http://localhost:11434/v1")).toBe(8_000);
-    expect(defaultBudget("http://127.0.0.1:1234/v1")).toBe(8_000);
-    expect(defaultBudget("http://[::1]:1234/v1")).toBe(8_000);
+    expect(defaultBudget("http://localhost:11434/v1")).toBe(4_096);
+    expect(defaultBudget("http://127.0.0.1:1234/v1")).toBe(4_096);
+    expect(defaultBudget("http://[::1]:1234/v1")).toBe(4_096);
     expect(defaultBudget("http://localhost.evil.example/v1")).toBe(24_000);
   });
 
@@ -156,7 +156,7 @@ describe("Excerpt limit", () => {
     expect(hostedErr.message).toContain("24,000-character budget (hosted default)");
     expect(hostedErr.message).toMatch(/narrow your range/i);
     const localErr = await buildRequest({ reference: "app.min.js", cwd: dir, settings: local }).catch((e) => e);
-    expect(localErr.message).toContain("8,000-character budget (local default)");
+    expect(localErr.message).toContain("4,096-character budget (local default)");
     const r = await run(["app.min.js", "--dry-run"], { LEARN_BASE_URL: local.baseUrl, LEARN_MODEL: "m" }, dir);
     expect(r.code).toBe(3);
     expect(r.stderr).toContain("--context-budget");

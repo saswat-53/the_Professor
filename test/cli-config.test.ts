@@ -99,6 +99,16 @@ describe("config file", () => {
 const emptyHomeOf = (stderr: string) => /No config file at (.*)\/\.config\/learn\/config\.toml/.exec(stderr)?.[1] ?? "";
 
 describe("precedence through the CLI", () => {
+  it("context window: a local endpoint derives its default budget from it; a hosted one warns that it is ignored", async () => {
+    const env = await withConfig('context_window = 2000\n[provider]\nbase_url = "http://localhost:1/v1"\nmodel = "m"\n');
+    const local = await run([file, "--dry-run"], env);
+    expect(local.stderr).toContain("budget 2,000 characters (default)");
+    expect(local.stderr).not.toContain("context_window only applies");
+    const hosted = await run([file, "--dry-run"], { ...env, LEARN_BASE_URL: "https://api.example.com/v1", LEARN_CONTEXT_WINDOW: "2000" });
+    expect(hosted.stderr).toContain("context_window only applies to local endpoints");
+    expect(hosted.stderr).toContain("budget 24,000 characters (default)");
+  });
+
   it("base URL and context budget: flag beats env beats config", async () => {
     const env = await withConfig('context_budget = 300\n[provider]\nbase_url = "http://cfg/v1"\nmodel = "m"\n');
     const seen = async (args: string[], extra: Record<string, string>) => (await run([file, "--dry-run", ...args], { ...env, ...extra })).stderr;

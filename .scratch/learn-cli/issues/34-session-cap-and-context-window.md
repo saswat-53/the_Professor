@@ -29,4 +29,9 @@
 
 **Unverified on Linux CI:** the three new pty tests in `test/cli-chat.test.ts` depend on how much text a pseudo-terminal buffers (pastes are kept to about 1,200 characters because a larger echo deadlocked the test helper on macOS). Mark done after a green run on Node 22/24/26.
 
+**Follow-up fixes.**
+- **Defaults agree.** With the old 8,000-character local budget, a near-budget Excerpt plus a normal explanation could exceed the ~10,900-character cap, so a default Ollama chat refused to start. The default local budget now derives from the window (`localDefaultBudget`): a third of the window's prompt share, 4,096 characters with the default window. An explicit `--context-budget` still wins. This replaces the spec's "8,000 for local" default (spec user story 60); hosted stays 24,000.
+- **Recent turns can be dropped.** If a message only fits once every follow-up is gone, the most recent turns go too, so the model will not remember them. Stated in the README, tested (`test/session-trim.test.ts`), and the Context report naming them is printed in the chat (pty test).
+- **Ignored setting.** `context_window` on a hosted endpoint prints a startup warning and is otherwise ignored.
+
 Concepts to look up: token estimation (characters per token), context window vs output reserve, sliding-window truncation with a pinned prefix, plan-then-commit (keeping a failed request side-effect free), subclassing errors so a frontend can word advice differently.

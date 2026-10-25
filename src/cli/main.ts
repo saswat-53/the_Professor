@@ -291,6 +291,7 @@ async function main(): Promise<number> {
   const settings = { baseUrl, model, level, contextBudget, contextWindow };
   const transportWarning = insecureTransportWarning(baseUrl);
   if (transportWarning) status("warning", transportWarning);
+  if (contextWindow !== undefined && !resolveEndpoint(baseUrl).local) status("warning", "warning: context_window only applies to local endpoints; it is ignored for this one");
   try {
     const project = await findProjectRoot(process.cwd(), values.root);
     if (project.isHome) {

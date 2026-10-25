@@ -10,7 +10,6 @@ import type { Endpoint } from "./sensitive.js";
  * emoji counts as 2; it is an estimate of size, not a token count.
  */
 export const HOSTED_BUDGET = 24_000;
-export const LOCAL_BUDGET = 8_000;
 
 /** Where a budget came from, so a refusal can say which limit the user hit. */
 export type BudgetSource = "hosted default" | "local default" | "setting";
@@ -20,10 +19,17 @@ export interface Budget {
 }
 
 /** `endpoint` is the one parse of the base URL (`resolveEndpoint`), shared with the file reader and the report. */
-export function resolveBudget(endpoint: Endpoint, setting?: number): Budget {
+export function resolveBudget(endpoint: Endpoint, setting?: number, contextWindow?: number): Budget {
   if (setting !== undefined) return { chars: setting, source: "setting" };
-  return endpoint.local ? { chars: LOCAL_BUDGET, source: "local default" } : { chars: HOSTED_BUDGET, source: "hosted default" };
+  return endpoint.local ? { chars: localDefaultBudget(contextWindow), source: "local default" } : { chars: HOSTED_BUDGET, source: "hosted default" };
 }
+
+/**
+ * The default budget on a local endpoint is a third of the characters of the window available to the prompt
+ * (before the system prompt), so the first Excerpt, its Context and a normal explanation always fit the Session
+ * cap and a chat can start. With the default window that is 4,096 characters.
+ */
+export const localDefaultBudget = (contextWindow: number = DEFAULT_CONTEXT_WINDOW) => Math.floor((Math.floor(contextWindow * (1 - ANSWER_RESERVE)) * CHARS_PER_TOKEN) / 3);
 
 export const defaultBudget = (baseUrl: string) => resolveBudget(resolveEndpoint(baseUrl)).chars;
 

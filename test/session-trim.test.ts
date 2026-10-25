@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_CONTEXT_WINDOW, followUp, formatContextReport, resolveEndpoint, resolveSessionCap, Session } from "../src/core/index.js";
+import { DEFAULT_CONTEXT_WINDOW, followUp, formatContextReport, localDefaultBudget, resolveBudget, resolveEndpoint, resolveSessionCap, Session } from "../src/core/index.js";
 import type { ExplainEvent, LanguageModel, ModelRequest } from "../src/core/index.js";
 
 const collect = async (events: AsyncIterable<ExplainEvent>) => {
@@ -48,6 +48,21 @@ describe("resolveSessionCap", () => {
   it("assumes Ollama's default window when none is set", () => {
     expect(DEFAULT_CONTEXT_WINDOW).toBe(4096);
     expect(resolveSessionCap(local, { systemChars: 0 })).toBe(4096 * 3);
+  });
+
+  it("leaves room on a local endpoint for the first Excerpt at the default budget, its labels and a long explanation", () => {
+    const system = 1_500;
+    const cap = resolveSessionCap(local, { systemChars: system });
+    expect(localDefaultBudget()).toBe(4096);
+    // Budget of code, 1,000 of labels, and a 4,000-character answer: well inside the cap, so a default local chat starts.
+    expect(localDefaultBudget() + 1_000 + 4_000).toBeLessThan(cap);
+  });
+
+  it("derives the default budget from a non-default window, and an explicit budget still wins", () => {
+    expect(localDefaultBudget(8192)).toBe(8192);
+    expect(resolveBudget(local, undefined, 2000)).toEqual({ chars: 2000, source: "local default" });
+    expect(resolveBudget(local, 700, 2000)).toEqual({ chars: 700, source: "setting" });
+    expect(resolveBudget(hosted, undefined, 2000).chars).toBe(24_000);
   });
 
   it("never goes below zero", () => {
@@ -102,9 +117,11 @@ describe("trimming a long Session", () => {
 
   it("counts the question against the cap but not the dropped turns", async () => {
     const { session, model, requests } = await sessionWith(130, 3);
-    await ask(session, model, "q3........");
-    // Pinned 110 + the new question 10 = 120; only 10 characters left, so every follow-up pair goes.
+    const events = await ask(session, model, "q3........");
+    // Pinned 110 + the new question 10 = 120; only 10 characters left, so every follow-up pair goes,
+    // the most recent ones included, and the report says so.
     expect(requests.at(-1)!.history).toHaveLength(2);
+    expect(events.find((e) => e.type === "context-report")).toMatchObject({ report: { kind: "session-trimmed", turns: [4] } });
   });
 });
 

@@ -75,7 +75,7 @@ describe("Context report", () => {
 
   it.each([
     ["hosted", hosted, "  hosted endpoint budget 24,000 characters (default)"],
-    ["local", local, "  local endpoint budget 8,000 characters (default)"],
+    ["local", local, "  local endpoint budget 4,096 characters (default)"],
     ["setting", { ...hosted, contextBudget: 500 }, "  budget 500 characters (setting)"],
   ])("pins the budget line's format (%s), which scripts may read", async (_name, settings, line) => {
     const dir = await project("a.txt", numbered(5));
@@ -85,7 +85,7 @@ describe("Context report", () => {
 
   it("names the Budget and where it came from", async () => {
     const dir = await project("a.txt", numbered(5));
-    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: local })).report)).toContain("local endpoint budget 8,000 characters (default)");
+    expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: local })).report)).toContain("local endpoint budget 4,096 characters (default)");
     expect(formatContextReport((await prepareRequest({ reference: "a.txt:2", cwd: dir, settings: { ...hosted, contextBudget: 500 } })).report)).toContain("budget 500 characters (setting)");
   });
 

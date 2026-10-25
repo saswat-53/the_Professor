@@ -56,7 +56,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
     // No file is read, so there is no file reader and no filename rule; the report says so.
     const excerpt = pipedExcerpt(input.piped.text, input.piped.lang, input.piped.origin);
     const endpoint = resolveEndpoint(input.settings.baseUrl);
-    const budget = resolveBudget(endpoint, input.settings.contextBudget);
+    const budget = resolveBudget(endpoint, input.settings.contextBudget, input.settings.contextWindow);
     assertExcerptFits(excerpt, budget);
     return { request: requestFor(excerpt, null), report: buildContextReport(excerpt, null, budget, endpoint.local) };
   }
@@ -73,7 +73,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
   const excerpt = await resolveReference(await parseReference(input.reference, exists), {
     read: (path) => reader.read(path),
   });
-  const budget = resolveBudget(reader.endpoint, input.settings.contextBudget);
+  const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
   assertExcerptFits(excerpt, budget);
   const finder = input.blockFinder ?? blockFinderFor(excerpt.source?.path ?? "");
   const context = gatherContext(excerpt, finder, budget.chars);

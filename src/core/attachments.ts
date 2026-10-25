@@ -125,7 +125,7 @@ export async function attachReferences(input: AttachInput): Promise<Attached> {
     const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl, readText: input.readFile });
     const reference = await parseReference(referenceText(m), exists);
     const excerpt = await resolveReference(reference, { read: (path) => reader.read(path) });
-    const budget = resolveBudget(reader.endpoint, input.settings.contextBudget);
+    const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
     try {
       assertExcerptFits(excerpt, budget);
     } catch (err) {

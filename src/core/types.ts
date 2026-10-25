@@ -26,7 +26,7 @@ export interface Settings {
   baseUrl: string;
   model: string;
   level?: Level;
-  /** Most characters of Excerpt plus Context to send. Default: by endpoint, see `defaultBudget`. */
+  /** Most characters of Excerpt plus Context to send. Default: by endpoint, see `defaultBudget` (on a local endpoint it follows the context window). */
   contextBudget?: number;
   /** The model's context window in tokens. Default: `DEFAULT_CONTEXT_WINDOW`, used only for local endpoints. */
   contextWindow?: number;
