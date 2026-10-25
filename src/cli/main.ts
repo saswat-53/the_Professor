@@ -304,7 +304,7 @@ async function main(): Promise<number> {
   } catch (err) {
     return fail(err);
   }
-  const diff = diffRequested ? { ...(typeof values.diff === "string" && { ref: values.diff }) } : undefined;
+  const diff = diffRequested ? { ...(typeof values.diff === "string" && { ref: values.diff }), ...(values.diffPaths && { paths: values.diffPaths }) } : undefined;
   const printRequest = (request: ModelRequest) =>
     process.stderr.write(
       `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n${(request.history ?? []).map((m) => `--- ${m.role} (earlier) ---\n${m.content}\n`).join("")}--- user ---\n${request.user}\n`,

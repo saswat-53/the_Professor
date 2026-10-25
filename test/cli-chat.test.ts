@@ -77,10 +77,10 @@ beforeEach(() => {
 });
 
 /** Types `steps` into `learn <file> --chat` on a pseudo-terminal. */
-async function chat(steps: [string, string][], extraEnv: Record<string, string> = {}, target = file): Promise<string> {
+async function chat(steps: [string, string][], extraEnv: Record<string, string> = {}, target: string | string[] = file, cwd = dir): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "learn-chat-home-"));
   return await new Promise((resolve, reject) => {
-    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, target, "--chat"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...extraEnv }, cwd: dir }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, ...(Array.isArray(target) ? target : [target]), "--chat"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...extraEnv }, cwd }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 }
 
@@ -111,6 +111,25 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(bodies[2]!.messages[4]!.content).toBe("ANSWER2");
     expect(bodies[2]!.messages[5]!.content).toBe("and then?");
     expect(await readdir(dir)).toEqual(before);
+  }, 30_000);
+
+  it("--diff chats about the changes, and the diff stays in the history of every follow-up", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "learn-chat-diff-"));
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd: repo });
+    git("init", "-q");
+    await writeFile(join(repo, "a.ts"), "export const a = 1;\n");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    await writeFile(join(repo, "a.ts"), "export const a = 'DIFF_MARKER';\n");
+    const out = await chat([
+      ["learn> ", `why did it change?${ENTER}`],
+      ["ANSWER2", `and now?${ENTER}`],
+      ["ANSWER3", `/exit${ENTER}`],
+    ], {}, ["--diff"], repo);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(3);
+    for (const body of bodies) expect(body.messages[1]!.content).toContain("+export const a = 'DIFF_MARKER';");
+    expect(bodies[2]!.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user", "assistant", "user"]);
   }, 30_000);
 
   it("takes pasted code between <<< and >>> as one message", async () => {

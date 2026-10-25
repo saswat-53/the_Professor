@@ -3,8 +3,9 @@ import { mkdir, mkdtemp, realpath, symlink, writeFile, rm } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ContextTooLongError, UsageError } from "../src/core/errors.js";
-import { formatContextReport, prepareRequest } from "../src/core/index.js";
+import { parseCommandLine } from "../src/cli/command-line.js";
+import { ContextTooLongError, FileRefusedError, SessionTooLongError, UsageError } from "../src/core/errors.js";
+import { type ExplainEvent, type LanguageModel, Session, explain, followUp, formatContextReport, prepareRequest, readTextFile } from "../src/core/index.js";
 
 // Ticket 38: `--diff` at the core seam, in real temporary git repositories.
 const HOSTED = "https://api.example.com/v1";
@@ -215,5 +216,162 @@ describe("--diff", () => {
   it("needs a git repository", async () => {
     const dir = await realpath(await mkdtemp(join(tmpdir(), "learn-nogit-")));
     await expect(diffOf(dir)).rejects.toThrow(/git repository/);
+  });
+
+  describe("limiting to paths (--diff -- path)", () => {
+    it("limits the diff to the named files and directories", async () => {
+      const dir = await repo();
+      await mkdir(join(dir, "sub"));
+      await writeFile(join(dir, "sub", "in.ts"), "inside\n");
+      await writeFile(join(dir, "a.ts"), "export const a = 2;\n");
+      await writeFile(join(dir, "b.ts"), "export const b = 2;\n");
+      const one = await diffOf(dir, undefined, { diff: { paths: ["a.ts"] } });
+      expect(one.report).toMatchObject({ files: ["a.ts"], limitedTo: ["a.ts"] });
+      expect(one.request.user).not.toContain("export const b");
+      expect(one.request.user).toContain("limited to a.ts");
+      const many = await diffOf(dir, undefined, { diff: { paths: ["sub", "b.ts"] } });
+      expect(many.report).toMatchObject({ files: ["b.ts", "sub/in.ts"] });
+    });
+
+    it("reads paths relative to the current directory", async () => {
+      const dir = await repo();
+      await mkdir(join(dir, "sub"));
+      await writeFile(join(dir, "sub", "in.ts"), "inside\n");
+      await writeFile(join(dir, "a.ts"), "export const a = 2;\n");
+      const { report } = await diffOf(join(dir, "sub"), undefined, { diff: { paths: ["in.ts"] } });
+      expect(report).toMatchObject({ files: ["sub/in.ts"] });
+    });
+
+    it("still excludes a secret renamed to an innocent name when only the new name is asked for", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, ".env"), "TOKEN=old\n");
+      git(dir, "add", "-f", ".env");
+      git(dir, "commit", "-qm", "env");
+      git(dir, "mv", ".env", "plain.txt");
+      await expect(diffOf(dir, undefined, { diff: { paths: ["plain.txt"] } })).rejects.toThrow(/plain\.txt \(rule: \.env\)/);
+    });
+
+    it("says so when the paths hold no change, and rejects a path outside the repository", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "a.ts"), "export const a = 2;\n");
+      await expect(diffOf(dir, undefined, { diff: { paths: ["b.ts"] } })).rejects.toThrow(/no changes to explain: b\.ts matches HEAD/);
+      await expect(diffOf(dir, undefined, { diff: { paths: ["../elsewhere"] } })).rejects.toThrow(/outside the repository/);
+    });
+
+    it("explains in the error that a path given as the ref needs --", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "a.ts"), "export const a = 2;\n");
+      await expect(diffOf(dir, "a.ts")).rejects.toThrow('"a.ts" is not a commit; to limit the diff to it, use --diff -- a.ts');
+    });
+
+    it("parses the command line: words after -- are paths, a word before is still a conflicting reference", () => {
+      expect(parseCommandLine(["--diff", "--", "src/a.ts", "b"])).toMatchObject({ kind: "run", reference: undefined, flags: { diff: true, diffPaths: ["src/a.ts", "b"] } });
+      expect(parseCommandLine(["--diff", "v1", "--", "src/a.ts"])).toMatchObject({ reference: undefined, flags: { diff: "v1", diffPaths: ["src/a.ts"] } });
+      expect(parseCommandLine(["x.ts", "--diff", "--", "src/a.ts"])).toMatchObject({ reference: "x.ts", flags: { diffPaths: ["src/a.ts"] } });
+      expect(parseCommandLine(["--diff"])).toMatchObject({ reference: undefined, flags: { diff: true } });
+      expect(parseCommandLine(["--", "file.ts"])).toMatchObject({ reference: "file.ts" });
+    });
+  });
+
+  it("notes in the report that a ref other than HEAD can hold secrets that were later removed", async () => {
+    const dir = await repo();
+    await writeFile(join(dir, "a.ts"), "const key = 'CANARY';\n");
+    git(dir, "commit", "-qam", "adds key");
+    await writeFile(join(dir, "a.ts"), "const key = process.env.KEY;\n");
+    git(dir, "commit", "-qam", "removes key");
+    const old = await diffOf(dir, "HEAD~2");
+    expect(formatContextReport(old.report)).toMatch(/can include content that was later removed, such as a secret; the sensitive-file rules go by file name, not content/);
+    await writeFile(join(dir, "a.ts"), "changed\n");
+    expect(formatContextReport((await diffOf(dir)).report)).not.toMatch(/later removed/);
+    expect(formatContextReport((await diffOf(dir, "HEAD")).report)).not.toMatch(/later removed/);
+  });
+
+  describe("files that cannot be shown as text, and hostile names", () => {
+    it("shows a changed tracked binary as a binary-file note, not bytes", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "img.bin"), Buffer.from([0, 1, 2, 3]));
+      git(dir, "add", "img.bin");
+      git(dir, "commit", "-qm", "bin");
+      await writeFile(join(dir, "img.bin"), Buffer.from([0, 9, 9, 9, 255, 254]));
+      const { request } = await diffOf(dir);
+      expect(request.user).toMatch(/Binary files a\/img\.bin and b\/img\.bin differ/);
+      expect(request.user).not.toContain("\0");
+    });
+
+    it("skips a huge untracked file with a reason, and refuses a huge tracked change as too long", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "huge.txt"), "x".repeat(2 * 1024 * 1024));
+      await writeFile(join(dir, "small.ts"), "const s = 1;\n");
+      expect((await diffOf(dir)).report).toMatchObject({ files: ["small.ts"], skipped: [{ file: "huge.txt", why: expect.stringContaining("too large") }] });
+      await writeFile(join(dir, "a.ts"), "y".repeat(2 * 1024 * 1024) + "\n");
+      await expect(diffOf(dir)).rejects.toBeInstanceOf(ContextTooLongError);
+    });
+
+    it("passes a file named like a git option as a name, never as an option", async () => {
+      const dir = await repo();
+      const hostile = ["--output=pwned", "-p", "--help"];
+      for (const name of hostile) {
+        await writeFile(join(dir, name), `base ${name}\n`);
+      }
+      git(dir, "add", "--", ...hostile);
+      git(dir, "commit", "-qm", "hostile");
+      for (const name of hostile) await writeFile(join(dir, name), `changed ${name}\n`);
+      await writeFile(join(dir, "--new"), "fresh\n");
+      for (const paths of [undefined, ["--output=pwned"]]) {
+        const { request, report } = await diffOf(dir, undefined, paths ? { diff: { paths } } : {});
+        expect(request.user).toContain("+changed --output=pwned");
+        expect(paths ? report : (report as { files: string[] }).files.length).toBeTruthy();
+      }
+      const all = await diffOf(dir);
+      expect(all.report).toMatchObject({ files: ["--help", "--output=pwned", "-p", "--new"] });
+      expect(all.request.user).toContain("+fresh");
+      await expect(readTextFile(join(dir, "pwned"))).rejects.toThrow();
+    });
+  });
+
+  describe("untracked files are opened once, without following a link", () => {
+    it("refuses a link at the end of the path instead of reading what it points at", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "target.txt"), "TARGET\n");
+      await symlink(join(dir, "target.txt"), join(dir, "link.txt"));
+      await expect(readTextFile(join(dir, "link.txt"), undefined, true)).rejects.toBeInstanceOf(FileRefusedError);
+      await expect(readTextFile(join(dir, "link.txt"))).resolves.toBe("TARGET\n");
+      await expect(readTextFile(join(dir, "target.txt"), undefined, true)).resolves.toBe("TARGET\n");
+    });
+  });
+
+  describe("with a Session (--chat)", () => {
+    const model = (reply = "ANSWER"): LanguageModel => ({ async *stream() { yield reply; } });
+    const drain = async (events: AsyncIterable<ExplainEvent>) => {
+      const out: ExplainEvent[] = [];
+      for await (const e of events) out.push(e);
+      return out;
+    };
+
+    it("keeps the diff pinned in every follow-up, and drops only follow-up turns", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "a.ts"), "export const a = 'PINNED_DIFF_MARKER';\n");
+      const first = await diffOf(dir);
+      const session = new Session(first.request.user.length + 150);
+      const events = await drain(explain({ diff: {}, settings, cwd: dir, session, model: model(), signal: new AbortController().signal }));
+      expect(events.at(-1)).toEqual({ type: "done" });
+      const requests: string[] = [];
+      for (const q of ["first question here", "second question here", "third question here"]) {
+        const out = await drain(followUp({ session, question: q, model: model("A".repeat(60)), signal: new AbortController().signal, onRequest: (r) => requests.push(JSON.stringify(r.history)) }));
+        expect(out.at(-1)).toEqual({ type: "done" });
+      }
+      // The cap forced older follow-ups out, but the diff is in the history of every request.
+      expect(requests.every((h) => h.includes("PINNED_DIFF_MARKER"))).toBe(true);
+      expect(session.turns[0]!.user).toContain("PINNED_DIFF_MARKER");
+      expect(session.turns.length).toBeLessThan(4);
+    });
+
+    it("refuses before sending when the diff alone does not fit the Session cap", async () => {
+      const dir = await repo();
+      await writeFile(join(dir, "a.ts"), "z".repeat(3000) + "\n");
+      const events = await drain(explain({ diff: {}, settings, cwd: dir, session: new Session(500), model: model(), signal: new AbortController().signal }));
+      expect(events.find((e) => e.type === "error")).toMatchObject({ error: expect.any(SessionTooLongError) });
+      expect(events.some((e) => e.type === "text-delta")).toBe(false);
+    });
   });
 });

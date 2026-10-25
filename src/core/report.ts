@@ -51,6 +51,9 @@ export type ContextReport =
       skipped: { file: string; why: string }[];
       /** A shallow clone: history, and so any ref to compare with, is incomplete. */
       shallow: boolean;
+      /** Against a revision other than HEAD, so content that was later removed can be in the diff. */
+      againstHistory: boolean;
+      limitedTo?: string[];
       budget: Budget;
       local: boolean;
       overrides?: SensitiveBypass[];
@@ -63,8 +66,8 @@ export type ContextReport =
 export const hasOverride = (report: ContextReport): boolean => (report.kind === "sent" || report.kind === "diff") && (report.overrides?.length ?? 0) > 0;
 
 export function buildDiffReport(diff: GatheredDiff, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
-  const { against, files, untracked, excluded, skipped, shallow } = diff;
-  return { kind: "diff", against, files, untracked, excluded, skipped, shallow, budget, local, ...(bypassed.length > 0 && { overrides: [...bypassed] }) };
+  const { against, files, untracked, excluded, skipped, shallow, againstHistory, limitedTo } = diff;
+  return { kind: "diff", against, files, untracked, excluded, skipped, shallow, againstHistory, ...(limitedTo && { limitedTo }), budget, local, ...(bypassed.length > 0 && { overrides: [...bypassed] }) };
 }
 
 export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
@@ -145,10 +148,11 @@ export function formatContextReport(report: ContextReport): string {
   }
   const out = ["Context report: this is what will be sent"];
   if (report.kind === "diff") {
-    out.push(`  the working tree's changes against ${report.against}${report.untracked > 0 ? ` (${plural(report.untracked, "untracked file")} shown as new)` : ""}`);
+    out.push(`  the working tree's changes against ${report.against}${report.limitedTo ? `, limited to ${report.limitedTo.join(", ")}` : ""}${report.untracked > 0 ? ` (${plural(report.untracked, "untracked file")} shown as new)` : ""}`);
     for (const file of report.files) out.push(`    ${file}`);
     for (const e of report.excluded) out.push(`  left out: ${e.file} (rule: ${e.rule}); its changes are not sent`);
     for (const s of report.skipped) out.push(`  left out: ${s.file} (${s.why})`);
+    if (report.againstHistory) out.push(`  note: this compares against ${report.against}, so the diff can include content that was later removed, such as a secret; the sensitive-file rules go by file name, not content, and cannot filter it`);
     if (report.shallow) out.push("  shallow clone: history is incomplete, so a ref older than this clone's depth cannot be compared");
     out.push(...overrideLines(report.overrides), ...budgetLines(report));
     return out.join("\n");

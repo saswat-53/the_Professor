@@ -41,7 +41,7 @@ export interface ExplainInput {
   /** When given, the finished explanation is recorded here so follow-up questions can build on it. */
   session?: Session;
   /** `--diff`: explain the working tree's changes against `ref` (default HEAD) instead of a Reference. Excludes `reference` and `piped`; the frontend rejects the combination. */
-  diff?: { ref?: string };
+  diff?: { ref?: string; paths?: string[] };
   /** How each kind of Reference becomes an Excerpt. Default: the built-in file, line, range and word resolvers; pass more to add a kind without touching the callers. */
   resolvers?: Resolvers;
 }
@@ -62,7 +62,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
     const { root } = await findProjectRoot(cwd, input.root);
     const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl });
     const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
-    const diff = await gatherDiff({ cwd, ...(input.diff.ref !== undefined && { ref: input.diff.ref }), reader, budget });
+    const diff = await gatherDiff({ cwd, ...(input.diff.ref !== undefined && { ref: input.diff.ref }), ...(input.diff.paths && { paths: input.diff.paths }), reader, budget });
     return {
       request: {
         baseUrl: input.settings.baseUrl,

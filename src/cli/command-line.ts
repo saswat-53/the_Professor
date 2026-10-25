@@ -5,7 +5,7 @@ import { ExitCode, LEVELS } from "../core/index.js";
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
 export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
-       learn --diff [<ref>] [same options]
+       learn --diff [<ref>] [-- <path>...] [same options]
        cat <file> | learn [--lang <language>] [same options]
        learn --clip [--lang <language>] [same options]
        learn <command>
@@ -15,7 +15,7 @@ Commands: ${SUBCOMMANDS.join(", ")}
 
 Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET, LEARN_CONTEXT_WINDOW),
 then the config file (~/.config/learn/config.toml), then the default.
---diff explains your uncommitted changes (staged and unstaged, plus untracked files) against HEAD, or against <ref> when given; it takes no file reference.
+--diff explains your uncommitted changes (staged and unstaged, plus untracked files) against HEAD, or against <ref> when given; limit it to files with --diff -- <path>.
 --chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved). A long chat drops its oldest turns to stay inside the model's window;
 for a local model that window is --context-window (default 4096 tokens, Ollama's default).
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
@@ -54,6 +54,8 @@ export type Flags = {
   chat?: boolean;
   /** `--diff` alone is true; `--diff <ref>` is the ref. */
   diff?: string | true;
+  /** Files after `--` beside `--diff`: the diff is limited to them. */
+  diffPaths?: string[];
 };
 
 export type Parsed =
@@ -115,7 +117,11 @@ export function parseCommandLine(argv: string[]): Parsed {
       if (help) result = { kind: "help", text: HELP };
       else if (version) result = { kind: "version" };
       else if (swallowed) result = { kind: "usage-error", message: `Option '${swallowed[1]} <value>' argument missing (the next argument starts with "-")` };
-      else result = { kind: "run", reference, flags };
+      else if (flags.diff !== undefined && argv.includes("--")) {
+        // After `--` every word is a path to limit the diff to, as in git; a word before it is still a (conflicting) reference.
+        const diffPaths = argv.slice(argv.indexOf("--") + 1);
+        result = { kind: "run", reference: program.args.slice(0, program.args.length - diffPaths.length)[0], flags: { ...flags, diffPaths } };
+      } else result = { kind: "run", reference, flags };
     });
   // The program owns -h/--help (so it wins over a file argument), which means it also swallows `learn init --help`.
   const helpAsked = () => program.opts<{ help?: boolean }>().help;

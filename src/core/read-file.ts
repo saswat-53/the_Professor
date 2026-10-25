@@ -1,4 +1,5 @@
-import { open, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { FileRefusedError } from "./errors.js";
 
@@ -23,15 +24,20 @@ async function readBounded(handle: FileHandle, limit: number): Promise<Buffer> {
  * Reads a file the safe way: only ordinary text files of reasonable size are opened.
  *
  * The path is checked with `stat` first because opening a named pipe blocks until a writer
- * appears. `maxBytes` caps the size (default 1 MB). After opening, the handle is checked again (`fstat`) so a swap between the two
+ * appears. `maxBytes` caps the size (default 1 MB). With `noFollow` a symbolic link at the end of the path is refused,
+ * not followed: the path is checked with `lstat` and opened with `O_NOFOLLOW`, so a link swapped in after the check
+ * fails the open instead of leading elsewhere. Links in the directories above the file are still followed. After opening, the handle is checked again (`fstat`) so a swap between the two
  * steps is caught, and at most one byte past the limit is ever read.
  */
-export async function readTextFile(path: string, maxBytes = MAX_BYTES): Promise<string> {
-  const pathStat = await stat(path);
+export async function readTextFile(path: string, maxBytes = MAX_BYTES, noFollow = false): Promise<string> {
+  const pathStat = await (noFollow ? lstat : stat)(path);
   if (!pathStat.isFile()) throw new FileRefusedError("not-regular", path, `not a regular file`);
   if (pathStat.size > maxBytes) throw new FileRefusedError("too-large", path, `file too large (over ${describeSize(maxBytes)})`);
 
-  const handle = await open(path, "r");
+  const handle = await open(path, noFollow ? constants.O_RDONLY | constants.O_NOFOLLOW : "r").catch((err: NodeJS.ErrnoException) => {
+    if (noFollow && err.code === "ELOOP") throw new FileRefusedError("not-regular", path, "not a regular file");
+    throw err;
+  });
   let bytes: Buffer;
   try {
     const handleStat = await handle.stat();
