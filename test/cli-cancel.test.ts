@@ -66,9 +66,7 @@ describe("cancellation", () => {
     expect(r.stderr).toContain("cancelled");
   });
 
-  // Needs stdout writes that queue instead of blocking, which is how Node treats pipes on macOS. On Linux (CI) a full pipe blocks the main
-  // thread inside the write, so no signal handler can run until the reader drains: that test hung there. The timing-free test below runs everywhere.
-  it.skipIf(process.platform !== "darwin").each([
+  it.each([
     ["SIGINT", 130],
     ["SIGTERM", 143],
   ] as const)("a second signal (%s) ends the process at once with its code, while the first cancel is stuck behind output nobody reads", async (second, code) => {
@@ -91,11 +89,14 @@ describe("cancellation", () => {
     let secondSentAt = 0;
     const r = await run([file], env(), tmpdir(), (child) => {
       let read = 0;
+      let stalled = false;
       // `run` resolves on "close", which waits for stdout to end: once the process is gone, drain what is left.
       child.on("exit", () => child.stdout!.resume());
       child.stdout!.on("data", (data: Buffer) => {
         read += data.length;
-        if (read < READ_BEFORE_STOPPING || child.stdout!.isPaused()) return;
+        // Once only: the drain after "exit" delivers data here again, and pausing again would leave "close" waiting for output nobody reads (ticket 42).
+        if (read < READ_BEFORE_STOPPING || stalled) return;
+        stalled = true;
         child.stdout!.pause();
         // The stall is established when the CLI has taken all 8 MB from the server while we hold 1 MB at most: the rest is queued in the CLI.
         // If that never happens the setup is broken (the failure below says so); the signal goes out anyway so the run still ends.

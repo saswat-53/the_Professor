@@ -59,6 +59,18 @@ describe("provider failures", () => {
     expect(r.stderr).toMatch(/^\S/);
   });
 
+  it("tells the user how long to wait when the 429 has a Retry-After, and still does not retry", async () => {
+    respond = (res) => {
+      res.writeHead(429, { "content-type": "application/json", "retry-after": "30" });
+      res.end(JSON.stringify({ error: { message: SENTINEL } }));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("wait about 30 seconds");
+    expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+    expect(requestCount).toBe(1);
+  });
+
   it("does not retry after a 429", async () => {
     respond = failWith(429);
     await run([file], env());
@@ -73,6 +85,29 @@ describe("provider failures", () => {
     const r = await run([file], { LEARN_BASE_URL: `http://127.0.0.1:${port}/v1`, LEARN_MODEL: "m" });
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("could not reach");
+  });
+
+  it("reports malformed stream data as an unexpected error, not a network problem, without echoing it", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.end(`data: {not json ${SENTINEL}\n\n`);
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("probably a bug in learn");
+    expect(r.stderr).not.toContain("could not reach");
+    expect(r.stdout + r.stderr).not.toContain(SENTINEL);
+  });
+
+  it("still calls a connection cut off mid-stream a network failure", async () => {
+    respond = (res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content: "x" }, finish_reason: null }] })}\n\n`, () => setTimeout(() => res.destroy(), 50));
+    };
+    const r = await run([file], env());
+    expect(r.code).toBe(1);
+    expect(r.stderr).toContain("could not reach");
+    expect(r.stderr).not.toContain("bug in learn");
   });
 
   it("starts the error on a fresh line after partial output, keeping stdout clean", async () => {
