@@ -40,6 +40,9 @@ export type ContextReport =
   /** The Session was over its cap, so the oldest turns were left out of this request. Turn 1 is the first explanation. */
   | { kind: "session-trimmed"; turns: number[]; files: string[]; capChars: number };
 
+/** The report says a Sensitive file was sent anyway (`--allow-sensitive`, or a local endpoint). */
+export const hasOverride = (report: ContextReport): boolean => report.kind === "sent" && (report.overrides?.length ?? 0) > 0;
+
 export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
   const source = excerpt.source;
   const ranges: ReportedRange[] = [];

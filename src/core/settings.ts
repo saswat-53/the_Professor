@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { parse } from "smol-toml";
 import { UsageError } from "./errors.js";
 import { DEFAULT_LEVEL, LEVELS, isLevel } from "./prompt.js";
@@ -162,8 +163,14 @@ const contextWindow = (raw: unknown) => {
 const level = (raw: unknown) =>
   typeof raw === "string" && isLevel(raw) ? { value: raw } : { error: `must be one of: ${LEVELS.join(", ")}` };
 
-const dir = (raw: unknown, home: string) =>
-  typeof raw === "string" && raw !== "" ? { value: raw === "~" ? home : raw.startsWith("~/") ? `${home}/${raw.slice(2)}` : raw } : { error: "must be a non-empty path" };
+/** A directory setting: `~`, `~/...` or an absolute path. A relative one would mean "wherever learn happens to run", which is often a project; `~user` is not expanded, so it would be read as a relative name. */
+const dir = (raw: unknown, home: string) => {
+  if (typeof raw !== "string" || raw === "") return { error: "must be a non-empty path" };
+  if (raw === "~") return { value: home };
+  if (raw.startsWith("~/")) return { value: `${home}/${raw.slice(2)}` };
+  if (isAbsolute(raw)) return { value: raw };
+  return { error: "must be an absolute path or start with ~/ (a relative path would put notes in whatever folder you run learn from, possibly a project)" };
+};
 
 const DEFS: readonly Def<keyof ResolvedSettings>[] = [
   { key: "level", flag: "level", flagName: "--level", env: "LEARN_LEVEL", config: ["level"], parse: level },

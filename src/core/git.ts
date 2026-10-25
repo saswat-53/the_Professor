@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { ContextTooLongError, UnexpectedError, UntrustedRepoError, UsageError } from "./errors.js";
 
@@ -192,4 +193,15 @@ export async function findRepo(cwd: string): Promise<GitRepo | undefined> {
     () => false,
   );
   return { root, shallow, hasCommits };
+}
+
+/** Like `findRepo`, for a directory that may not exist yet: asks from its nearest existing ancestor. */
+export async function findRepoAround(path: string): Promise<GitRepo | undefined> {
+  let dir = resolve(path);
+  while (!(await stat(dir).then((s) => s.isDirectory(), () => false))) {
+    const up = dirname(dir);
+    if (up === dir) return undefined;
+    dir = up;
+  }
+  return findRepo(dir);
 }

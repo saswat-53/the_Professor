@@ -8,6 +8,8 @@ interface Turn {
   assistant: string;
   /** The `@file` references attached to the question, as typed (`path` or `path:N-M`). */
   files: string[];
+  /** The turn carries a file the Sensitive-file rules normally exclude, let through by `--allow-sensitive` or a local endpoint. */
+  sensitive: boolean;
 }
 
 const sizeOf = (t: Turn) => t.user.length + t.assistant.length;
@@ -35,15 +37,15 @@ export class Session {
   #count = 0;
 
   /** Records the first explanation's request and answer. Called by `explain`. */
-  begin(request: ModelRequest, answer: string): void {
+  begin(request: ModelRequest, answer: string, sensitive = false): void {
     this.#first = request;
     this.#count = 1;
-    this.#turns = [{ number: 1, user: request.user, assistant: answer, files: [] }];
+    this.#turns = [{ number: 1, user: request.user, assistant: answer, files: [], sensitive }];
   }
 
   /** The turns still held, oldest first, for `/save`. Turns dropped to fit the cap are not here. */
-  get turns(): readonly { number: number; user: string; assistant: string }[] {
-    return this.#turns.map(({ number, user, assistant }) => ({ number, user, assistant }));
+  get turns(): readonly { number: number; user: string; assistant: string; sensitive: boolean }[] {
+    return this.#turns.map(({ number, user, assistant, sensitive }) => ({ number, user, assistant, sensitive }));
   }
 
   /** Characters in the transcript so far. */
@@ -91,9 +93,9 @@ export class Session {
   }
 
   /** Records a finished follow-up turn, dropping the turns the same question made room for. */
-  record(question: string, answer: string, files: string[] = []): void {
+  record(question: string, answer: string, files: string[] = [], sensitive = false): void {
     this.#turns.splice(1, this.#plan(question.length).drop);
-    this.#turns.push({ number: ++this.#count, user: question, assistant: answer, files });
+    this.#turns.push({ number: ++this.#count, user: question, assistant: answer, files, sensitive });
   }
 }
 
@@ -103,6 +105,8 @@ export async function* followUp(input: {
   question: string;
   /** The `@file` references attached to the question, remembered so a report can name them if their turn is later dropped. */
   files?: string[];
+  /** The question carries a file the Sensitive-file rules normally exclude (see the Context reports' overrides); `/save` says so in the note. */
+  sensitive?: boolean;
   model: LanguageModel;
   signal: AbortSignal;
   /** Called with the exact request just before it is sent, as for `explain`. */
@@ -141,6 +145,6 @@ export async function* followUp(input: {
     yield { type: "error", error: input.signal.aborted ? new CancelledError() : err instanceof LearnError ? err : new ProviderError("the model provider returned an error that learn could not classify") };
     return;
   }
-  input.session.record(input.question, answer, input.files);
+  input.session.record(input.question, answer, input.files, input.sensitive);
   yield { type: "done" };
 }

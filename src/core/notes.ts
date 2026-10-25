@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { appendFile, mkdir, realpath, stat, writeFile } from "node:fs/promises";
+import { appendFile, lstat, mkdir, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { NotesError } from "./errors.js";
 import { isInside } from "./root.js";
@@ -9,9 +9,12 @@ export interface NoteTurn {
   number: number;
   user: string;
   assistant: string;
+  /** The turn carries a file the Sensitive-file rules normally exclude. */
+  sensitive?: boolean;
 }
 
 const WARNING = "> **Warning:** this note contains code (and the model's explanation of it) from your project. Check it for secrets before you share it.";
+const SENSITIVE = "> **Note:** this note includes content from a file normally excluded.";
 const GLOSSARY = "glossary.md";
 const MAX_SLUG = 48;
 const MAX_SAME_NAME = 1000;
@@ -61,7 +64,7 @@ async function assertInside(dir: string, file: string): Promise<void> {
 }
 
 function render(turns: readonly NoteTurn[], title: string, now: Date): string {
-  const parts = [WARNING, "", `# ${oneLine(title) || "Session"}`, "", `Saved ${dayOf(now)}.`];
+  const parts = [WARNING, ...(turns.some((t) => t.sensitive) ? [">", SENSITIVE] : []), "", `# ${oneLine(title) || "Session"}`, "", `Saved ${dayOf(now)}.`];
   const kept = new Set(turns.map((t) => t.number));
   const missing = Array.from({ length: Math.max(0, ...kept) }, (_, i) => i + 1).filter((n) => !kept.has(n));
   if (missing.length > 0) parts.push("", `_Turns ${missing.join(", ")} were dropped from the Session to fit its cap and are not in this note._`);
@@ -104,6 +107,15 @@ export async function saveNote(input: { notesDir: string; turns: readonly NoteTu
 export async function appendGlossaryEntry(input: { notesDir: string; term: string; definition: string; now: Date }): Promise<string> {
   const dir = await openNotesDir(input.notesDir);
   const file = join(dir, GLOSSARY);
+  // An existing glossary must be a plain file with one name: a hard link would write through to a file elsewhere.
+  // (`open` is reserved for the file reader, so this is checked just before the append rather than on the open handle.)
+  const existing = await lstat(file).catch((err: NodeJS.ErrnoException) => {
+    if (err.code === "ENOENT") return undefined;
+    throw new NotesError(`cannot check the glossary ${file}: ${err.code ?? err.message}`);
+  });
+  if (existing && (!existing.isFile() || existing.nlink > 1)) {
+    throw new NotesError(`${file} is not a plain file with a single name (it is a link or has more than one link); nothing was written to it`);
+  }
   const line = `- **${oneLine(input.term)}**: ${oneLine(input.definition)} _(${dayOf(input.now)})_\n`;
   try {
     await appendFile(file, line, { flag: constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), mode: 0o600 });

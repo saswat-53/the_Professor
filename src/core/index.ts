@@ -32,7 +32,7 @@ export { parseReference, pipedExcerpt, resolveReference, defaultResolvers } from
 export type { Excerpt, Reference, WordSearchNote, ResolverDeps, Resolver, Resolvers } from "./reference.js";
 export { clipboardCommands, readClipboard } from "./clipboard.js";
 export type { ClipboardCommand, ReadClipboardOptions } from "./clipboard.js";
-export { findRepo, runGit } from "./git.js";
+export { findRepo, findRepoAround, runGit } from "./git.js";
 export type { GitOptions, GitRepo, GitSubcommand } from "./git.js";
 export { LEVELS, DEFAULT_LEVEL, isLevel } from "./prompt.js";
 export type { Level } from "./prompt.js";
@@ -47,7 +47,7 @@ export { assertExcerptFits, defaultBudget, isValidBudget, isValidContextWindow, 
 export type { Budget, BudgetSource, Dropped } from "./budget.js";
 export { noBlockFinder, findImportBlock, gatherContext, WINDOW_LINES } from "./context.js";
 export type { BlockFinder, Context, LineSpan } from "./context.js";
-export { buildContextReport, formatContextReport, reportForError } from "./report.js";
+export { buildContextReport, formatContextReport, hasOverride, reportForError } from "./report.js";
 export type { ContextReport, ReportedRange } from "./report.js";
 export { EXAMPLE_CONFIG, configPath, describeMissing, firstRunMessage, parseConfig, redactUrl, HIDDEN, resolveSettings, trimEnds, validateSetting } from "./settings.js";
 export type { Config, Flags, Resolution, ResolvedSettings } from "./settings.js";

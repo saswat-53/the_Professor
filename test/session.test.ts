@@ -86,3 +86,35 @@ describe("follow-up questions", () => {
     expect(events[0]).toMatchObject({ type: "error" });
   });
 });
+
+describe("turns that carry a file the Sensitive-file rules normally exclude", () => {
+  const explainEnv = async (session: Session, baseUrl: string, allowSensitive?: boolean) => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-session-"));
+    const file = join(dir, ".env");
+    await writeFile(file, "KEY=value\n");
+    return await collect(explain({ reference: file, root: dir, settings: { baseUrl, model: "m" }, model: fakeModel(["ok"]).model, signal: new AbortController().signal, session, allowSensitive }));
+  };
+
+  it("are marked when the first Excerpt was let through (local endpoint, or --allow-sensitive)", async () => {
+    for (const [baseUrl, allow] of [["http://127.0.0.1:1/v1", false], ["https://api.example.com/v1", true]] as const) {
+      const session = new Session();
+      await explainEnv(session, baseUrl, allow);
+      expect(session.turns.map((t) => t.sensitive)).toEqual([true]);
+    }
+  });
+
+  it("are not marked for an ordinary file", async () => {
+    const session = new Session();
+    await firstExplanation(session, fakeModel(["ok"]).model);
+    expect(session.turns.map((t) => t.sensitive)).toEqual([false]);
+  });
+
+  it("are marked per follow-up, so a note only warns while such a turn is still in the Session", async () => {
+    const { model } = fakeModel(["a", "b", "c"]);
+    const session = new Session();
+    await firstExplanation(session, model);
+    await collect(followUp({ session, question: "q2", model, signal: new AbortController().signal, sensitive: true }));
+    await collect(followUp({ session, question: "q3", model, signal: new AbortController().signal }));
+    expect(session.turns.map((t) => t.sensitive)).toEqual([false, true, false]);
+  });
+});

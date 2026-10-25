@@ -1,7 +1,9 @@
-import { mkdir, mkdtemp, readFile, readdir, stat, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { link, mkdir, mkdtemp, readFile, readdir, realpath, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { findRepoAround } from "../src/core/git.js";
 import { appendGlossaryEntry, saveNote } from "../src/core/notes.js";
 
 const turns = [
@@ -41,6 +43,17 @@ describe("saveNote", () => {
   it("says when turns were dropped from the Session", async () => {
     const text = await readFile(await saveNote({ notesDir, turns: [turns[0]!, { number: 4, user: "q", assistant: "a" }], title: "x", now }), "utf8");
     expect(text).toContain("Turns 2, 3 were dropped");
+  });
+
+  it("adds one line when a turn included a file that is normally excluded, and not otherwise", async () => {
+    const plain = await readFile(await saveNote({ notesDir, turns, title: "plain", now }), "utf8");
+    expect(plain).not.toContain("normally excluded");
+    const flagged = [turns[0]!, { number: 2, user: "with .env", assistant: "ok", sensitive: true }];
+    const text = await readFile(await saveNote({ notesDir, turns: flagged, title: "flagged", now }), "utf8");
+    const lines = text.split("\n");
+    expect(lines[0]).toMatch(/contains code/);
+    expect(text.match(/normally excluded/g)).toHaveLength(1);
+    expect(text).toContain("this note includes content from a file normally excluded.");
   });
 
   it("strips terminal escape sequences from what it stores", async () => {
@@ -104,6 +117,14 @@ describe("appendGlossaryEntry", () => {
     expect(await readFile(join(dir, "outside.md"), "utf8")).toBe("keep");
   });
 
+  it("refuses a glossary file with a second hard link, and writes nothing through it", async () => {
+    await mkdir(notesDir);
+    await writeFile(join(dir, "outside.md"), "keep");
+    await link(join(dir, "outside.md"), join(notesDir, "glossary.md"));
+    await expect(appendGlossaryEntry({ notesDir, term: "t", definition: "d", now })).rejects.toThrow(/more than one link|hard link/);
+    expect(await readFile(join(dir, "outside.md"), "utf8")).toBe("keep");
+  });
+
   it("keeps a multi-line definition on one entry", async () => {
     const path = await appendGlossaryEntry({ notesDir, term: "a\nb", definition: "x\ny", now });
     expect((await readFile(path, "utf8")).split("\n").filter((l) => l.startsWith("- "))).toHaveLength(1);
@@ -114,3 +135,12 @@ async function realNotes(): Promise<string> {
   const { realpath } = await import("node:fs/promises");
   return realpath(notesDir);
 }
+
+describe("findRepoAround", () => {
+  it("finds the repository around a directory that does not exist yet, and nothing outside one", async () => {
+    execFileSync("git", ["init", "-q", join(dir)]);
+    expect(await findRepoAround(join(dir, "a", "b"))).toMatchObject({ root: await realpath(dir) });
+    const elsewhere = await mkdtemp(join(tmpdir(), "learn-norepo-"));
+    expect(await findRepoAround(join(elsewhere, "notes"))).toBeUndefined();
+  });
+});

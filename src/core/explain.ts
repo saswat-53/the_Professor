@@ -5,7 +5,7 @@ import { CancelledError, LearnError, ProviderError, UnexpectedError, UsageError 
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, type Context, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
-import { type ContextReport, buildContextReport, reportForError } from "./report.js";
+import { type ContextReport, buildContextReport, hasOverride, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
@@ -100,9 +100,11 @@ export async function* explain(
   },
 ): AsyncGenerator<ExplainEvent> {
   let request: ModelRequest;
+  let sensitive = false;
   try {
     const prepared = await prepareRequest(input);
     request = prepared.request;
+    sensitive = hasOverride(prepared.report);
     // A Session that could never fit its own first request is refused before anything is sent.
     input.session?.assertPinnedFits(request.user.length);
     yield { type: "context-report", report: prepared.report };
@@ -125,7 +127,7 @@ export async function* explain(
       yield { type: "text-delta", text };
     }
     // An abort that ends the stream quietly is still a cancel, not a success.
-    if (!input.signal.aborted) input.session?.begin(request, answer);
+    if (!input.signal.aborted) input.session?.begin(request, answer, sensitive);
     yield input.signal.aborted ? { type: "error", error: new CancelledError() } : { type: "done" };
   } catch (err) {
     // Whatever the model threw after an abort is the abort's echo, not a provider failure.

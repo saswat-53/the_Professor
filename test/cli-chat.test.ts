@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
@@ -307,6 +307,49 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
     expect(out).toContain("/glossary term: meaning");
     expect(await readdir(notes)).toEqual(["glossary.md"]);
     expect(await readFile(join(notes, "glossary.md"), "utf8")).toContain("**closure**: a function plus its captured variables");
+  }, 30_000);
+
+  it("warns once, before the first write, when the notes directory is inside a git work tree", async () => {
+    const repo = await mkdtemp(join(tmpdir(), "learn-notes-repo-"));
+    execFileSync("git", ["init", "-q", repo]);
+    const { out, notes } = await withNotes(
+      [
+        ["learn> ", `/save${ENTER}`],
+        ["saved", `/save again${ENTER}`],
+        ["saved", `/glossary a: b${ENTER}`],
+        ["added", `/exit${ENTER}`],
+      ],
+      join(repo, "notes"),
+    );
+    expect(out.split("is inside the git repository")).toHaveLength(2);
+    expect(out).toContain("could be committed by accident");
+    expect(await readdir(notes)).toHaveLength(3);
+  }, 30_000);
+
+  it("does not warn when the notes directory is outside any repository", async () => {
+    const { out } = await withNotes([
+      ["learn> ", `/save${ENTER}`],
+      ["saved", `/exit${ENTER}`],
+    ]);
+    expect(out).not.toContain("git repository");
+  }, 30_000);
+
+  it("says in the note when the Session included a file that is normally excluded, and only then", async () => {
+    await writeFile(join(dir, ".env"), "SECRET_FOR_NOTE=1\n");
+    const flagged = await withNotes([
+      ["learn> ", `what is in @.env?${ENTER}`],
+      ["ANSWER2", `/save${ENTER}`],
+      ["saved", `/exit${ENTER}`],
+    ]);
+    const [name] = await readdir(flagged.notes);
+    const text = await readFile(join(flagged.notes, name!), "utf8");
+    expect(text.split("\n")[0]).toMatch(/contains code/);
+    expect(text).toContain("this note includes content from a file normally excluded.");
+    const plain = await withNotes([
+      ["learn> ", `/save${ENTER}`],
+      ["saved", `/exit${ENTER}`],
+    ]);
+    expect(await readFile(join(plain.notes, (await readdir(plain.notes))[0]!), "utf8")).not.toContain("normally excluded");
   }, 30_000);
 
   it("reports an unusable notes directory inline and the chat goes on", async () => {

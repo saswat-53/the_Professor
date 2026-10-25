@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { appendGlossaryEntry, attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, saveNote, trimEnds } from "../core/index.js";
+import { appendGlossaryEntry, attachReferences, findRepoAround, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, saveNote, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -378,6 +378,14 @@ async function main(): Promise<number> {
     return fail(err);
   }
   let chatSignals = 0;
+  // Notes hold code from the project: if the notes directory sits inside a git work tree they could be committed by accident. Said once, before the first write.
+  let notesRepoChecked = false;
+  const warnIfNotesInRepo = async () => {
+    if (notesRepoChecked) return;
+    notesRepoChecked = true;
+    const repo = await findRepoAround(notesDir).catch(() => undefined);
+    if (repo) status("warning", `warning: the notes directory ${notesDir} is inside the git repository ${repo.root}; saved notes contain code and could be committed by accident (add the folder to .gitignore, or point notes_dir somewhere else)`);
+  };
   return record(
     await runChat({
       input: process.stdin,
@@ -389,8 +397,8 @@ async function main(): Promise<number> {
       describe,
       attach: (question) => attachReferences({ question, settings, root: values.root, allowSensitive: values.allowSensitive }),
       onRequest: values.showPrompt ? printRequest : undefined,
-      save: (name) => saveNote({ notesDir, turns: session.turns, title: name ?? sessionTitle, now: new Date() }),
-      glossary: (term, definition) => appendGlossaryEntry({ notesDir, term, definition, now: new Date() }),
+      save: async (name) => (await warnIfNotesInRepo(), saveNote({ notesDir, turns: session.turns, title: name ?? sessionTitle, now: new Date() })),
+      glossary: async (term, definition) => (await warnIfNotesInRepo(), appendGlossaryEntry({ notesDir, term, definition, now: new Date() })),
       takeSignals: (handler) => {
         onSignal = (code) => {
           // The same "stop now" rule: a repeated SIGTERM while already winding down leaves at once.

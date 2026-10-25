@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { CancelledError, followUp, formatContextReport, reportForError } from "../core/index.js";
+import { CancelledError, followUp, formatContextReport, hasOverride, reportForError } from "../core/index.js";
 import type { Attached, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
 
 /** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
@@ -115,12 +115,14 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       continue;
     }
     let attachedFiles: string[] = [];
+    let sensitive = false;
     try {
       const attached = await opts.attach(question);
       for (const report of attached.reports) opts.report("info", formatContextReport(report));
       for (const note of attached.notes) opts.report("info", note);
       question = attached.content;
       attachedFiles = attached.files;
+      sensitive = attached.reports.some(hasOverride);
     } catch (err) {
       const refused = reportForError(err);
       if (refused) opts.report("info", formatContextReport(refused));
@@ -129,7 +131,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     }
     current = new AbortController();
     const strip = opts.stripper();
-    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, onRequest: opts.onRequest })) {
+    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, sensitive, onRequest: opts.onRequest })) {
       if (event.type === "context-report") {
         opts.report("info", formatContextReport(event.report));
       } else if (event.type === "text-delta") {

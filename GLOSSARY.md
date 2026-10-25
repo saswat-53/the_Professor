@@ -59,6 +59,7 @@ The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user
 
 **Notes directory**:
 The only place the tool writes (`notes_dir`, default `~/learn-notes`). `/save` puts one **note** here per save: a markdown file of the Session's turns, named by date and a sanitised slug, never overwritten, starting with a warning that it contains code. `/glossary term: meaning` appends a line to the one `glossary.md` beside the notes. Files are created exclusively (never following a symlink at the final name) and the real path of each is then checked to be inside it.
+Must be absolute or `~/...`; a relative value is refused so notes never go into the project by accident. A warning is shown once if it is inside a git work tree.
 _Avoid_: Output folder, vault
 
 **Mention**:

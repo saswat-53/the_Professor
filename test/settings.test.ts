@@ -1,7 +1,7 @@
 import { stringify } from "smol-toml";
 import { describe, expect, it } from "vitest";
 import { UsageError } from "../src/core/errors.js";
-import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, resolveSettings } from "../src/core/settings.js";
+import { EXAMPLE_CONFIG, describeMissing, configPath, firstRunMessage, parseConfig, resolveSettings, validateSetting } from "../src/core/settings.js";
 
 const FILE = "/home/u/.config/learn/config.toml";
 const resolve = (flags = {}, env = {}, toml?: string) =>
@@ -346,6 +346,20 @@ describe("safety flags are flags only", () => {
 describe("notes directory", () => {
   it("expands ~", () => expect(resolve({}, {}, 'notes_dir = "~/n"\n').settings.notesDir).toBe("/home/u/n"));
   it("defaults to ~/learn-notes", () => expect(resolve().settings.notesDir).toBe("/home/u/learn-notes"));
+  it("accepts an absolute path and a bare ~", () => {
+    expect(resolve({}, {}, 'notes_dir = "/srv/notes"\n').settings.notesDir).toBe("/srv/notes");
+    expect(resolve({}, {}, 'notes_dir = "~"\n').settings.notesDir).toBe("/home/u");
+  });
+  it.each(["notes", "./notes", "../notes", "~other/notes", "~notes", "notes/~/x"])("refuses %j, naming the key and the file: a relative path would write into whatever folder learn runs from", (value) => {
+    const run = () => resolve({}, {}, `notes_dir = ${JSON.stringify(value)}\n`);
+    expect(run).toThrow(UsageError);
+    expect(run).toThrow(/"notes_dir" in \/home\/u\/\.config\/learn\/config\.toml/);
+    expect(run).toThrow(/absolute path or start with ~\//);
+  });
+  it("learn init's validator refuses them too", () => {
+    expect(validateSetting("notesDir", "notes", "/home/u")).toEqual({ error: expect.stringMatching(/absolute path or start with ~\//) });
+    expect(validateSetting("notesDir", "~other/x", "/home/u")).toEqual({ error: expect.stringMatching(/absolute path or start with ~\//) });
+  });
 });
 
 describe("config location", () => {
