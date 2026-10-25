@@ -4,7 +4,7 @@
 
 **Blocked by:** 29 (Switch to commander and subcommand routing), 15 (Settings resolution and the global config file)
 
-**Status:** implemented, awaiting Linux CI (pty tests)
+**Status:** done
 
 - [x] `learn init` asks for provider preset, base URL, model, the name of the key variable, level, and notes directory, then writes the global config
 - [x] It refuses to run when there is no terminal, exiting 2 with a message
@@ -19,3 +19,4 @@
 - Unverified on Linux CI: `test/cli-init.test.ts` drives the real binary on a pty through `test/support/pty-script.py` (waits on output, no fixed sleeps). Mark done after a green run.
 - Not done: fsync before the rename (survives a process kill, not a power cut); Anthropic/Gemini presets arrive with tickets 27 and 28.
 - Follow-up pass: (1) a real SIGINT during the test request is now tested on a pty (`signal:SIGINT` step in `pty-script.py`); it found that an aborted SDK stream ends quietly instead of throwing, so the wizard reported "answered with no text" and exit 0: `sendTest` now checks `signal.aborted` after the stream, and `runInit` handles `process` SIGINT itself. (2) Existing config that is broken, over the size cap, or holds a secret (syntax error, bad URL with credentials, pasted key, bad level, unknown key): pty tests assert no value is printed, no stack trace, the file is untouched. A broken file counts as "exists", so replacing it needs a confirmation. (3) `key_env` now also refuses names shaped like keys (`sk-`/`sk_`, `ghp_`, `AIza`, `AKIA` prefixes, mixed case with digits, over 64 characters), in the config reader too: a token such as `sk_live_abc123` is a valid identifier, so shape alone could not catch it. The terminal echoes what is typed (once); the tests assert the program never prints it back. (4) The notes-directory prompt says "(used by /save, coming later)".
+- Linux CI green (pty tests included).
