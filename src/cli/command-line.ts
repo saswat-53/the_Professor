@@ -31,6 +31,9 @@ export const HELP = `${USAGE}
 Exit codes:
 ${EXIT_CODES.map(([code, meaning]) => `  ${String(code).padEnd(4)}${meaning}`).join("\n")}`;
 
+/** The flags that take a value, with their spelling. */
+const VALUE_FLAGS = [["baseUrl", "--base-url"], ["model", "--model"], ["level", "--level"], ["root", "--root"], ["contextBudget", "--context-budget"], ["lang", "--lang"]] as const;
+
 /** The flags of the main `learn <file>` command, as commander names them. */
 export type Flags = {
   baseUrl?: string;
@@ -92,9 +95,13 @@ export function parseCommandLine(argv: string[]): Parsed {
     .option("-h, --help")
     .option("-v, --version")
     .action((reference: string | undefined, { help, version, ...flags }: Flags & { help?: boolean; version?: boolean }) => {
-      // Asked for on purpose, and ahead of everything else, even a file argument or valid flags.
+      // Like the old parser, a value that starts with "-" is another flag, not a value: `--model --dry-run` must not swallow --dry-run.
+      // The value itself is not echoed.
+      const swallowed = VALUE_FLAGS.find(([key]) => flags[key]?.startsWith("-"));
+      // Help and version are asked for on purpose, so they come ahead of everything else, even a file argument or valid flags.
       if (help) result = { kind: "help", text: HELP };
       else if (version) result = { kind: "version" };
+      else if (swallowed) result = { kind: "usage-error", message: `Option '${swallowed[1]} <value>' argument missing (the next argument starts with "-")` };
       else result = { kind: "run", reference, flags };
     });
   for (const name of SUBCOMMANDS) {

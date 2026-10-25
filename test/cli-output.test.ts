@@ -165,4 +165,40 @@ describe("subcommand routing", () => {
     expect(r.code).toBe(0);
     expect(r.stderr).toContain("hello");
   });
+
+  it.each(["init", "auth"])("./%s is a file, and bare %s runs the command", async (name) => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-cmd-"));
+    await writeFile(join(dir, name), `contents of ${name}\n`);
+    const env = { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" };
+    const asFile = await run([`./${name}`, "--dry-run"], env, dir);
+    expect(asFile.code).toBe(0);
+    expect(asFile.stderr).toContain(`contents of ${name}`);
+    const asCommand = await run([name], env, dir);
+    expect(asCommand.code).toBe(2);
+    expect(asCommand.stderr).toContain(`learn ${name} is not available yet`);
+  });
+
+  it("a flag's value that starts with '-' is refused, so --model --dry-run does not swallow --dry-run", async () => {
+    const r = await run([file, "--model", "--dry-run"], { LEARN_BASE_URL: baseUrl });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("'--model <value>' argument missing");
+    expect(r.stderr).not.toContain("model: --dry-run");
+  });
+
+  it("a usage error never echoes a secret typed into a flag", async () => {
+    const key = "SECRET-ZX9Q4-NOLEAK";
+    const cases = [
+      [`--api-key=${key}`],
+      ["--api-key", key],
+      [`--base-url=https://user:${key}@host`, "--model"],
+      ["--base-url", `-https://user:${key}@host`],
+      [`--no-such=https://user:${key}@host`],
+      [`--base-url=https://user:${key}@host`, "--level", "bogus"],
+    ];
+    for (const args of cases) {
+      const r = await run([file, ...args]);
+      expect(r.code, args.join(" ")).toBe(2);
+      expect(r.stdout + r.stderr, args.join(" ")).not.toContain(key);
+    }
+  });
 });
