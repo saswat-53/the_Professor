@@ -1,7 +1,7 @@
 import { BlockedFileError } from "./errors.js";
 import type { Budget, Dropped } from "./budget.js";
 import type { Context } from "./context.js";
-import type { Excerpt } from "./reference.js";
+import type { Excerpt, WordSearchNote } from "./reference.js";
 import type { SensitiveBypass } from "./sensitive.js";
 
 export interface ReportedRange {
@@ -33,6 +33,8 @@ export type ContextReport =
       unnamed?: "piped input" | "clipboard text";
       /** Sensitive files that were sent anyway, and why. Absent unless a file actually matched a rule. */
       overrides?: SensitiveBypass[];
+      /** A word Reference: the other definitions it found, and the limit if the search was cut short. */
+      search?: WordSearchNote;
     }
   | { kind: "refused"; file: string; rule: string }
   /** The Session was over its cap, so the oldest turns were left out of this request. Turn 1 is the first explanation. */
@@ -59,6 +61,7 @@ export function buildContextReport(excerpt: Excerpt, context: Context | null, bu
     local,
     ...(excerpt.origin && { unnamed: excerpt.origin === "piped" ? ("piped input" as const) : ("clipboard text" as const) }),
     ...(bypassed.length > 0 && { overrides: [...bypassed] }),
+    ...(excerpt.search && { search: excerpt.search }),
   };
 }
 
@@ -101,6 +104,14 @@ export function formatContextReport(report: ContextReport): string {
     out.push(`  ${report.path}`);
     for (const r of report.ranges) out.push(`    ${r.start === r.end ? `line ${r.start}` : `lines ${r.start}-${r.end}`}: ${PART_LABEL[r.part]}`);
     if (report.method) out.push(`  Enclosing block found by: ${report.method}${report.finder && report.finder !== "none" ? ` (${report.finder})` : ""}`);
+  }
+  const { search } = report;
+  if (search && search.alsoFound.length > 0) {
+    const more = search.more > 0 ? ` and ${search.more} more` : "";
+    out.push(`  chose ${report.label}; also found in ${search.alsoFound.join(", ")}${more} (to explain another, give it as file:N-M)`);
+  }
+  if (search?.truncatedAt !== undefined) {
+    out.push(`  search stopped at its limit of ${search.truncatedAt.toLocaleString("en-US")} files, so a better definition may be in a file that was not searched`);
   }
   if (report.unnamed) out.push(`  no filename checks applied: ${report.unnamed} has no filename, so the sensitive-file rules could not be checked; look over it before sending`);
   for (const o of report.overrides ?? []) {

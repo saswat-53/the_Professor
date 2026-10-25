@@ -75,7 +75,7 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
   });
   const excerpt = await resolveReference(
     await parseReference(input.reference, exists),
-    { read: (path) => reader.read(path), files: () => listSearchableFiles(root) },
+    { read: (path) => reader.read(path), search: { list: () => listSearchableFiles(root), read: (path) => reader.readSearchable(path) } },
     input.resolvers ?? defaultResolvers,
   );
   const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);

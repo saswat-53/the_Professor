@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { UsageError } from "./errors.js";
-import { findDefinition, IDENTIFIER } from "./word-search.js";
+import { type SearchDeps, findDefinition, IDENTIFIER } from "./word-search.js";
 
 /** A Reference says which code to explain. `kind` is open: new kinds register a resolver. */
 export interface Reference {
@@ -28,13 +28,25 @@ export interface Excerpt {
   origin?: "piped" | "clipboard";
   /** Where the Excerpt sits in its file. Absent for input with no file behind it, which gets no Context. */
   source?: { path: string; text: string; start: number; end: number };
+  /** For a word Reference: what the search found besides the Excerpt, and what it did not cover. */
+  search?: WordSearchNote;
+}
+
+/** Shown in the Context report, so the user can ask for another definition and knows when the search was cut short. */
+export interface WordSearchNote {
+  /** Other definitions as labels (`path:N-M`), best first. */
+  alsoFound: string[];
+  /** More definitions than `alsoFound` lists. */
+  more: number;
+  /** Set to the limit when the project had more source files than were searched. */
+  truncatedAt?: number;
 }
 
 export interface ResolverDeps {
   /** Reads a file inside the project; `name` is its project-relative path, the only name a label may use. */
   read: (path: string) => Promise<{ text: string; name: string }>;
-  /** The files a word may be searched in, as paths `read` accepts. Absent when there is no project to search. */
-  files?: () => Promise<string[]>;
+  /** The vetted files a word may be searched in, and how to read them. Absent when there is no project to search. */
+  search?: SearchDeps;
 }
 export type Resolver<R extends Reference = Reference> = (ref: R, deps: ResolverDeps) => Promise<Excerpt>;
 export type Resolvers = Record<string, Resolver<any>>;
@@ -109,16 +121,19 @@ export const defaultResolvers: Resolvers = {
       source: { path: name, text, start: ref.start, end: ref.end },
     };
   },
-  word: async (ref: WordReference, { read, files }) => {
+  word: async (ref: WordReference, { search }) => {
     if (!IDENTIFIER.test(ref.word)) {
       throw new UsageError(`"${ref.word}" was not found as a file and is not an identifier, so it cannot be searched for`);
     }
-    if (!files) throw new UsageError(`"${ref.word}": a word is searched for in a project, and there is none to search`);
-    const { name, text, start, end } = await findDefinition(ref.word, { read, files });
+    if (!search) throw new UsageError(`"${ref.word}": a word is searched for in a project, and there is none to search`);
+    const { name, text, start, end, alsoFound, more, truncatedAt } = await findDefinition(ref.word, search);
     return {
       label: `${name}:${formatRange(start, end)}`,
       text: text.split(/\r\n|\r|\n/).slice(start - 1, end).join("\n"),
       source: { path: name, text, start, end },
+      ...((alsoFound.length > 0 || truncatedAt !== undefined) && {
+        search: { alsoFound: alsoFound.map((a) => `${a.name}:${formatRange(a.start, a.end)}`), more, ...(truncatedAt !== undefined && { truncatedAt }) },
+      }),
     };
   },
 };

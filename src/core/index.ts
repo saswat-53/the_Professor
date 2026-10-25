@@ -24,10 +24,11 @@ export {
   UntrustedRepoError,
   UsageError,
   WordNotFoundError,
+  describeSearchLimits,
 } from "./errors.js";
-export type { BlockReason, FileRefusal } from "./errors.js";
+export type { BlockReason, FileRefusal, SearchLimits } from "./errors.js";
 export { parseReference, pipedExcerpt, resolveReference, defaultResolvers } from "./reference.js";
-export type { Excerpt, Reference, ResolverDeps, Resolver, Resolvers } from "./reference.js";
+export type { Excerpt, Reference, WordSearchNote, ResolverDeps, Resolver, Resolvers } from "./reference.js";
 export { clipboardCommands, readClipboard } from "./clipboard.js";
 export type { ClipboardCommand, ReadClipboardOptions } from "./clipboard.js";
 export { findRepo, runGit } from "./git.js";
@@ -57,4 +58,4 @@ export type { InitAnswers, InitPreset, PresetName } from "./init.js";
 export { attachReferences, findMentions } from "./attachments.js";
 export type { AttachInput, Attached, Mention } from "./attachments.js";
 export { findDefinition, listSearchableFiles } from "./word-search.js";
-export type { FoundDefinition } from "./word-search.js";
+export type { FoundDefinition, SearchDeps, SearchList } from "./word-search.js";

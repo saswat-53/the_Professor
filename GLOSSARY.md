@@ -62,7 +62,7 @@ An `@path`, `@path:N-M` or `@word` token in a Chat question that attaches code t
 _Avoid_: Tag
 
 **Word search**:
-How a bare-word Reference (`learn debounce`, or `@debounce` in Chat) becomes an Excerpt: the source files of the Project root are scanned for lines that define the identifier, and the best one wins (a source file over a test file; then a declaration, then a variable or property bound to it, then a method; then the shallower path). The Excerpt is the definition's enclosing block, or its first line if the block is over 80 lines. It never searches a Sensitive file, a git-ignored file, a symbolic link or vendored code, and not even when `--allow-sensitive` or a local endpoint lifts the Sensitive-file refusal for a named file.
+How a bare-word Reference (`learn debounce`, or `@debounce` in Chat) becomes an Excerpt: the source files of the Project root are scanned for lines that define the identifier, and the best one wins (a source file over a test file; then a declaration, then a variable or property bound to it, then a method; then the shallower path). The Excerpt is the definition's enclosing block, or its first line if the block is over 80 lines. It never searches a Sensitive file, a git-ignored file, a symbolic link or vendored code, and not even when `--allow-sensitive` or a local endpoint lifts the Sensitive-file refusal for a named file. Files it skips for those reasons are only counted in its "not found" message, never named. The search reads at most 20,000 source files and says when it stopped there. When several files define the word, the Context report names the others (`chose X; also found in Y, Z`).
 _Avoid_: Grep, lookup
 
 **Plain mode / Terminal mode**:

@@ -18,6 +18,22 @@ export class FileNotFoundError extends UsageError {
   override name = "FileNotFoundError";
 }
 
+/** What a search could not look at, so "not found" is not mistaken for "does not exist". */
+export interface SearchLimits {
+  /** Files left out by a safety rule (Sensitive, git-ignored, a link). Only the count is given: a name or rule could reveal what a file holds. */
+  skipped?: number;
+  /** The most files a search reads; set when the project had more and the rest were not searched. */
+  truncatedAt?: number;
+}
+
+/** The sentences that say what a search did not cover. Empty when it covered everything. */
+export function describeSearchLimits({ skipped = 0, truncatedAt }: SearchLimits): string[] {
+  const out: string[] = [];
+  if (skipped > 0) out.push(`${skipped} file${skipped === 1 ? " was" : "s were"} skipped because ${skipped === 1 ? "it is" : "they are"} excluded by a safety rule`);
+  if (truncatedAt !== undefined) out.push(`the search stopped at its limit of ${truncatedAt.toLocaleString("en-US")} files, so a definition may be in a file that was not searched`);
+  return out;
+}
+
 /** A word Reference matched no definition in the project. A frontend can tell this apart from a bad argument (for example to suggest a command). */
 export class WordNotFoundError extends UsageError {
   override name = "WordNotFoundError";
@@ -25,8 +41,9 @@ export class WordNotFoundError extends UsageError {
     readonly word: string,
     /** How many files were read and searched. */
     readonly searched: number,
+    readonly limits: SearchLimits = {},
   ) {
-    super(`no definition of "${word}" found in the project (searched ${searched} file${searched === 1 ? "" : "s"})`);
+    super([`no definition of "${word}" found in the project (searched ${searched} file${searched === 1 ? "" : "s"})`, ...describeSearchLimits(limits)].join("; "));
   }
 }
 

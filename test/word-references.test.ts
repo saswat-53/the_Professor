@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { attachReferences, buildRequest, defaultResolvers, UsageError } from "../src/core/index.js";
+import { attachReferences, buildRequest, defaultResolvers, formatContextReport, listSearchableFiles, prepareRequest, resolveReference, buildContextReport, UsageError, WordNotFoundError } from "../src/core/index.js";
+import type { SearchList } from "../src/core/index.js";
 
 const CANARY = "CANARY-word-never-leave";
 const settings = { baseUrl: "https://api.example.com/v1", model: "m" };
@@ -156,7 +157,7 @@ describe("words in chat", () => {
 
   it("leaves an @word with no definition (a decorator, a handle) as plain text", async () => {
     for (const q of ["what is @Injectable for?", "ping @someone about it"]) {
-      expect(await attach(q)).toEqual({ content: q, files: [], reports: [], notes: [] });
+      expect(await attach(q)).toMatchObject({ content: q, files: [], reports: [] });
     }
   });
 
@@ -164,5 +165,110 @@ describe("words in chat", () => {
     await writeFile(join(dir, "src/huge.ts"), `function huge() {\n${"  // padding line\n".repeat(60)}}\n`);
     const err = await attach("@huge", { settings: { ...settings, contextBudget: 100 } }).catch((e) => e);
     expect(err.message).toContain("budget");
+  });
+});
+
+describe("what a search could not cover", () => {
+  let guarded: string;
+  beforeAll(async () => {
+    guarded = await mkdtemp(join(tmpdir(), "learn-word-guarded-"));
+    execFileSync("git", ["init", "-q"], { cwd: guarded });
+    await writeFile(join(guarded, "open.ts"), "export function openFn() {}\n");
+    await writeFile(join(guarded, "secrets.ts"), `export function loadSecrets() { return "${CANARY}"; }\n`);
+    await writeFile(join(guarded, ".env.ts"), `export function loadDotenv() { return "${CANARY}"; }\n`);
+    await writeFile(join(guarded, ".gitignore"), "secrets.ts\n");
+  });
+  const inGuarded = (word: string) => buildRequest({ reference: word, settings, cwd: guarded, root: guarded });
+
+  it("says how many files a safety rule skipped, without naming them or the rule", async () => {
+    const err = await inGuarded("loadSecrets").catch((e) => e);
+    expect(err).toBeInstanceOf(WordNotFoundError);
+    expect(err.message).toContain('no definition of "loadSecrets" found in the project (searched 1 file)');
+    expect(err.message).toContain("2 files were skipped because they are excluded by a safety rule");
+    for (const leak of ["secrets.ts", ".env", "gitignore", "denylist", CANARY]) expect(err.message.replace("loadSecrets", "")).not.toContain(leak);
+  });
+
+  it("says nothing about skipped files when none were skipped", async () => {
+    const clean = await mkdtemp(join(tmpdir(), "learn-word-clean-"));
+    await writeFile(join(clean, "open.ts"), "export function openFn() {}\n");
+    const err = await buildRequest({ reference: "nothingByThisName", settings, cwd: clean, root: clean }).catch((e) => e);
+    expect(err.message).toContain("searched 1 file");
+    expect(err.message).not.toContain("safety rule");
+  });
+
+  it("uses the singular for one skipped file", async () => {
+    const one = await mkdtemp(join(tmpdir(), "learn-word-one-"));
+    await writeFile(join(one, ".env.ts"), "export function hidden() {}\n");
+    const err = await buildRequest({ reference: "hidden", settings, cwd: one, root: one }).catch((e) => e);
+    expect(err.message).toContain("1 file was skipped because it is excluded by a safety rule");
+  });
+
+  it("stops at a file limit and says so, in the listing and in the error", async () => {
+    const clean = await mkdtemp(join(tmpdir(), "learn-word-cap-"));
+    for (const n of ["a", "b", "c"]) await writeFile(join(clean, `${n}.ts`), `export const ${n} = 1;\n`);
+    const list = await listSearchableFiles(clean, 2);
+    expect(list.files).toHaveLength(2);
+    expect(list.truncatedAt).toBe(2);
+    expect((await listSearchableFiles(clean)).truncatedAt).toBeUndefined();
+    const err = new WordNotFoundError("x", 2, { truncatedAt: 20_000 });
+    expect(err.message).toContain("the search stopped at its limit of 20,000 files, so a definition may be in a file that was not searched");
+  });
+
+  it("puts the limit in the Context report of a definition it did find", async () => {
+    const search = { list: async (): Promise<SearchList> => ({ files: [join(dir, "src/util.ts")] as SearchList["files"], skipped: 0, truncatedAt: 20_000 }), read: async (p: string) => ({ text: "export function lone() {}\n", name: p }) };
+    const excerpt = await resolveReference({ kind: "word", word: "lone" } as never, { read: async () => ({ text: "", name: "x" }), search: search as never });
+    const text = formatContextReport(buildContextReport(excerpt, null, { chars: 24_000, source: "hosted default" }, false));
+    expect(text).toContain("search stopped at its limit of 20,000 files");
+  });
+});
+
+describe("several definitions of one word", () => {
+  let multi: string;
+  beforeAll(async () => {
+    multi = await mkdtemp(join(tmpdir(), "learn-word-multi-"));
+    for (const pkg of ["a", "b", "c", "d", "e", "f", "g", "h"]) {
+      await mkdir(join(multi, `pkg-${pkg}`));
+      await writeFile(join(multi, `pkg-${pkg}`, "dup.ts"), "export function dup() {\n  return 1;\n}\n");
+    }
+    await mkdir(join(multi, "pair"));
+    await writeFile(join(multi, "pair/x.ts"), "export function twin() {}\n");
+    await writeFile(join(multi, "pair/y.ts"), "export class Holder {\n  twin() {\n    return 1;\n  }\n}\n");
+  });
+  const report = async (word: string) => formatContextReport((await prepareRequest({ reference: word, settings, cwd: multi, root: multi })).report);
+
+  it("names the chosen definition and where else the word is defined, as labels to ask for", async () => {
+    expect(await report("twin")).toContain("chose pair/x.ts:1; also found in pair/y.ts:2-4 (to explain another, give it as file:N-M)");
+  });
+
+  it("lists five others at most, then counts the rest", async () => {
+    const text = await report("dup");
+    expect(text).toContain("chose pkg-a/dup.ts:1-3; also found in pkg-b/dup.ts:1-3, pkg-c/dup.ts:1-3, pkg-d/dup.ts:1-3, pkg-e/dup.ts:1-3, pkg-f/dup.ts:1-3 and 2 more");
+  });
+
+  it("says nothing extra when the word is defined once", async () => {
+    expect(await report("Holder")).not.toContain("also found");
+  });
+
+  it("the other definition can be asked for with file:N-M", async () => {
+    expect((await buildRequest({ reference: "pair/y.ts:2-4", settings, cwd: multi, root: multi })).user).toContain("File: pair/y.ts:2-4");
+  });
+
+  it("is in the report for a word attached in chat, and a hidden definition is noted there", async () => {
+    const { reports } = await attachReferences({ question: "see @dup", settings, cwd: multi, root: multi });
+    expect(formatContextReport(reports[0]!)).toContain("also found in pkg-b/dup.ts:1-3");
+  });
+});
+
+describe("a word in chat that nothing visible defines", () => {
+  it("is plain text, with a note only when a safety rule skipped files", async () => {
+    const guarded = await mkdtemp(join(tmpdir(), "learn-word-chat-"));
+    await writeFile(join(guarded, ".env.ts"), "export function hidden() {}\n");
+    const ask = (cwd: string) => attachReferences({ question: "what is @hidden?", settings, cwd, root: cwd });
+    const { content, notes } = await ask(guarded);
+    expect(content).toBe("what is @hidden?");
+    expect(notes).toEqual(["@hidden was not attached: no definition found; 1 file was skipped because it is excluded by a safety rule"]);
+    const clean = await mkdtemp(join(tmpdir(), "learn-word-chat-clean-"));
+    await writeFile(join(clean, "open.ts"), "export function openFn() {}\n");
+    expect((await ask(clean)).notes).toEqual([]);
   });
 });

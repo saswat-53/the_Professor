@@ -6,7 +6,7 @@ import { WordNotFoundError } from "./errors.js";
 import { extensionOf } from "./extension.js";
 import { findRepo, runGit } from "./git.js";
 import { PYTHON_EXTENSIONS } from "./python-block-finder.js";
-import { denylistRule } from "./sensitive.js";
+import { type SearchablePath, denylistRule } from "./sensitive.js";
 
 /** Source files only: a word in a README or a config file is not a definition, and a guess at one would mislead. */
 const SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([...BRACE_EXTENSIONS, ...PYTHON_EXTENSIONS, ..."rb scala dart lua zig ex exs sh bash zsh vue svelte".split(" ")]);
@@ -21,43 +21,74 @@ export const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 const isSource = (path: string) => SOURCE_EXTENSIONS.has(extensionOf(path));
 const isVendored = (path: string) => path.split(/[\\/]/).some((part) => SKIPPED_DIRECTORIES.has(part));
 
+/** What may be searched, and what could not be: so an empty or unlucky result can say why. */
+export interface SearchList {
+  files: SearchablePath[];
+  /** Source files left out by a safety rule (Sensitive, git-ignored, a link). Counted, never named. */
+  skipped: number;
+  /** Set to the limit when the project had more source files than were searched. */
+  truncatedAt?: number;
+}
+
+/** What a word Reference needs: the vetted files, and a way to read them. */
+export interface SearchDeps {
+  list: () => Promise<SearchList>;
+  read: (path: SearchablePath) => Promise<{ text: string; name: string }>;
+}
+
 /**
  * The absolute paths a word may be searched in: source files inside `root` that are not ignored by git
  * (tracked or not), not on the Sensitive-file denylist, not vendored, and not symbolic links (a link could lead
  * outside the root or to a Sensitive file). This is stricter than the file reader on purpose: the reader's
  * checks can be skipped (`--allow-sensitive`, a local endpoint), but a search reads files nobody pointed at,
- * so it never skips them.
+ * so it never skips them. Files left out by those rules are counted in `skipped`, for the "not found" message.
  */
-export async function listSearchableFiles(root: string): Promise<string[]> {
-  const relative = (await findRepo(root)) ? await listWithGit(root) : await listByWalking(root);
-  const kept: string[] = [];
-  for (const rel of relative.sort()) {
-    if (!isSource(rel) || isVendored(rel) || denylistRule(rel)) continue;
-    const full = join(root, rel);
-    if ((await lstat(full).catch(() => undefined))?.isFile()) kept.push(full);
+export async function listSearchableFiles(root: string, maxFiles = MAX_FILES): Promise<SearchList> {
+  const listing = (await findRepo(root)) ? await listWithGit(root) : await listByWalking(root);
+  let skipped = listing.ignored;
+  const candidates: string[] = [];
+  for (const rel of listing.names.sort()) {
+    if (!isSource(rel) || isVendored(rel)) continue;
+    if (denylistRule(rel)) skipped++;
+    else candidates.push(rel);
   }
-  return kept.slice(0, MAX_FILES);
+  const truncated = candidates.length > maxFiles;
+  const files: SearchablePath[] = [];
+  for (const rel of candidates.slice(0, maxFiles)) {
+    const full = join(root, rel);
+    const info = await lstat(full).catch(() => undefined);
+    if (info?.isSymbolicLink()) skipped++;
+    else if (info?.isFile()) files.push(full as SearchablePath);
+  }
+  return { files, skipped, ...(truncated && { truncatedAt: maxFiles }) };
 }
 
-async function listWithGit(root: string): Promise<string[]> {
+interface Listing {
+  names: string[];
+  /** Source files that git ignores (even ones it tracks). */
+  ignored: number;
+}
+
+async function listWithGit(root: string): Promise<Listing> {
   const names = async (args: string[]) => (await runGit(root, "ls-files", { args: ["-z", ...args, "--exclude-standard"] })).split("\0").filter((n) => n !== "" && !n.endsWith("/"));
   // A tracked file that a later .gitignore rule covers is still a file its owner chose not to share.
-  const ignored = new Set(await names(["--cached", "--ignored"]));
-  return (await names(["--cached", "--others"])).filter((n) => !ignored.has(n));
+  const ignored = new Set([...(await names(["--cached", "--ignored"])), ...(await names(["--others", "--ignored"]))]);
+  const counted = [...ignored].filter((n) => isSource(n) && !isVendored(n)).length;
+  return { names: (await names(["--cached", "--others"])).filter((n) => !ignored.has(n)), ignored: counted };
 }
 
-async function listByWalking(root: string): Promise<string[]> {
+async function listByWalking(root: string): Promise<Listing> {
   const found: string[] = [];
   const pending = [""];
-  while (pending.length > 0 && found.length < MAX_FILES) {
+  while (pending.length > 0 && found.length <= MAX_FILES) {
     const dir = pending.pop()!;
     for (const entry of await readdir(join(root, dir), { withFileTypes: true }).catch(() => [])) {
       const rel = dir === "" ? entry.name : `${dir}${sep}${entry.name}`;
       if (entry.isDirectory() && !SKIPPED_DIRECTORIES.has(entry.name)) pending.push(rel);
-      else if (entry.isFile()) found.push(rel);
+      else if ((entry.isFile() || entry.isSymbolicLink()) && isSource(rel)) found.push(rel);
     }
   }
-  return found;
+  return { names: found, ignored: 0 };
 }
 
 const MODIFIERS = "(?:(?:export|default|declare|public|private|protected|internal|static|abstract|final|open|sealed|data|inline|suspend|async|override|partial|readonly|unsafe|extern|const|pub(?:\\([^)]*\\))?)\\s+)*";
@@ -86,16 +117,26 @@ function definitionScore(line: string, next: string, word: string): number {
 const isTestFile = (path: string) => /(^|[\\/])(tests?|__tests__|specs?)[\\/]|[._-](test|spec)\.[^\\/]+$|(^|[\\/])test_[^\\/]+$/i.test(path);
 const LINE_BREAK = /\r\n|\r|\n/;
 
-export interface FoundDefinition {
+interface Span {
   /** Project-relative name of the file. */
   name: string;
-  text: string;
-  /** The definition: its enclosing block when that starts on the definition line (or on the decorators above it), else the one line. */
   start: number;
   end: number;
 }
 
-interface Candidate extends FoundDefinition {
+export interface FoundDefinition extends Span {
+  text: string;
+  /** The best definition in each other file, best first, at most `MAX_ALSO_FOUND`: what the user may ask for instead with `file:N-M`. */
+  alsoFound: Span[];
+  /** How many more files hold a definition than `alsoFound` lists. */
+  more: number;
+  /** Set to the limit when the project had more source files than were searched. */
+  truncatedAt?: number;
+}
+
+interface Candidate {
+  name: string;
+  text: string;
   score: number;
   line: number;
 }
@@ -110,35 +151,50 @@ function better(a: Candidate, b: Candidate): boolean {
   return a.name !== b.name ? a.name < b.name : a.line < b.line;
 }
 
-function extentOf(name: string, lines: string[], line: number): { start: number; end: number } {
+function extentOf(candidate: Candidate): Span {
+  const lines = candidate.text.split(LINE_BREAK);
+  const { name, line } = candidate;
   const block = blockFinderFor(name).find({ path: name, lines }, { start: line, end: line });
   const decorated = block && block.start <= line && lines.slice(block.start - 1, line - 1).every((l) => /^\s*(@|#|\/\/|\/\*|\*|$)/.test(l));
-  return block && decorated && block.end - block.start < MAX_BLOCK_LINES ? block : { start: line, end: line };
+  return { name, ...(block && decorated && block.end - block.start < MAX_BLOCK_LINES ? block : { start: line, end: line }) };
 }
 
+const MAX_ALSO_FOUND = 5;
+
 /**
- * Finds the best definition of `word` among `files` (absolute paths). Every file is opened with `read`, the
- * reader that does the root check and the file reading rules; one that fails them is skipped, not an error.
+ * Finds the best definition of `word` among the vetted files, and notes where else it is defined. Every file is
+ * opened with `deps.read`; one that fails the file reading rules is skipped, not an error.
  */
-export async function findDefinition(
-  word: string,
-  deps: { read: (path: string) => Promise<{ text: string; name: string }>; files: () => Promise<string[]> },
-): Promise<FoundDefinition> {
-  let best: Candidate | undefined;
+export async function findDefinition(word: string, deps: SearchDeps): Promise<FoundDefinition> {
+  const { files, skipped, truncatedAt } = await deps.list();
+  const perFile: Candidate[] = [];
   let searched = 0;
-  for (const path of await deps.files()) {
+  for (const path of files) {
     const file = await deps.read(path).catch(() => undefined);
     if (!file) continue;
     searched++;
     if (!file.text.includes(word)) continue;
     const lines = file.text.split(LINE_BREAK);
+    let best: Candidate | undefined;
     for (let i = 0; i < lines.length; i++) {
       const score = definitionScore(lines[i]!, lines[i + 1] ?? "", word);
       if (score === 0) continue;
-      const candidate: Candidate = { name: file.name, text: file.text, score, line: i + 1, start: 0, end: 0 };
-      if (!best || better(candidate, best)) best = Object.assign(candidate, extentOf(file.name, lines, i + 1));
+      const candidate: Candidate = { name: file.name, text: file.text, score, line: i + 1 };
+      if (!best || better(candidate, best)) best = candidate;
     }
+    if (best) perFile.push(best);
   }
-  if (!best) throw new WordNotFoundError(word, searched);
-  return { name: best.name, text: best.text, start: best.start, end: best.end };
+  perFile.sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0));
+  const [chosen, ...others] = perFile;
+  if (!chosen) throw new WordNotFoundError(word, searched, { skipped, truncatedAt });
+  const { name, start, end } = extentOf(chosen);
+  return {
+    name,
+    start,
+    end,
+    text: chosen.text,
+    alsoFound: others.slice(0, MAX_ALSO_FOUND).map(extentOf),
+    more: Math.max(0, others.length - MAX_ALSO_FOUND),
+    ...(truncatedAt !== undefined && { truncatedAt }),
+  };
 }

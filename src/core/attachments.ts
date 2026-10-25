@@ -2,13 +2,13 @@ import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { assertExcerptFits, resolveBudget } from "./budget.js";
 import { blockFinderFor } from "./block-finder-for.js";
-import { ContextTooLongError, WordNotFoundError } from "./errors.js";
+import { ContextTooLongError, WordNotFoundError, describeSearchLimits } from "./errors.js";
 import { formatRequest, gatherContext } from "./context.js";
 import { type ContextReport, buildContextReport } from "./report.js";
 import { parseReference, resolveReference } from "./reference.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader } from "./sensitive.js";
-import { IDENTIFIER, listSearchableFiles } from "./word-search.js";
+import { IDENTIFIER, type SearchList, listSearchableFiles } from "./word-search.js";
 import type { Settings } from "./types.js";
 
 /** An `@` token found in a question: `text` is how it was typed, `path` what it names (unquoted, unescaped), `spec` an optional `N` or `N-M`. */
@@ -123,17 +123,21 @@ export async function attachReferences(input: AttachInput): Promise<Attached> {
   const reports: ContextReport[] = [];
   const files: string[] = [];
   let attachedChars = 0;
-  let searchable: Promise<string[]> | undefined;
+  let searchable: Promise<SearchList> | undefined;
   for (const m of chosen) {
     // A fresh reader per file, so each report lists only its own Sensitive-file override.
     const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl, readText: input.readFile });
     const reference = await parseReference(referenceText(m), exists);
     let excerpt;
     try {
-      excerpt = await resolveReference(reference, { read: (path) => reader.read(path), files: () => (searchable ??= listSearchableFiles(root)) });
+      excerpt = await resolveReference(reference, { read: (path) => reader.read(path), search: { list: () => (searchable ??= listSearchableFiles(root)), read: (path) => reader.readSearchable(path) } });
     } catch (err) {
-      // An @word nothing defines was not a Reference after all.
-      if (err instanceof WordNotFoundError && reference.kind === "word") continue;
+      // An @word nothing defines was not a Reference after all. But if the search could not look everywhere, say so.
+      if (err instanceof WordNotFoundError && reference.kind === "word") {
+        const limits = describeSearchLimits(err.limits);
+        if (limits.length > 0) notes.push(`@${m.path} was not attached: ${["no definition found", ...limits].join("; ")}`);
+        continue;
+      }
       throw err;
     }
     const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);

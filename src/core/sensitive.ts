@@ -164,8 +164,16 @@ export interface SensitiveBypass {
   host?: string;
 }
 
+/** A path that `listSearchableFiles` has already vetted (inside the root, not Sensitive, not ignored, not a link). Only that function makes one. */
+export type SearchablePath = string & { readonly vetted: unique symbol };
+
 export interface FileReader {
   read(path: string): Promise<{ text: string; name: string }>;
+  /**
+   * Reads a file `listSearchableFiles` vetted, without asking git about it again: that is one process per file,
+   * which made a search of a large project take minutes. The root check and the file reading rules still apply.
+   */
+  readSearchable(path: SearchablePath): Promise<{ text: string; name: string }>;
   /** Where the content goes. The exemption and the host in `bypassed` both come from this one parse. */
   readonly endpoint: Endpoint;
   /** Every Sensitive file this reader has read despite its rule, once each. */
@@ -202,6 +210,10 @@ export function createFileReader(options: FileReaderOptions): FileReader {
         if (!by) throw new BlockedFileError(name, reason);
         if (!bypassed.some((b) => b.file === name)) bypassed.push({ file: name, rule: ruleName(reason), by, ...(host !== undefined && { host }) });
       }
+      return { text: await readText(real), name };
+    },
+    async readSearchable(path) {
+      const { real, name } = await locateFile(options.root, options.cwd, path);
       return { text: await readText(real), name };
     },
   };
