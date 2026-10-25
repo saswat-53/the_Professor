@@ -1,13 +1,13 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { CancelledError, followUp, formatContextReport, hasOverride, reportForError } from "../core/index.js";
-import type { Attached, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
+import { CancelledError, QUIZ_LENGTH, followUp, formatContextReport, generateQuiz, gradeAnswer, hasOverride, reportForError } from "../core/index.js";
+import type { Attached, ExplainEvent, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
 
 /** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
 export const BLOCK_OPEN = "<<<";
 export const BLOCK_CLOSE = ">>>";
 
-export const CHAT_HELP = `Type a question and press Enter. To paste code or several lines, type ${BLOCK_OPEN} on a line of its own, paste, then type ${BLOCK_CLOSE} on a line of its own. /save [name] writes this Session as a note, /glossary term: meaning adds a glossary entry. /exit (or /quit), Ctrl-D or Ctrl-C at the prompt ends the chat; Ctrl-C while an answer is streaming cancels just that answer.`;
+export const CHAT_HELP = `Type a question and press Enter. To paste code or several lines, type ${BLOCK_OPEN} on a line of its own, paste, then type ${BLOCK_CLOSE} on a line of its own. /save [name] writes this Session as a note, /glossary term: meaning adds a glossary entry. /quiz asks five questions about this Session (answer each in your own words; /skip passes, /quit stops; nothing is scored or stored). /exit (or /quit), Ctrl-D or Ctrl-C at the prompt ends the chat; Ctrl-C while an answer is streaming cancels just that answer.`;
 
 export interface ChatOptions {
   input: Readable;
@@ -72,27 +72,119 @@ export async function runChat(opts: ChatOptions): Promise<number> {
   rl.on("SIGINT", () => interrupt(130));
   opts.takeSignals(interrupt);
 
-  opts.output.write(`${CHAT_HELP}\n`);
+  /** A message whose first line is `first`: that line, or a pasted block when it is `<<<`. Undefined when input ends inside the block. */
+  const readMessage = async (first: string, prompt: string): Promise<string | undefined> => {
+    if (first.trim() !== BLOCK_OPEN) return first.trim();
+    const block: string[] = [];
+    rl.setPrompt("... ");
+    for (;;) {
+      rl.prompt();
+      const line = await next();
+      if (line === undefined) return undefined;
+      if (line.trim() === BLOCK_CLOSE) break;
+      block.push(line);
+    }
+    rl.setPrompt(prompt);
+    return block.join("\n").trim();
+  };
+
+  /** Writes a model reply's events to the terminal, the way every streamed answer is shown. */
   let lastChar = "\n";
+  const show = async (events: AsyncIterable<ExplainEvent>) => {
+    const strip = opts.stripper();
+    for await (const event of events) {
+      if (event.type === "context-report") {
+        opts.report("info", formatContextReport(event.report));
+      } else if (event.type === "text-delta") {
+        const text = strip(event.text);
+        opts.output.write(text);
+        lastChar = text.at(-1) ?? lastChar;
+      } else if (event.type === "error") {
+        if (lastChar !== "\n") opts.output.write("\n");
+        lastChar = "\n";
+        if (event.error instanceof CancelledError) opts.report("info", "cancelled");
+        else opts.report("error", opts.describe(event.error));
+      } else if (event.type === "done") {
+        opts.output.write("\n");
+        lastChar = "\n";
+      }
+    }
+  };
+
+  /** After a request ends: lines typed ahead meanwhile are dropped, so a paste cannot become several answers. */
+  const settle = () => {
+    current = undefined;
+    // Lines that were already queued in the same read as the question are typed-ahead too, and so is a half-typed line.
+    discarded += lines.splice(0).length;
+    rl.write(null, { ctrl: true, name: "u" });
+    if (discarded > 0) opts.report("info", `discarded ${discarded} line${discarded === 1 ? "" : "s"} typed while the answer was streaming; type again to ask`);
+    discarded = 0;
+  };
+
+  /** `/quiz`: one request for the questions, then each one in turn. Nothing is added to the Session and nothing is kept. */
+  const quiz = async () => {
+    current = new AbortController();
+    let questions: string[];
+    try {
+      questions = await generateQuiz({ session: opts.session, model: opts.model, signal: current.signal, onRequest: opts.onRequest });
+    } catch (err) {
+      if (err instanceof CancelledError) opts.report("info", "cancelled");
+      else opts.report("error", opts.describe(err));
+      settle();
+      return;
+    }
+    settle();
+    opts.output.write(`${QUIZ_LENGTH} questions. Answer in your own words; /skip passes, /quit stops.\n`);
+    for (const [i, question] of questions.entries()) {
+      if (closed || endedBy !== undefined) return;
+      opts.output.write(`\nQuestion ${i + 1} of ${questions.length}: ${opts.stripper()(question)}\n`);
+      let answer = "";
+      while (answer === "") {
+        rl.setPrompt("answer> ");
+        rl.prompt();
+        const line = await next();
+        if (line === undefined) return;
+        const text = await readMessage(line, "answer> ");
+        if (text === undefined) return;
+        answer = text;
+      }
+      if (answer === "/quit") {
+        opts.output.write("quiz stopped\n");
+        return;
+      }
+      if (answer === "/skip") {
+        opts.output.write("skipped\n");
+        continue;
+      }
+      current = new AbortController();
+      const { signal } = current;
+      await show(gradeAnswer({ session: opts.session, question, answer, model: opts.model, signal, onRequest: opts.onRequest }));
+      settle();
+      // Ctrl-C while a grade streams stops the quiz, as /quit does.
+      if (signal.aborted) {
+        opts.output.write("quiz stopped\n");
+        return;
+      }
+      if (endedBy !== undefined) return;
+    }
+    opts.output.write("\nThat was the quiz. Nothing was scored or stored.\n");
+  };
+
+  opts.output.write(`${CHAT_HELP}\n`);
   while (!closed) {
     rl.setPrompt("learn> ");
     rl.prompt();
     const first = await next();
     if (first === undefined) break;
-    let question = first.trim();
-    if (question === BLOCK_OPEN) {
-      const block: string[] = [];
-      rl.setPrompt("... ");
-      for (;;) {
-        rl.prompt();
-        const line = await next();
-        if (line === undefined) return endedBy ?? 0; // closed inside a block: the half-pasted text is dropped
-        if (line.trim() === BLOCK_CLOSE) break;
-        block.push(line);
-      }
-      question = block.join("\n").trim();
-    }
+    const message = await readMessage(first, "learn> ");
+    if (message === undefined) return endedBy ?? 0; // closed inside a block: the half-pasted text is dropped
+    let question = message;
     if (question === "") continue;
+    if (question === "/quiz") {
+      await quiz();
+      if (endedBy !== undefined) break;
+      continue;
+    }
     const command = /^\/(save|glossary)(?:\s+([\s\S]*))?$/.exec(question);
     if (command) {
       const args = command[2]?.trim() ?? "";
@@ -111,7 +203,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     }
     if (/^\/[a-z]+$/.test(question)) {
       if (question === "/exit" || question === "/quit") break;
-      opts.report("info", `${question} is not a command (commands: /save, /glossary, /exit)`);
+      opts.report("info", `${question} is not a command (commands: /save, /glossary, /quiz, /exit)`);
       continue;
     }
     let attachedFiles: string[] = [];
@@ -130,30 +222,8 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       continue;
     }
     current = new AbortController();
-    const strip = opts.stripper();
-    for await (const event of followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, sensitive, onRequest: opts.onRequest })) {
-      if (event.type === "context-report") {
-        opts.report("info", formatContextReport(event.report));
-      } else if (event.type === "text-delta") {
-        const text = strip(event.text);
-        opts.output.write(text);
-        lastChar = text.at(-1) ?? lastChar;
-      } else if (event.type === "error") {
-        if (lastChar !== "\n") opts.output.write("\n");
-        lastChar = "\n";
-        if (event.error instanceof CancelledError) opts.report("info", "cancelled");
-        else opts.report("error", opts.describe(event.error));
-      } else if (event.type === "done") {
-        opts.output.write("\n");
-        lastChar = "\n";
-      }
-    }
-    current = undefined;
-    // Lines that were already queued in the same read as the question are typed-ahead too, and so is a half-typed line.
-    discarded += lines.splice(0).length;
-    rl.write(null, { ctrl: true, name: "u" });
-    if (discarded > 0) opts.report("info", `discarded ${discarded} line${discarded === 1 ? "" : "s"} typed while the answer was streaming; type again to ask`);
-    discarded = 0;
+    await show(followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, sensitive, onRequest: opts.onRequest }));
+    settle();
     if (endedBy !== undefined) break;
   }
   rl.close();

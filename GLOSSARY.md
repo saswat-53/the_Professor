@@ -57,6 +57,10 @@ The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` /
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
+**Quiz**:
+Five questions the model writes from the current Session when the user types `/quiz`, asked one at a time with each free-text answer graded and a suggested answer given. It is not part of the Session and nothing from it, scores included, is stored.
+_Avoid_: Test, exam
+
 **Notes directory**:
 The only place the tool writes (`notes_dir`, default `~/learn-notes`). `/save` puts one **note** here per save: a markdown file of the Session's turns, named by date and a sanitised slug, never overwritten, starting with a warning that it contains code. `/glossary term: meaning` appends a line to the one `glossary.md` beside the notes. Files are created exclusively (never following a symlink at the final name) and the real path of each is then checked to be inside it.
 Must be absolute or `~/...`; a relative value is refused so notes never go into the project by accident. A warning is shown once if it is inside a git work tree.

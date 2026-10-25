@@ -17,6 +17,7 @@ export {
   NotesError,
   PathEscapeError,
   ProviderError,
+  QuizError,
   RateLimitError,
   RefusedError,
   RuntimeError,
@@ -62,3 +63,4 @@ export { findDefinition, listSearchableFiles } from "./word-search.js";
 export type { FoundDefinition, SearchDeps, SearchList } from "./word-search.js";
 export { appendGlossaryEntry, saveNote } from "./notes.js";
 export type { NoteTurn } from "./notes.js";
+export { QUIZ_LENGTH, generateQuiz, gradeAnswer, parseQuiz } from "./quiz.js";

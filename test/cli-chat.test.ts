@@ -21,6 +21,8 @@ let released: Promise<void>;
 let auths: (string | undefined)[];
 let dir: string;
 let file: string;
+/** What the fake endpoint says to the /quiz request; a test sets it. */
+let quizReply: string;
 
 const chunk = (content: string) => ({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta: { content }, finish_reason: null }] });
 
@@ -44,7 +46,8 @@ beforeAll(async () => {
         return;
       }
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify(chunk(`ANSWER${bodies.length}`))}\n\n`);
+      const reply = last.startsWith("Quiz me on") ? quizReply : last.startsWith("I am answering a quiz question") ? `GRADE${bodies.length}` : `ANSWER${bodies.length}`;
+      res.write(`data: ${JSON.stringify(chunk(reply))}\n\n`);
       // A question of "hang" leaves the response open, so a test can cancel it.
       if (last === "hang") return;
       if (last === "slow") {
@@ -69,6 +72,7 @@ afterAll(() => server.close());
 beforeEach(() => {
   bodies = [];
   auths = [];
+  quizReply = JSON.stringify({ questions: ["QONE?", "QTWO?", "QTHREE?", "QFOUR?", "QFIVE?"] });
   released = new Promise((r) => (release = r));
 });
 
@@ -402,5 +406,40 @@ describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's s
     expect(out).not.toContain(CANARY);
     // The error turn left no trace in the history of the next one.
     expect(bodies[4]!.messages.map((m) => m.content)).not.toContain("badkey");
+  }, 30_000);
+
+  it("/quiz asks five questions one at a time, grades each answer, lets you skip and quit, and stores nothing", async () => {
+    const before = await readdir(dir);
+    const out = await chat([
+      ["learn> ", `/quiz${ENTER}`],
+      ["QONE?", `because it is a constant${ENTER}`],
+      ["GRADE3", `/skip${ENTER}`],
+      ["QTHREE?", `a second answer${ENTER}`],
+      ["GRADE4", `/quit${ENTER}`],
+      ["quiz stopped", `and now a question${ENTER}`],
+      ["ANSWER5", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toContain("Question 1 of 5: QONE?");
+    expect(out).toContain("Question 2 of 5: QTWO?");
+    expect(out).not.toContain("QFIVE?");
+    // Request 2 asked for the questions, 3 and 4 graded answers; the skipped question cost no request.
+    expect(bodies).toHaveLength(5);
+    expect(bodies[2]!.messages.at(-1)!.content).toContain("because it is a constant");
+    expect(bodies[2]!.messages.at(-1)!.content).toContain("QONE?");
+    // The quiz is not part of the Session: the later question's history is the first turn only.
+    expect(bodies[4]!.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(await readdir(dir)).toEqual(before);
+  }, 30_000);
+
+  it("/quiz with a malformed reply shows a clear error, starts no quiz, and the chat goes on", async () => {
+    quizReply = "here are some questions, hope they help";
+    const out = await chat([
+      ["learn> ", `/quiz${ENTER}`],
+      ["no quiz", `/exit${ENTER}`],
+    ]);
+    expect(out).toContain("no quiz");
+    expect(out).not.toContain("Question 1");
+    expect(out).toMatch(/\nexit 0\n$/);
   }, 30_000);
 });

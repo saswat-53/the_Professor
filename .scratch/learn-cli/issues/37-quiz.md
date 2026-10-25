@@ -4,10 +4,10 @@
 
 **Blocked by:** 32 (Interactive chat basics)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `/quiz` asks the model once for five questions in a validated structure, and a malformed reply gives a clear error and no partial quiz
-- [ ] Questions are asked one at a time; the user answers in free text
-- [ ] Each answer is graded with feedback phrased as a suggested answer
-- [ ] The user can skip a question or quit at any time
-- [ ] No scores or history are stored
+- [x] `/quiz` asks the model once for five questions in a validated structure, and a malformed reply gives a clear error and no partial quiz
+- [x] Questions are asked one at a time; the user answers in free text
+- [x] Each answer is graded with feedback phrased as a suggested answer
+- [x] The user can skip a question or quit at any time
+- [x] No scores or history are stored

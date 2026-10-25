@@ -162,3 +162,8 @@ export class UnexpectedError extends RuntimeError {
 export class NotesError extends RuntimeError {
   override name = "NotesError";
 }
+
+/** The model's reply to `/quiz` was not the five questions asked for, so there is no quiz. */
+export class QuizError extends RuntimeError {
+  override name = "QuizError";
+}
