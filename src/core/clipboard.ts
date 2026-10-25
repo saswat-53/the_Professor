@@ -57,7 +57,13 @@ export async function readClipboard(options: ReadClipboardOptions): Promise<stri
 /** What one tool prints, or undefined if it is not installed. Any other failure is thrown. */
 function runTool({ tool, args }: ClipboardCommand, env: NodeJS.ProcessEnv, maxBytes: number): Promise<string | undefined> {
   return new Promise((resolve, reject) => {
-    const child = spawn(tool, args, { env, stdio: ["ignore", "pipe", "ignore"], timeout: TIMEOUT_MS });
+    const child = spawn(tool, args, { env, stdio: ["ignore", "pipe", "ignore"] });
+    // Our own timer rather than spawn's `timeout` option: when the tool is not installed, some Node versions never
+    // clear that option's timer, which would keep the process alive for its full length after the error was reported.
+    const timer = setTimeout(() => {
+      failure ??= new UnexpectedError(`could not read the clipboard: ${tool} did not answer within ${TIMEOUT_MS / 1000} seconds`);
+      child.kill();
+    }, TIMEOUT_MS);
     const chunks: Buffer[] = [];
     let size = 0;
     let failure: Error | undefined;
@@ -69,10 +75,12 @@ function runTool({ tool, args }: ClipboardCommand, env: NodeJS.ProcessEnv, maxBy
       } else chunks.push(chunk);
     });
     child.on("error", (err: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
       if (err.code === "ENOENT") resolve(undefined);
       else reject(new UnexpectedError(`could not read the clipboard: ${tool} could not be started (${err.code ?? "unknown error"})`));
     });
     child.on("close", (code, signal) => {
+      clearTimeout(timer);
       if (failure) reject(failure);
       else if (code !== 0) reject(new UnexpectedError(`could not read the clipboard: ${tool} ${signal ? `was stopped by ${signal}` : `exited with status ${code}`}`));
       else resolve(Buffer.concat(chunks).toString("utf8"));
