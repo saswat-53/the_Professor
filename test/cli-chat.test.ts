@@ -150,6 +150,41 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(bodies).toHaveLength(1);
   }, 30_000);
 
+  it("refuses a Sensitive file on a hosted endpoint inline, and no request carries it", async () => {
+    await writeFile(join(dir, ".env"), "TOKEN=SHHH_MARKER\n");
+    const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+    await mkdir(join(xdg, "learn"));
+    await writeFile(join(xdg, "learn", "config.toml"), '[provider]\nkey_env = "KEY_VAR"\n');
+    // 127.1 is the local machine but not one of the spellings learn treats as local, so this is a hosted endpoint: the file check applies.
+    const hosted = baseUrl.replace("127.0.0.1", "127.1");
+    const out = await chat(
+      [
+        ["learn> ", `read @.env${ENTER}`],
+        ["not sent", `and @.env:1${ENTER}`],
+        ["not sent", `/exit${ENTER}`],
+      ],
+      { LEARN_BASE_URL: hosted, KEY_VAR: "sk-test", XDG_CONFIG_HOME: xdg },
+    );
+    expect(out).toContain("refused: .env");
+    expect(out).toContain("your message was not sent");
+    expect(out).not.toContain("SHHH_MARKER");
+    // Only the first explanation of a.ts reached the server.
+    expect(bodies).toHaveLength(1);
+    expect(JSON.stringify(bodies)).not.toContain("SHHH_MARKER");
+  }, 30_000);
+
+  it("warns once that the root is the home directory, however many files are attached", async () => {
+    const out = await chat(
+      [
+        ["learn> ", `@a.ts and @b.ts${ENTER}`],
+        ["ANSWER2", `@a.ts:1${ENTER}`],
+        ["ANSWER3", `/exit${ENTER}`],
+      ],
+      { HOME: dir },
+    );
+    expect(out.match(/the project root is your home directory/g)).toHaveLength(1);
+  }, 30_000);
+
   it("Ctrl-C during a response cancels only that response; the chat goes on", async () => {
     const out = await chat([
       ["learn> ", `hang${ENTER}`],

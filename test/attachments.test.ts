@@ -1,9 +1,11 @@
+import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { attachReferences } from "../src/core/index.js";
 
+const CANARY = "CANARY-9f3a-never-leave";
 const settings = { baseUrl: "http://h/v1", model: "m" };
 let dir: string;
 const attach = (question: string, extra: Record<string, unknown> = {}) => attachReferences({ question, settings, cwd: dir, root: dir, ...extra });
@@ -13,14 +15,18 @@ beforeAll(async () => {
   await writeFile(join(dir, "a.ts"), Array.from({ length: 30 }, (_, i) => `const line${i + 1} = ${i + 1};`).join("\n") + "\n");
   await writeFile(join(dir, "my file.ts"), "export const spaced = true;\n");
   await writeFile(join(dir, "Makefile"), "all:\n\techo hi\n");
-  await writeFile(join(dir, ".env"), "SECRET=abc\n");
   await writeFile(join(dir, "big.ts"), "x".repeat(20_000));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
   await mkdir(join(dir, "sub"));
+  for (const n of ["p", "q", "r"]) await writeFile(join(dir, `${n}.ts`), `// ${n}\n${"y".repeat(5_000)}`);
+  await writeFile(join(dir, "ignored.txt"), `${CANARY}\n`);
+  await writeFile(join(dir, ".gitignore"), "ignored.txt\n");
+  await writeFile(join(dir, ".env"), `TOKEN=${CANARY}\n`);
 });
 
 describe("attachReferences", () => {
   it("leaves a question with no reference exactly as typed", async () => {
-    expect(await attach("why is this async?")).toEqual({ content: "why is this async?", reports: [] });
+    expect(await attach("why is this async?")).toEqual({ content: "why is this async?", reports: [], notes: [] });
   });
 
   it("attaches a whole file, keeps the question text, and reports it", async () => {
@@ -40,7 +46,7 @@ describe("attachReferences", () => {
 
   it("does not take an email address, a decorator or a mid-word @ for a reference", async () => {
     for (const q of ["mail me@example.com", "what is @Injectable for?", "see @app.route(\"/x\") here", "x@a.ts is odd"]) {
-      expect(await attach(q)).toEqual({ content: q, reports: [] });
+      expect(await attach(q)).toEqual({ content: q, reports: [], notes: [] });
     }
   });
 
@@ -83,5 +89,37 @@ describe("attachReferences", () => {
   it("attaches several files, one report each", async () => {
     const { reports } = await attach("compare @a.ts:1-2 with @\"my file.ts\"");
     expect(reports.map((r) => (r.kind === "sent" ? r.label : ""))).toEqual(["a.ts:1-2", "my file.ts"]);
+  });
+
+  it("limits the code attached to one message as a whole, naming the file that pushed it over", async () => {
+    // Each of p, q and r is 5,000 characters, well inside the limit alone; the hosted limit for a message is 12,000.
+    const { content } = await attach("@p.ts @q.ts");
+    expect(content).toContain("File: q.ts");
+    await expect(attach("@p.ts @q.ts @r.ts")).rejects.toMatchObject({ name: "ContextTooLongError", message: expect.stringContaining("@r.ts brings the code attached to this message") });
+  });
+
+  it("attaches a file mentioned twice once, and says so", async () => {
+    const { content, reports, notes } = await attach("@a.ts:1-2 then @a.ts:1-2 again");
+    expect(reports).toHaveLength(1);
+    expect(content.match(/File: a\.ts:1-2/g)).toHaveLength(1);
+    expect(notes).toEqual(["@a.ts:1-2 was mentioned more than once and is attached once"]);
+  });
+});
+
+describe("a secret in an attached file", () => {
+  it("is refused on a hosted endpoint, and the refusal never carries the secret", async () => {
+    for (const q of ["@.env", "@ignored.txt", "@.env:1"]) {
+      const err = await attach(q).then(() => undefined, (e: Error) => e);
+      expect(err).toMatchObject({ name: "BlockedFileError" });
+      expect(`${err?.message}`).not.toContain(CANARY);
+    }
+    // A harmless file mentioned beside it does not get the message through.
+    await expect(attach("@a.ts and @.env")).rejects.toMatchObject({ name: "BlockedFileError" });
+  });
+
+  it("is sent only with --allow-sensitive, and the report says which rule and where", async () => {
+    const { content, reports } = await attach("@.env", { allowSensitive: true });
+    expect(content).toContain(CANARY);
+    expect(reports[0]).toMatchObject({ kind: "sent", overrides: [{ file: ".env", by: "flag", host: "h" }] });
   });
 });

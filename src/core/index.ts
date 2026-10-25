@@ -51,4 +51,4 @@ export { readTextFile } from "./read-file.js";
 export { INIT_PRESETS, renderConfig, testRequest } from "./init.js";
 export type { InitAnswers, InitPreset, PresetName } from "./init.js";
 export { attachReferences, findMentions } from "./attachments.js";
-export type { AttachInput, Mention } from "./attachments.js";
+export type { AttachInput, Attached, Mention } from "./attachments.js";
