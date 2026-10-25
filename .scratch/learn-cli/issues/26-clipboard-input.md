@@ -4,7 +4,7 @@
 
 **Blocked by:** 25 (Piped input)
 
-**Status:** implemented; waiting for a green Linux CI run before done (the oversize path kills the tool mid-write)
+**Status:** done
 
 - [x] The clipboard tool is started with fixed arguments and no shell; nothing from the user or the clipboard is interpolated into the command (shown by a test with metacharacters on a fake clipboard)
 - [x] On macOS and Linux the right tool is used for the platform
