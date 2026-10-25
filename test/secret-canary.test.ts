@@ -305,3 +305,49 @@ describe("secret canary: --diff", () => {
     expect(both.stderr).toContain("--diff cannot be combined with a file reference");
   });
 });
+
+describe("secret canary: --blame", () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd, encoding: "utf8" });
+  const hostedLoopback = (url: string) => url.replace("127.0.0.1", "127.1");
+
+  /** The secret project with the canary-holding files committed (the gitignored one by force). */
+  async function committedProject() {
+    const { home, repo } = await secretProject();
+    git(repo, "add", "-f", ".gitignore", "ignored.txt", ".env", "server.pem", "app.ts");
+    git(repo, "commit", "-qm", "base");
+    return { home, repo };
+  }
+
+  const targets = [".env:1", "server.pem:1", "ignored.txt:1"];
+  const cases = targets.flatMap((target) => MODES.map((m) => [target, m.name, m.flags] as const));
+
+  it.each(cases)("%s with %s: refused, and the canary, key and home path appear nowhere", async (target, _mode, flags) => {
+    const { home, repo } = await committedProject();
+    await withServer(async (url, seen) => {
+      const r = await run(["--blame", target, ...flags], await envFor(hostedLoopback(url), home), repo);
+      expect(r.code).toBe(3);
+      expect(r.stderr).toMatch(/refused: /);
+      const everything = r.stdout + r.stderr + seen.body();
+      expect(everything).not.toContain(CANARY);
+      expect(everything).not.toContain(KEY_CANARY);
+      expect(everything).not.toContain(home);
+      expect(seen.requests()).toBe(0);
+    });
+  });
+
+  it("a canary committed in an ordinary file and later removed is sent, and the report says history cannot be filtered", async () => {
+    const { home, repo } = await committedProject();
+    await writeFile(join(repo, "app.ts"), `export const token = "${CANARY}";\n`);
+    git(repo, "commit", "-qam", "oops");
+    await writeFile(join(repo, "app.ts"), "export const token = process.env.TOKEN;\n");
+    git(repo, "commit", "-qam", "remove the token");
+    await withServer(async (url, seen) => {
+      const r = await run(["--blame", "app.ts:1"], await envFor(hostedLoopback(url), home), repo);
+      expect(r.code).toBe(0);
+      // Pinned honestly: the history is evidence, so the removed secret is in it, and the report does not pretend otherwise.
+      expect(seen.body()).toContain(CANARY);
+      expect(r.stderr).toContain("secrets inside history can't be filtered by name");
+      expect(r.stdout + r.stderr + seen.body()).not.toContain(KEY_CANARY);
+    });
+  });
+});

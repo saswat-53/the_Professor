@@ -61,6 +61,9 @@ The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user
 What `--diff` explains: the working tree's changes against HEAD (or a ref), staged and unstaged together, plus untracked files shown as new files; a repository with no commits is all new files. Every changed file name, including the old side of a rename and a deleted file, goes through the Sensitive-file rules before git is asked for any content, so an excluded file's changes are never read; the Context report names what was left out. The diff counts against the **Budget** whole (there is no Context, so no half-budget rule); over it is refused. It is sent inside a fence as data, and a shallow clone adds a note to the report.
 _Avoid_: Patch, changeset
 
+**Blame**:
+What `--blame path:N-M` explains: why a range of lines changed, from git's line-range log (`git log -L`), which follows the lines through edits and renames. The commit messages and patches are the evidence, sent inside a fence as data, with the instruction that only what the history shows can be explained and intent a message does not state is marked as a guess. The named file and every file name the history mentions (an earlier name after a rename) go through the Sensitive-file rules before the history is used; one that is blocked refuses the request. History is not filtered by content, so the Context report says plainly that secrets inside history can't be filtered by name. It counts against the **Budget** whole; a shallow clone adds a note that history is incomplete.
+
 **Quiz**:
 Five questions the model writes from the current Session when the user types `/quiz`, asked one at a time with each free-text answer graded and a suggested answer given. It is not part of the Session and nothing from it, scores included, is stored.
 _Avoid_: Test, exam

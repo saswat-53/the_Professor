@@ -58,10 +58,10 @@ function lineCount(lines: string[]) {
   return lines.at(-1) === "" ? lines.length - 1 : lines.length;
 }
 
-const formatRange = (start: number, end: number) => (start === end ? `${start}` : `${start}-${end}`);
+export const formatRange = (start: number, end: number) => (start === end ? `${start}` : `${start}-${end}`);
 
 /** The range part of `path:SPEC`; every malformed shape gets its own message. */
-function parseSpec(spec: string): { start: number; end: number } {
+export function parseSpec(spec: string): { start: number; end: number } {
   if (/^-\d/.test(spec)) throw new UsageError(`line numbers must be positive, got "${spec}"`);
   if (spec === "") throw new UsageError("the line reference is missing a line number after the colon");
   const parts = spec.split("-");

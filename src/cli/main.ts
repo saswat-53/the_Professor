@@ -254,6 +254,13 @@ async function main(): Promise<number> {
   // --clip asked for the clipboard by name, so a Reference beside it is a conflict rather than something to pick between; standard input is not read.
   let piped: { text: string; lang?: string; origin?: "clipboard" } | undefined;
   const diffRequested = values.diff !== undefined;
+  const blameRequested = values.blame !== undefined;
+  if (blameRequested && (reference || values.clip || diffRequested)) {
+    record(2);
+    status("error", `--blame cannot be combined with ${reference ? "a file reference" : values.clip ? "--clip" : "--diff"}; give one or the other${reference ? " (the file and lines go in --blame's value: --blame path:N-M)" : ""}`);
+    process.stderr.write(`${USAGE}\n`);
+    return 2;
+  }
   if (diffRequested && (reference || values.clip)) {
     record(2);
     status("error", `--diff cannot be combined with ${reference ? "a file reference" : "--clip"}; give one or the other${reference ? ` (if "${reference}" was meant as the ref to compare with, it must follow --diff directly)` : ""}`);
@@ -266,8 +273,8 @@ async function main(): Promise<number> {
     process.stderr.write(`${USAGE}\n`);
     return 2;
   }
-  if (diffRequested) {
-    if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and clipboard text and is ignored for --diff");
+  if (diffRequested || blameRequested) {
+    if (values.lang !== undefined) status("warning", `warning: --lang only applies to piped input and clipboard text and is ignored for ${blameRequested ? "--blame" : "--diff"}`);
   } else if (reference) {
     if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and clipboard text and is ignored for a file reference");
   } else if (values.clip) {
@@ -312,7 +319,7 @@ async function main(): Promise<number> {
 
   if (values.dryRun) {
     try {
-      const { request, report } = await prepareRequest({ reference, piped, diff, settings, root: values.root, allowSensitive: values.allowSensitive });
+      const { request, report } = await prepareRequest({ reference, piped, diff, blame: values.blame, settings, root: values.root, allowSensitive: values.allowSensitive });
       status("info", formatContextReport(report));
       printRequest(request);
       return 0;
@@ -326,7 +333,7 @@ async function main(): Promise<number> {
 
   const controller = new AbortController();
   // What names a saved note: the Reference as typed, or where piped text came from.
-  const sessionTitle = reference ?? (diffRequested ? "diff" : values.clip ? "clipboard" : "piped input");
+  const sessionTitle = reference ?? (blameRequested ? "blame" : diffRequested ? "diff" : values.clip ? "clipboard" : "piped input");
   // The cap on the transcript: hosted, four times the context budget; local, derived from the context window (see `resolveSessionCap`).
   const session = values.chat
     ? new Session(resolveSessionCap(resolveEndpoint(baseUrl), { contextBudget, contextWindow, systemChars: buildSystemPrompt(level).length }))
@@ -356,6 +363,7 @@ async function main(): Promise<number> {
     reference,
     piped,
     diff,
+    blame: values.blame,
     settings,
     root: values.root,
     allowSensitive: values.allowSensitive,

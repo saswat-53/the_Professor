@@ -5,8 +5,9 @@ import { CancelledError, LearnError, ProviderError, UnexpectedError, UsageError 
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, type Context, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
+import { formatBlameRequest, gatherBlame } from "./blame.js";
 import { formatDiffRequest, gatherDiff } from "./diff.js";
-import { type ContextReport, buildContextReport, buildDiffReport, hasOverride, reportForError } from "./report.js";
+import { type ContextReport, buildContextReport, buildBlameReport, buildDiffReport, hasOverride, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
@@ -42,6 +43,8 @@ export interface ExplainInput {
   session?: Session;
   /** `--diff`: explain the working tree's changes against `ref` (default HEAD) instead of a Reference. Excludes `reference` and `piped`; the frontend rejects the combination. */
   diff?: { ref?: string; paths?: string[] };
+  /** `--blame`: explain why a line range changed, from its git history, given as `path:N-M`. Excludes `reference`, `piped` and `diff`; the frontend rejects the combination. */
+  blame?: string;
   /** How each kind of Reference becomes an Excerpt. Default: the built-in file, line, range and word resolvers; pass more to add a kind without touching the callers. */
   resolvers?: Resolvers;
 }
@@ -57,6 +60,22 @@ export async function prepareRequest(input: ExplainInput): Promise<{ request: Mo
     system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
     user: formatRequest(excerpt, context),
   });
+  if (input.blame !== undefined) {
+    const cwd = input.cwd ?? process.cwd();
+    const { root } = await findProjectRoot(cwd, input.root);
+    const reader = createFileReader({ root, cwd, allowSensitive: input.allowSensitive, baseUrl: input.settings.baseUrl });
+    const budget = resolveBudget(reader.endpoint, input.settings.contextBudget, input.settings.contextWindow);
+    const blame = await gatherBlame({ cwd, spec: input.blame, reader, budget });
+    return {
+      request: {
+        baseUrl: input.settings.baseUrl,
+        model: input.settings.model,
+        system: buildSystemPrompt(input.settings.level ?? DEFAULT_LEVEL),
+        user: formatBlameRequest(blame),
+      },
+      report: buildBlameReport(blame, budget, reader.endpoint.local, reader.bypassed),
+    };
+  }
   if (input.diff) {
     const cwd = input.cwd ?? process.cwd();
     const { root } = await findProjectRoot(cwd, input.root);

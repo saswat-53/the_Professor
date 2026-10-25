@@ -1,8 +1,9 @@
 import { BlockedFileError } from "./errors.js";
 import type { Budget, Dropped } from "./budget.js";
 import type { Context } from "./context.js";
+import type { GatheredBlame } from "./blame.js";
 import type { GatheredDiff } from "./diff.js";
-import type { Excerpt, WordSearchNote } from "./reference.js";
+import { type Excerpt, type WordSearchNote, formatRange } from "./reference.js";
 import type { SensitiveBypass } from "./sensitive.js";
 
 export interface ReportedRange {
@@ -58,16 +59,33 @@ export type ContextReport =
       local: boolean;
       overrides?: SensitiveBypass[];
     }
+  | {
+      /** `--blame`: the history of a line range. */
+      kind: "blame";
+      path: string;
+      start: number;
+      end: number;
+      commits: number;
+      shallow: boolean;
+      budget: Budget;
+      local: boolean;
+      overrides?: SensitiveBypass[];
+    }
   | { kind: "refused"; file: string; rule: string }
   /** The Session was over its cap, so the oldest turns were left out of this request. Turn 1 is the first explanation. */
   | { kind: "session-trimmed"; turns: number[]; files: string[]; capChars: number };
 
 /** The report says a Sensitive file was sent anyway (`--allow-sensitive`, or a local endpoint). */
-export const hasOverride = (report: ContextReport): boolean => (report.kind === "sent" || report.kind === "diff") && (report.overrides?.length ?? 0) > 0;
+export const hasOverride = (report: ContextReport): boolean => (report.kind === "sent" || report.kind === "diff" || report.kind === "blame") && (report.overrides?.length ?? 0) > 0;
 
 export function buildDiffReport(diff: GatheredDiff, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
   const { against, files, untracked, excluded, skipped, shallow, againstHistory, limitedTo } = diff;
   return { kind: "diff", against, files, untracked, excluded, skipped, shallow, againstHistory, ...(limitedTo && { limitedTo }), budget, local, ...(bypassed.length > 0 && { overrides: [...bypassed] }) };
+}
+
+export function buildBlameReport(blame: GatheredBlame, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
+  const { path, start, end, commits, shallow } = blame;
+  return { kind: "blame", path, start, end, commits, shallow, budget, local, ...(bypassed.length > 0 && { overrides: [...bypassed] }) };
 }
 
 export function buildContextReport(excerpt: Excerpt, context: Context | null, budget: Budget, local: boolean, bypassed: readonly SensitiveBypass[] = []): ContextReport {
@@ -147,6 +165,13 @@ export function formatContextReport(report: ContextReport): string {
     return `Context report\n  refused: ${report.file} (rule: ${report.rule}); its content is not sent`;
   }
   const out = ["Context report: this is what will be sent"];
+  if (report.kind === "blame") {
+    out.push(`  the history of ${report.path}:${formatRange(report.start, report.end)}: ${plural(report.commits, "commit")}, with their messages and patches`);
+    out.push("  secrets inside history can't be filtered by name: a secret that was committed and later removed is still in these patches and will be sent");
+    if (report.shallow) out.push("  shallow clone: history is incomplete, so older commits that touched these lines are missing");
+    out.push(...overrideLines(report.overrides), ...budgetLines(report));
+    return out.join("\n");
+  }
   if (report.kind === "diff") {
     out.push(`  the working tree's changes against ${report.against}${report.limitedTo ? `, limited to ${report.limitedTo.join(", ")}` : ""}${report.untracked > 0 ? ` (${plural(report.untracked, "untracked file")} shown as new)` : ""}`);
     for (const file of report.files) out.push(`    ${file}`);
