@@ -21,6 +21,7 @@
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.75",
     "ai": "^7.0.148",
+    "commander": "^14.0.3",
     "smol-toml": "^1.9.1"
   },
   "devDependencies": {

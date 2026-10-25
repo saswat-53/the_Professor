@@ -117,3 +117,52 @@ describe("--help and --version", () => {
     expect(r.stderr).toBe("");
   });
 });
+
+describe("subcommand routing", () => {
+  it("--help documents the exit codes and the commands", async () => {
+    const r = await run(["--help"]);
+    expect(r.stdout).toContain("Exit codes:");
+    for (const text of ["runtime or provider error", "usage error", "refused on purpose", "cancelled"]) expect(r.stdout).toContain(text);
+    expect(r.stdout).toContain("Commands: init, auth");
+  });
+
+  it("a usage error exits 2 (not commander's 1), with the usage", async () => {
+    const r = await run(["--no-such-flag"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("Unknown option '--no-such-flag'");
+    expect(r.stderr).toContain("Usage: learn");
+  });
+
+  it("a flag missing its value exits 2", async () => {
+    const r = await run([file, "--model"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("Usage: learn");
+  });
+
+  it("an unknown subcommand names the valid ones and exits 2", async () => {
+    const r = await run(["ini"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("init, auth");
+    expect(r.stderr).toContain("Usage: learn");
+  });
+
+  it.each(["init", "auth"])("%s is routed to its own command, not read as a file", async (name) => {
+    const r = await run([name]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain(`learn ${name} is not available yet`);
+  });
+
+  it("a subcommand answers --help on stdout with exit 0", async () => {
+    const r = await run(["init", "--help"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Usage: learn init");
+  });
+
+  it("an existing file named like a command is still explained", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "learn-cmd-"));
+    await writeFile(join(dir, "notes"), "hello\n");
+    const r = await run(["notes", "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, dir);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain("hello");
+  });
+});

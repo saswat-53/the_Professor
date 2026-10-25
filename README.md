@@ -87,8 +87,10 @@ Keys go in an environment variable, never in the URL at all: a base URL with a u
 | `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally, and also print the request (system and user prompts) on stderr |
 | `--base-url`, `--model`, `--context-budget` | Override those settings for one run |
-| `-h`, `--help` | Print usage to stdout, exit 0 |
+| `-h`, `--help` | Print usage and the exit-code table to stdout, exit 0 |
 | `-v`, `--version` | Print the version to stdout, exit 0 |
+
+`learn init` and `learn auth` are reserved subcommands (not available yet; they exit 2). A bare lowercase word that is neither a command nor an existing file is reported as an unknown command, listing the valid ones. A file named `init` is still reachable as `./init`.
 
 Output goes to stdout; the Context report, warnings and errors go to stderr. When stdout is a terminal, escape sequences and control characters in the model's text are removed (the text is untrusted); when piped, it is left exactly as sent. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
 

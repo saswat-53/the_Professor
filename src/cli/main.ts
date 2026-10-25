@@ -1,7 +1,9 @@
 import { homedir } from "node:os";
-import { parseArgs } from "node:util";
-import { BlockedFileError, CancelledError, ContextTooLongError, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
+import { existsSync } from "node:fs";
+import { BlockedFileError, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, findProjectRoot, LEVELS, LearnError, UsageError, configPath, describeMissing, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveSettings } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
+import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
+import type { Flags } from "./command-line.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
@@ -27,15 +29,6 @@ for (const stream of [process.stdout, process.stderr]) {
 
 /** Replaced with the package version at build time (tsup `define`). */
 declare const __VERSION__: string;
-
-const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--allow-sensitive] [--show-prompt] [--dry-run]
-       cat <file> | learn [--lang <language>] [same options]
-       learn --clip [--lang <language>] [same options]
-       learn -h | --help | -v | --version
-
-Each setting comes from its flag, then its environment variable (LEARN_BASE_URL, LEARN_MODEL, LEARN_LEVEL, LEARN_CONTEXT_BUDGET),
-then the config file (~/.config/learn/config.toml), then the default.
-Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
 /** Piped or clipboard text is read only up to this many bytes, so an endless pipe cannot fill memory; the context budget is the real limit and is far smaller. */
 const INPUT_MAX_BYTES = 1024 * 1024;
@@ -73,20 +66,17 @@ async function readConfig(file: string): Promise<Config | undefined> {
   return parseConfig(source, file);
 }
 
-/** The parsed command-line values `loadSettings` reads. */
-type Flagged = { level?: string; model?: string; "base-url"?: string; "context-budget"?: string };
-
 /** Either the resolved settings with where they came from, or the exit code to end with (the reason is already printed). */
 type Loaded = { ok: true; resolved: Resolution; config: Config | undefined; file: string } | { ok: false; exitCode: number };
 
 /** Where the settings come from, in order: flags, environment, the per-user config file. Returns an exit code when they cannot be resolved. */
-async function loadSettings(values: Flagged): Promise<Loaded> {
+async function loadSettings(values: Flags): Promise<Loaded> {
   const home = homedir();
   const file = configPath(process.env, home);
   try {
     const config = await readConfig(file);
     const resolved = resolveSettings({
-      flags: { level: values.level, model: values.model, baseUrl: values["base-url"], contextBudget: values["context-budget"] },
+      flags: { level: values.level, model: values.model, baseUrl: values.baseUrl, contextBudget: values.contextBudget },
       env: process.env,
       config,
       home,
@@ -112,41 +102,29 @@ const describe = (err: unknown) => {
 };
 
 async function main(): Promise<number> {
-  let parsed;
-  try {
-    parsed = parseArgs({
-      allowPositionals: true,
-      options: {
-        "base-url": { type: "string" },
-        model: { type: "string" },
-        level: { type: "string" },
-        root: { type: "string" },
-        "context-budget": { type: "string" },
-        "allow-sensitive": { type: "boolean" },
-        "show-prompt": { type: "boolean" },
-        "dry-run": { type: "boolean" },
-        lang: { type: "string" },
-        clip: { type: "boolean" },
-        help: { type: "boolean", short: "h" },
-        version: { type: "boolean", short: "v" },
-      },
-    });
-  } catch (err) {
-    record(2);
-    status("error", err instanceof Error ? err.message : String(err));
+  const parsed = parseCommandLine(process.argv.slice(2));
+  if (parsed.kind === "usage-error") {
+    record(ExitCode.Usage);
+    status("error", parsed.message);
     process.stderr.write(`${USAGE}\n`);
-    return 2;
+    return ExitCode.Usage;
   }
-  const { values, positionals } = parsed;
-  const [reference] = positionals;
   // Asked for on purpose, so the answer is the output: stdout, exit 0.
-  if (values.help) {
-    process.stdout.write(`${USAGE}\n`);
+  if (parsed.kind === "help") {
+    process.stdout.write(`${parsed.text.trimEnd()}\n`);
     return 0;
   }
-  if (values.version) {
+  if (parsed.kind === "version") {
     process.stdout.write(`${__VERSION__}\n`);
     return 0;
+  }
+  const { reference, flags: values } = parsed;
+  if (reference !== undefined && looksLikeCommand(reference) && !existsSync(reference)) {
+    record(2);
+    // Word references (ticket 35) will make a bare word a real reference; until then it can only be a mistyped command.
+    status("error", `"${reference}" is not a command (commands: ${SUBCOMMANDS.join(", ")}) and was not found as a file; word references are not supported yet`);
+    process.stderr.write(`${USAGE}\n`);
+    return 2;
   }
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
@@ -215,9 +193,9 @@ async function main(): Promise<number> {
       `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n--- user ---\n${request.user}\n`,
     );
 
-  if (values["dry-run"]) {
+  if (values.dryRun) {
     try {
-      const { request, report } = await prepareRequest({ reference, piped, settings, root: values.root, allowSensitive: values["allow-sensitive"] });
+      const { request, report } = await prepareRequest({ reference, piped, settings, root: values.root, allowSensitive: values.allowSensitive });
       status("info", formatContextReport(report));
       printRequest(request);
       return 0;
@@ -256,10 +234,10 @@ async function main(): Promise<number> {
     piped,
     settings,
     root: values.root,
-    allowSensitive: values["allow-sensitive"],
+    allowSensitive: values.allowSensitive,
     model: llm,
     signal: controller.signal,
-    onRequest: values["show-prompt"] ? printRequest : undefined,
+    onRequest: values.showPrompt ? printRequest : undefined,
   })) {
     if (event.type === "context-report") {
       status("info", formatContextReport(event.report));
