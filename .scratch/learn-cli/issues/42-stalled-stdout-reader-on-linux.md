@@ -4,7 +4,7 @@
 
 **Blocked by:** none
 
-**Status:** product cleared; test hang still unexplained
+**Status:** done: the cause was in the test; the product needs no change
 
 ## Symptom
 
@@ -65,5 +65,16 @@ Stage logging on macOS showed that the test's `data` handler ran a second time a
 
 Change on branch `ticket-42-stall-test-logging`: the stall branch runs once (`stalled` flag), the macOS-only gate is lifted, and each stage is logged to stderr (plus a state line every 2 s) so a hang on CI shows which stage was missing.
 
-- [ ] Green run of `CI` on the branch (Node 22, 24, 26 on ubuntu-24.04), with the stage log read
-- [ ] After that: drop the stage logging, keep the `stalled` guard, record the decision (product needs no change; the cause was the re-pause in the test)
+## Result on Linux CI (PR run 40233973789, ubuntu-24.04, Node 22, 24, 26: all green)
+
+With the gate lifted and the `stalled` guard, both cases (SIGINT and SIGTERM) ran the whole sequence on Linux in all three Node versions: reader paused at ~1 MB, first SIGINT sent after all 8 MB were accepted, connection closed, process still alive 300 ms later, second signal ended it with 130 / 143 within ~15 ms. In every job the log line "data after the stall was ignored" appeared right after `exit`, so the re-entry after the drain really happens on Linux and the guard is what prevents the hang.
+
+## Decision
+
+- Product: no change, no force-exit timer, no README limitation (refuted candidate 1 above).
+- Test: the macOS-only gate is gone; the stall branch runs once. The stage logging was removed after the run.
+- The earlier note that Linux pipes block the main thread inside a write was wrong; it is not repeated anywhere.
+
+- [x] Green run of `CI` on the branch (Node 22, 24, 26 on ubuntu-24.04), with the stage log read
+- [x] The macOS-only gate on the stall test is removed
+- [x] A decision is recorded: product needs no change; the cause was the re-pause in the test
