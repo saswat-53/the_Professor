@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { attachReferences } from "../src/core/index.js";
+import { attachReferences, followUp, Session } from "../src/core/index.js";
 
 const CANARY = "CANARY-9f3a-never-leave";
 const settings = { baseUrl: "http://h/v1", model: "m" };
@@ -103,6 +103,34 @@ describe("attachReferences", () => {
     expect(reports).toHaveLength(1);
     expect(content.match(/File: a\.ts:1-2/g)).toHaveLength(1);
     expect(notes).toEqual(["@a.ts:1-2 was mentioned more than once and is attached once"]);
+  });
+});
+
+describe("two references to one file", () => {
+  it("attaches different ranges of it separately, and notes only an identical reference", async () => {
+    const { content, reports, notes } = await attach("@a.ts:1-2 and @a.ts:20-22, and @a.ts:1-2 again, and the whole @a.ts");
+    expect(reports.map((r) => (r.kind === "sent" ? r.label : ""))).toEqual(["a.ts:1-2", "a.ts:20-22", "a.ts"]);
+    expect(content).toContain("const line21 = 21;");
+    expect(notes).toEqual(["@a.ts:1-2 was mentioned more than once and is attached once"]);
+  });
+});
+
+describe("attached code and the interim Session cap", () => {
+  it("counts toward the cap, so attaching cannot get around it", async () => {
+    const session = new Session(400);
+    session.begin({ baseUrl: "http://h/v1", model: "m", system: "s", user: "first" }, "answer");
+    const never: import("../src/core/index.js").LanguageModel = { async *stream() { throw new Error("must not be called"); } };
+    const typed = await attach("what is this?");
+    const attached = await attach("what is @a.ts:1-30?");
+    const run = async (question: string) => {
+      const events = [];
+      for await (const e of followUp({ session, question, model: never, signal: new AbortController().signal })) events.push(e);
+      return events;
+    };
+    // The question alone fits; the same question with 30 attached lines does not.
+    expect(attached.content.length).toBeGreaterThan(400);
+    expect(typed.content.length).toBeLessThan(100);
+    expect((await run(attached.content))[0]).toMatchObject({ type: "error", error: { name: "ContextTooLongError" } });
   });
 });
 
