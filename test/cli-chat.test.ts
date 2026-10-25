@@ -1,7 +1,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -259,6 +259,69 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("Ctrl-C at an idle prompt ends the chat", async () => {
     const out = await chat([["learn> ", "\u0003"]]);
     expect(out).toMatch(/\nexit 0\n$/);
+  }, 30_000);
+});
+
+describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
+  /** Runs the steps with the notes directory set to a fresh folder in the config file. */
+  async function withNotes(steps: [string, string][], notes?: string): Promise<{ out: string; notes: string }> {
+    const xdg = await mkdtemp(join(tmpdir(), "learn-xdg-"));
+    const notesDir = notes ?? join(await mkdtemp(join(tmpdir(), "learn-notes-")), "notes");
+    await mkdir(join(xdg, "learn"));
+    await writeFile(join(xdg, "learn", "config.toml"), `notes_dir = ${JSON.stringify(notesDir)}\n`);
+    return { out: await chat(steps, { XDG_CONFIG_HOME: xdg }), notes: notesDir };
+  }
+
+  it("/save writes the Session to a new note in the notes directory, says where, and sends no request", async () => {
+    const { out, notes } = await withNotes([
+      ["learn> ", `why is it 1?${ENTER}`],
+      ["ANSWER2", `/save${ENTER}`],
+      ["saved", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(2);
+    const files = await readdir(notes);
+    expect(files).toHaveLength(1);
+    expect(out).toContain(files[0]!);
+    const text = await readFile(join(notes, files[0]!), "utf8");
+    expect(text.split("\n")[0]).toContain("contains code");
+    for (const part of ["export const a = 1;", "ANSWER1", "why is it 1?", "ANSWER2"]) expect(text).toContain(part);
+  }, 30_000);
+
+  it("a second /save makes a second file, and a name such as ../../x stays inside the notes directory", async () => {
+    const { notes } = await withNotes([
+      ["learn> ", `/save${ENTER}`],
+      ["saved", `/save ../../x${ENTER}`],
+      ["saved", `/exit${ENTER}`],
+    ]);
+    expect(await readdir(notes)).toHaveLength(2);
+    expect(await readdir(join(notes, ".."))).toEqual(["notes"]);
+  }, 30_000);
+
+  it("/glossary term: meaning appends to glossary.md; without a colon it explains and writes nothing", async () => {
+    const { out, notes } = await withNotes([
+      ["learn> ", `/glossary closure a function plus its captured variables${ENTER}`],
+      ["usage", `/glossary closure: a function plus its captured variables${ENTER}`],
+      ["glossary.md", `/exit${ENTER}`],
+    ]);
+    expect(out).toContain("/glossary term: meaning");
+    expect(await readdir(notes)).toEqual(["glossary.md"]);
+    expect(await readFile(join(notes, "glossary.md"), "utf8")).toContain("**closure**: a function plus its captured variables");
+  }, 30_000);
+
+  it("reports an unusable notes directory inline and the chat goes on", async () => {
+    const blocker = join(await mkdtemp(join(tmpdir(), "learn-notes-")), "file");
+    await writeFile(blocker, "");
+    const { out } = await withNotes(
+      [
+        ["learn> ", `/save${ENTER}`],
+        ["notes directory", `more?${ENTER}`],
+        ["ANSWER2", `/exit${ENTER}`],
+      ],
+      blocker,
+    );
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(2);
   }, 30_000);
 });
 

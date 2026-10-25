@@ -12,10 +12,10 @@ const TERMINAL_LIBS =
 const WRITE_NAMES =
   "writeFile|writeFileSync|appendFile|appendFileSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|rename|renameSync|copyFile|copyFileSync|cp|cpSync|symlink|link|chmod|truncate|truncateSync|createWriteStream|writeSync|writev";
 
-// Files exempt from the file-write rule only. Reserved for the notes writer
-// from ticket 36 (/save): empty until then, at most one entry, matched by
-// path relative to src/core.
-export const WRITE_ALLOWLIST: string[] = [];
+// Files exempt from the file-write rule only: the notes writer behind /save
+// (ticket 36), the one place the tool writes. Exactly one entry, nothing else
+// may be added; matched by path relative to src/core.
+export const WRITE_ALLOWLIST: string[] = ["notes.ts"];
 
 // Opening a file for its content is only allowed in the file-reading module, which
 // `createFileReader` (sensitive-file check) wraps; any other core code must go through the reader.

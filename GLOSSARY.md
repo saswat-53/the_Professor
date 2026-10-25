@@ -57,6 +57,10 @@ The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` /
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
+**Notes directory**:
+The only place the tool writes (`notes_dir`, default `~/learn-notes`). `/save` puts one **note** here per save: a markdown file of the Session's turns, named by date and a sanitised slug, never overwritten, starting with a warning that it contains code. `/glossary term: meaning` appends a line to the one `glossary.md` beside the notes. Files are created exclusively (never following a symlink at the final name) and the real path of each is then checked to be inside it.
+_Avoid_: Output folder, vault
+
 **Mention**:
 An `@path`, `@path:N-M` or `@word` token in a Chat question that attaches code to that message. A `@word` counts only if the project defines it (see **Word search**). It counts only after whitespace and only if it names an existing file, looks like a path, or (for a bare `@word`) names something the project defines; it then goes through the same Sensitive-file check, Project root check and Excerpt limit as any Reference, and appears in the Context report for that message.
 _Avoid_: Tag

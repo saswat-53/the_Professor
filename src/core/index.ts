@@ -14,6 +14,7 @@ export {
   LearnError,
   ModelNotFoundError,
   NetworkError,
+  NotesError,
   PathEscapeError,
   ProviderError,
   RateLimitError,
@@ -59,3 +60,5 @@ export { attachReferences, findMentions } from "./attachments.js";
 export type { AttachInput, Attached, Mention } from "./attachments.js";
 export { findDefinition, listSearchableFiles } from "./word-search.js";
 export type { FoundDefinition, SearchDeps, SearchList } from "./word-search.js";
+export { appendGlossaryEntry, saveNote } from "./notes.js";
+export type { NoteTurn } from "./notes.js";

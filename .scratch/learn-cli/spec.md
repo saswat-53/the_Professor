@@ -140,7 +140,7 @@ A command-line tool, `learn`, that you run from inside any project. You point it
 103. As a learner, I want my Session kept in memory only and never written automatically, so that my code isn't stored behind my back.
 
 ### Notes, quizzes and git (Milestone 4)
-104. As a learner, I want `/save` to write the Session as a markdown note and add glossary entries, so that I keep what I learned.
+104. As a learner, I want `/save` to write the Session as a markdown note and `/glossary term: meaning` to add glossary entries (typed by me, not generated), so that I keep what I learned.
 105. As a learner, I want notes written only inside my notes directory (default `~/learn-notes`), with the slug sanitised, the final path checked, and files created exclusively so nothing is overwritten, so that `/save` is the one safe write.
 106. As a learner, I want each note to carry a warning that it contains code, so that I think before sharing it.
 107. As a learner, I want `/quiz` to generate five questions from the current Session in one validated request, so that testing is cheap and reliable.

@@ -41,6 +41,11 @@ export class Session {
     this.#turns = [{ number: 1, user: request.user, assistant: answer, files: [] }];
   }
 
+  /** The turns still held, oldest first, for `/save`. Turns dropped to fit the cap are not here. */
+  get turns(): readonly { number: number; user: string; assistant: string }[] {
+    return this.#turns.map(({ number, user, assistant }) => ({ number, user, assistant }));
+  }
+
   /** Characters in the transcript so far. */
   get size(): number {
     return this.#turns.reduce((total, t) => total + sizeOf(t), 0);

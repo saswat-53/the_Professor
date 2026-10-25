@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
-import { attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, trimEnds } from "../core/index.js";
+import { appendGlossaryEntry, attachReferences, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, saveNote, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
 import type { Flags } from "./command-line.js";
@@ -235,7 +235,7 @@ async function main(): Promise<number> {
   const loaded = await loadSettings(values);
   if (!loaded.ok) return loaded.exitCode;
   const { resolved, config, file } = loaded;
-  const { baseUrl, model, level, contextBudget, contextWindow, keyEnv } = resolved.settings;
+  const { baseUrl, model, level, contextBudget, contextWindow, keyEnv, notesDir } = resolved.settings;
   if (!baseUrl || !model) {
     record(2);
     if (!baseUrl) status("error", describeMissing("baseUrl", config, file));
@@ -315,6 +315,8 @@ async function main(): Promise<number> {
   }
 
   const controller = new AbortController();
+  // What names a saved note: the Reference as typed, or where piped text came from.
+  const sessionTitle = reference ?? (values.clip ? "clipboard" : "piped input");
   // The cap on the transcript: hosted, four times the context budget; local, derived from the context window (see `resolveSessionCap`).
   const session = values.chat
     ? new Session(resolveSessionCap(resolveEndpoint(baseUrl), { contextBudget, contextWindow, systemChars: buildSystemPrompt(level).length }))
@@ -387,6 +389,8 @@ async function main(): Promise<number> {
       describe,
       attach: (question) => attachReferences({ question, settings, root: values.root, allowSensitive: values.allowSensitive }),
       onRequest: values.showPrompt ? printRequest : undefined,
+      save: (name) => saveNote({ notesDir, turns: session.turns, title: name ?? sessionTitle, now: new Date() }),
+      glossary: (term, definition) => appendGlossaryEntry({ notesDir, term, definition, now: new Date() }),
       takeSignals: (handler) => {
         onSignal = (code) => {
           // The same "stop now" rule: a repeated SIGTERM while already winding down leaves at once.

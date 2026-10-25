@@ -7,7 +7,7 @@ import type { Attached, LanguageModel, LearnError, ModelRequest, Session } from 
 export const BLOCK_OPEN = "<<<";
 export const BLOCK_CLOSE = ">>>";
 
-export const CHAT_HELP = `Type a question and press Enter. To paste code or several lines, type ${BLOCK_OPEN} on a line of its own, paste, then type ${BLOCK_CLOSE} on a line of its own. /exit (or /quit), Ctrl-D or Ctrl-C at the prompt ends the chat; Ctrl-C while an answer is streaming cancels just that answer.`;
+export const CHAT_HELP = `Type a question and press Enter. To paste code or several lines, type ${BLOCK_OPEN} on a line of its own, paste, then type ${BLOCK_CLOSE} on a line of its own. /save [name] writes this Session as a note, /glossary term: meaning adds a glossary entry. /exit (or /quit), Ctrl-D or Ctrl-C at the prompt ends the chat; Ctrl-C while an answer is streaming cancels just that answer.`;
 
 export interface ChatOptions {
   input: Readable;
@@ -25,6 +25,10 @@ export interface ChatOptions {
   onRequest?: (request: ModelRequest) => void;
   /** Hands over the process's signal handling for as long as the chat runs. The handler gets the exit code the signal stands for (130 or 143). */
   takeSignals: (handler: (code: number) => void) => void;
+  /** `/save`: writes the Session as a note and returns where. Throws a LearnError when it cannot; the chat goes on. */
+  save: (name: string | undefined) => Promise<string>;
+  /** `/glossary`: appends an entry to the glossary file and returns where. */
+  glossary: (term: string, definition: string) => Promise<string>;
 }
 
 /**
@@ -89,9 +93,25 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       question = block.join("\n").trim();
     }
     if (question === "") continue;
+    const command = /^\/(save|glossary)(?:\s+([\s\S]*))?$/.exec(question);
+    if (command) {
+      const args = command[2]?.trim() ?? "";
+      try {
+        if (command[1] === "save") {
+          opts.report("info", `saved to ${await opts.save(args === "" ? undefined : args)}`);
+        } else {
+          const split = /^([^:]+):([\s\S]+)$/.exec(args);
+          if (!split || split[1]!.trim() === "" || split[2]!.trim() === "") opts.report("info", "usage: /glossary term: meaning");
+          else opts.report("info", `added to ${await opts.glossary(split[1]!, split[2]!)}`);
+        }
+      } catch (err) {
+        opts.report("error", opts.describe(err));
+      }
+      continue;
+    }
     if (/^\/[a-z]+$/.test(question)) {
       if (question === "/exit" || question === "/quit") break;
-      opts.report("info", `${question} is not a command yet (commands: /exit)`);
+      opts.report("info", `${question} is not a command (commands: /save, /glossary, /exit)`);
       continue;
     }
     let attachedFiles: string[] = [];

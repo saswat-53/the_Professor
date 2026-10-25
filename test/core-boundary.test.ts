@@ -75,7 +75,9 @@ describe("boundary checker catches violations", () => {
     expect(findViolations("explain.ts", `const h = await open(path, "r");`).map((v) => v.rule)).toEqual([RULE.read]);
   });
 
-  it("allowlist is empty until the notes writer (ticket 36) lands", () => {
-    expect(WRITE_ALLOWLIST).toEqual([]);
+  it("only the notes writer (ticket 36) may write files", () => {
+    expect(WRITE_ALLOWLIST).toEqual(["notes.ts"]);
+    expect(findViolations("notes.ts", `await writeFile(file, text, { flag: "wx" });`)).toEqual([]);
+    expect(findViolations("explain.ts", `await writeFile(file, text);`).map((v) => v.rule)).toEqual([RULE.write]);
   });
 });

@@ -157,3 +157,8 @@ export class ProviderError extends RuntimeError {
 export class UnexpectedError extends RuntimeError {
   override name = "UnexpectedError";
 }
+
+/** `/save` or `/glossary` could not write inside the notes directory (it cannot be created, is not a directory, or a path resolved outside it). */
+export class NotesError extends RuntimeError {
+  override name = "NotesError";
+}
