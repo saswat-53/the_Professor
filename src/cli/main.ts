@@ -12,6 +12,7 @@ import { KeychainUnavailableError, osKeychain } from "./keychain.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
+import { owlBanner } from "./owl.js";
 import type { StatusKind } from "./output.js";
 
 /** Status goes to stderr, coloured only for a person watching; stdout carries the explanation alone. */
@@ -409,6 +410,7 @@ async function main(): Promise<number> {
     await runChat({
       input: process.stdin,
       output: process.stdout,
+      banner: owlBanner({ color: mode.color }),
       session,
       model: llm,
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),

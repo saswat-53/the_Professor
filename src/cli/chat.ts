@@ -29,6 +29,8 @@ export interface ChatOptions {
   save: (name: string | undefined) => Promise<string>;
   /** `/glossary`: appends an entry to the glossary file and returns where. */
   glossary: (term: string, definition: string) => Promise<string>;
+  /** Printed once before the help line; the caller leaves it out when nobody is watching a terminal. */
+  banner?: string;
 }
 
 /**
@@ -170,6 +172,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     opts.output.write("\nThat was the quiz. Nothing was scored or stored.\n");
   };
 
+  if (opts.banner) opts.output.write(`\n${opts.banner}\n`);
   opts.output.write(`${CHAT_HELP}\n`);
   while (!closed) {
     rl.setPrompt("learn> ");
