@@ -13,6 +13,8 @@ import { openAICompatibleModel } from "./openai-compatible.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
 import { owlBanner } from "./owl.js";
+import { chooseOwlStyle, startMascot } from "./mascot/mascot.js";
+import { colorDepth } from "./mascot/render.js";
 import type { StatusKind } from "./output.js";
 
 /** Status goes to stderr, coloured only for a person watching; stdout carries the explanation alone. */
@@ -406,11 +408,16 @@ async function main(): Promise<number> {
     const repo = await findRepoAround(notesDir).catch(() => undefined);
     if (repo) status("warning", `warning: the notes directory ${notesDir} is inside the git repository ${repo.root}; saved notes contain code and could be committed by accident (add the folder to .gitignore, or point notes_dir somewhere else)`);
   };
-  return record(
-    await runChat({
+  // The owl: animated in a header when the terminal allows, a still picture otherwise, nothing with LEARN_OWL=off.
+  const owl = chooseOwlStyle({ color: mode.color, rows: process.stdout.rows, columns: process.stdout.columns, env: process.env });
+  const mascot = owl === "animated" ? startMascot({ output: process.stdout, depth: colorDepth(process.env) }) : undefined;
+  let finished: number | undefined;
+  try {
+    finished = await runChat({
       input: process.stdin,
       output: process.stdout,
-      banner: owlBanner({ color: mode.color }),
+      banner: owl === "static" ? owlBanner({ color: mode.color }) : undefined,
+      mascot,
       session,
       model: llm,
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),
@@ -427,8 +434,12 @@ async function main(): Promise<number> {
           handler(code);
         };
       },
-    }),
-  );
+    });
+  } finally {
+    // A wave goodbye on a normal ending; a SIGTERM (143) or a crash gets the terminal back at once.
+    await mascot?.close({ farewell: finished !== undefined && finished !== 143 });
+  }
+  return record(finished);
 }
 
 process.exitCode = await main();

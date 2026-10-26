@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { CancelledError, QUIZ_LENGTH, followUp, formatContextReport, generateQuiz, gradeAnswer, hasOverride, reportForError } from "../core/index.js";
 import type { Attached, ExplainEvent, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
+import type { Mood } from "./mascot/animator.js";
 
 /** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
 export const BLOCK_OPEN = "<<<";
@@ -31,6 +32,8 @@ export interface ChatOptions {
   glossary: (term: string, definition: string) => Promise<string>;
   /** Printed once before the help line; the caller leaves it out when nobody is watching a terminal. */
   banner?: string;
+  /** The animated owl. The chat only says what it is doing; how that is drawn is the owl's business. */
+  mascot?: { mood(mood: Mood): void };
 }
 
 /**
@@ -40,6 +43,9 @@ export interface ChatOptions {
 export async function runChat(opts: ChatOptions): Promise<number> {
   const rl = createInterface({ input: opts.input, output: opts.output, terminal: true, prompt: "learn> " });
   let current: AbortController | undefined;
+  const mood = (m: Mood) => opts.mascot?.mood(m);
+  // A quiz that could not start leaves the owl startled; the loop must not wipe that with "idle".
+  let quizFailed = false;
   // Lines are queued as they arrive, so none is lost between one answer finishing and the next prompt.
   const lines: string[] = [];
   let closed = false;
@@ -98,15 +104,22 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       if (event.type === "context-report") {
         opts.report("info", formatContextReport(event.report));
       } else if (event.type === "text-delta") {
+        mood("speaking");
         const text = strip(event.text);
         opts.output.write(text);
         lastChar = text.at(-1) ?? lastChar;
       } else if (event.type === "error") {
         if (lastChar !== "\n") opts.output.write("\n");
         lastChar = "\n";
-        if (event.error instanceof CancelledError) opts.report("info", "cancelled");
-        else opts.report("error", opts.describe(event.error));
+        if (event.error instanceof CancelledError) {
+          mood("idle");
+          opts.report("info", "cancelled");
+        } else {
+          mood("startled");
+          opts.report("error", opts.describe(event.error));
+        }
       } else if (event.type === "done") {
+        mood("idle");
         opts.output.write("\n");
         lastChar = "\n";
       }
@@ -126,12 +139,19 @@ export async function runChat(opts: ChatOptions): Promise<number> {
   /** `/quiz`: one request for the questions, then each one in turn. Nothing is added to the Session and nothing is kept. */
   const quiz = async () => {
     current = new AbortController();
+    mood("thinking");
     let questions: string[];
     try {
       questions = await generateQuiz({ session: opts.session, model: opts.model, signal: current.signal, onRequest: opts.onRequest });
     } catch (err) {
-      if (err instanceof CancelledError) opts.report("info", "cancelled");
-      else opts.report("error", opts.describe(err));
+      if (err instanceof CancelledError) {
+        mood("idle");
+        opts.report("info", "cancelled");
+      } else {
+        mood("startled");
+        quizFailed = true;
+        opts.report("error", opts.describe(err));
+      }
       settle();
       return;
     }
@@ -141,6 +161,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       if (closed || endedBy !== undefined) return;
       opts.output.write(`\nQuestion ${i + 1} of ${questions.length}: ${opts.stripper()(question)}\n`);
       let answer = "";
+      mood("quiz");
       while (answer === "") {
         rl.setPrompt("answer> ");
         rl.prompt();
@@ -160,6 +181,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       }
       current = new AbortController();
       const { signal } = current;
+      mood("thinking");
       await show(gradeAnswer({ session: opts.session, question, answer, model: opts.model, signal, onRequest: opts.onRequest }));
       settle();
       // Ctrl-C while a grade streams stops the quiz, as /quit does.
@@ -184,7 +206,9 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     let question = message;
     if (question === "") continue;
     if (question === "/quiz") {
+      quizFailed = false;
       await quiz();
+      if (!quizFailed) mood("idle");
       if (endedBy !== undefined) break;
       continue;
     }
@@ -193,13 +217,18 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       const args = command[2]?.trim() ?? "";
       try {
         if (command[1] === "save") {
+          mood("saving");
           opts.report("info", `saved to ${await opts.save(args === "" ? undefined : args)}`);
         } else {
           const split = /^([^:]+):([\s\S]+)$/.exec(args);
           if (!split || split[1]!.trim() === "" || split[2]!.trim() === "") opts.report("info", "usage: /glossary term: meaning");
-          else opts.report("info", `added to ${await opts.glossary(split[1]!, split[2]!)}`);
+          else {
+            mood("saving");
+            opts.report("info", `added to ${await opts.glossary(split[1]!, split[2]!)}`);
+          }
         }
       } catch (err) {
+        mood("startled");
         opts.report("error", opts.describe(err));
       }
       continue;
@@ -221,10 +250,12 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     } catch (err) {
       const refused = reportForError(err);
       if (refused) opts.report("info", formatContextReport(refused));
+      mood("startled");
       opts.report("error", `${opts.describe(err)}; your message was not sent`);
       continue;
     }
     current = new AbortController();
+    mood("thinking");
     await show(followUp({ session: opts.session, question, model: opts.model, signal: current.signal, files: attachedFiles, sensitive, onRequest: opts.onRequest }));
     settle();
     if (endedBy !== undefined) break;
