@@ -1,4 +1,5 @@
 import { LearnError, ProviderError, SessionTooLongError, UsageError } from "./errors.js";
+import type { Level } from "./prompt.js";
 import type { ExplainEvent, LanguageModel, Message, ModelRequest, TurnUsage } from "./types.js";
 import { cancelled, turnUsage } from "./usage.js";
 
@@ -19,6 +20,21 @@ const sizeOf = (t: Turn) => t.user.length + t.assistant.length;
 export interface SessionStats {
   last?: TurnUsage;
   total: TurnUsage;
+  /** What a footer needs besides usage; all absent until the first explanation has been described (see `Session.describe`). */
+  model?: string;
+  level?: Level;
+  /** What the latest question is about: a project-relative `file:range`, `stdin`, `clipboard` or `diff`. Never an absolute path. */
+  reference?: string;
+  /** The model's context window in tokens; only for a local endpoint, where it is a real setting. */
+  contextWindow?: number;
+}
+
+/** What `explain` tells the Session about itself once the first explanation is done. */
+export interface SessionInfo {
+  model: string;
+  level: Level;
+  reference?: string;
+  contextWindow?: number;
 }
 
 /** What a request leaves out of the Session to fit the cap. */
@@ -39,6 +55,7 @@ export class Session {
   /** @param capChars the most characters the transcript may hold, counting the new question. Default: no cap. */
   constructor(readonly capChars: number = Number.POSITIVE_INFINITY) {}
 
+  #info: SessionInfo | undefined;
   #last: TurnUsage | undefined;
   #total: TurnUsage = { inputTokens: 0, outputTokens: 0, source: "reported" };
   #first: ModelRequest | undefined;
@@ -67,9 +84,19 @@ export class Session {
     };
   }
 
-  /** A snapshot of the usage so far: later turns do not change one already taken. */
+  /** Records what the Session is about, for `stats`. Called by `explain`. */
+  describe(info: SessionInfo): void {
+    this.#info = { ...info };
+  }
+
+  /** The chat points the Session at new code (for example an `@file` reference): the footer follows the latest. */
+  focus(reference: string): void {
+    if (this.#info) this.#info = { ...this.#info, reference };
+  }
+
+  /** A snapshot of the Session's usage and description: later turns, and changes to the snapshot, do not affect each other. */
   get stats(): SessionStats {
-    return { ...(this.#last && { last: { ...this.#last } }), total: { ...this.#total } };
+    return { ...this.#info, ...(this.#last && { last: { ...this.#last } }), total: { ...this.#total } };
   }
 
   /** Characters in the transcript so far. */

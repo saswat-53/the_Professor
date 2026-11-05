@@ -1,4 +1,5 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -205,5 +206,79 @@ describe("a cancelled turn", () => {
     expect(events.at(-1)?.type).toBe("error");
     expect(events.some((e) => e.type === "usage")).toBe(false);
     expect(session.stats.total.inputTokens).toBe(0);
+  });
+});
+
+describe("Session stats describe the Session", () => {
+  const signal = new AbortController().signal;
+  const done = scripted([{ type: "text", text: "ok" }]);
+
+  /** A project directory with a two-line file, so a range reference has a known label. */
+  async function project() {
+    // The real path: on macOS the temporary directory is a symlink, and git reports a repository by its real path.
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "learn-stats-")));
+    await writeFile(join(dir, "a.ts"), "export const x = 1;\nexport const y = 2;\n");
+    return dir;
+  }
+
+  it("name the model, the level and the project-relative file and range that was explained", async () => {
+    const dir = await project();
+    const session = new Session();
+    await all(explain({ reference: "a.ts:1-2", cwd: dir, root: dir, settings: { baseUrl: "https://api.example.com/v1", model: "gpt-x", level: "beginner" }, model: done, signal, session }));
+    expect(session.stats).toMatchObject({ model: "gpt-x", level: "beginner", reference: "a.ts:1-2" });
+  });
+
+  it("use the default level when none was set", async () => {
+    const dir = await project();
+    const session = new Session();
+    await all(explain({ reference: "a.ts:1-2", cwd: dir, root: dir, settings: { baseUrl: "https://api.example.com/v1", model: "m" }, model: done, signal, session }));
+    expect(session.stats.level).toBe("intermediate");
+  });
+
+  it("know the context window only for a local endpoint: the setting, or the default when none was set", async () => {
+    const dir = await project();
+    const statsFor = async (baseUrl: string, contextWindow?: number) => {
+      const session = new Session();
+      await all(explain({ reference: "a.ts:1-2", cwd: dir, root: dir, settings: { baseUrl, model: "m", contextWindow }, model: done, signal, session }));
+      return session.stats.contextWindow;
+    };
+    expect(await statsFor("http://127.0.0.1:11434/v1", 8192)).toBe(8192);
+    expect(await statsFor("http://127.0.0.1:11434/v1")).toBe(4096);
+    expect(await statsFor("https://api.example.com/v1", 8192)).toBeUndefined();
+    expect(await statsFor("https://api.example.com/v1")).toBeUndefined();
+  });
+
+  it("call piped and clipboard text by where it came from, never by its language label", async () => {
+    const settings = { baseUrl: "https://api.example.com/v1", model: "m" };
+    const piped = new Session();
+    await all(explain({ piped: { text: "x = 1", lang: "python" }, settings, model: done, signal, session: piped }));
+    expect(piped.stats.reference).toBe("stdin");
+    const clip = new Session();
+    await all(explain({ piped: { text: "x = 1", origin: "clipboard" }, settings, model: done, signal, session: clip }));
+    expect(clip.stats.reference).toBe("clipboard");
+  });
+
+  it("call a diff `diff` and a blame by its repository-relative path and range", async () => {
+    const dir = await project();
+    const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd: dir });
+    git("init", "-q");
+    git("add", ".");
+    git("commit", "-qm", "base");
+    await writeFile(join(dir, "a.ts"), "export const x = 2;\nexport const y = 2;\n");
+    const settings = { baseUrl: "https://api.example.com/v1", model: "m" };
+    const diffSession = new Session();
+    await all(explain({ diff: {}, cwd: dir, root: dir, settings, model: done, signal, session: diffSession }));
+    expect(diffSession.stats.reference).toBe("diff");
+    const blameSession = new Session();
+    await all(explain({ blame: "a.ts:1-2", cwd: dir, root: dir, settings, model: done, signal, session: blameSession }));
+    expect(blameSession.stats.reference).toBe("a.ts:1-2");
+  });
+
+  it("follow a new focus set by the chat, and keep the rest", async () => {
+    const dir = await project();
+    const session = new Session();
+    await all(explain({ reference: "a.ts:1-2", cwd: dir, root: dir, settings: { baseUrl: "https://api.example.com/v1", model: "m", level: "expert" }, model: done, signal, session }));
+    session.focus("b.ts:3-4");
+    expect(session.stats).toMatchObject({ reference: "b.ts:3-4", model: "m", level: "expert" });
   });
 });

@@ -1,13 +1,13 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { assertExcerptFits, resolveBudget } from "./budget.js";
+import { DEFAULT_CONTEXT_WINDOW, assertExcerptFits, resolveBudget } from "./budget.js";
 import { CancelledError, LearnError, ProviderError, UnexpectedError, UsageError } from "./errors.js";
 import { blockFinderFor } from "./block-finder-for.js";
 import { type BlockFinder, type Context, formatRequest, gatherContext } from "./context.js";
 import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import { formatBlameRequest, gatherBlame } from "./blame.js";
 import { formatDiffRequest, gatherDiff } from "./diff.js";
-import { type ContextReport, buildContextReport, buildBlameReport, buildDiffReport, hasOverride, reportForError } from "./report.js";
+import { type ContextReport, buildContextReport, buildBlameReport, buildDiffReport, focusLabel, hasOverride, reportForError } from "./report.js";
 import { findProjectRoot } from "./root.js";
 import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
@@ -140,9 +140,11 @@ export async function* explain(
 ): AsyncGenerator<ExplainEvent> {
   let request: ModelRequest;
   let sensitive = false;
+  let focus: string | undefined;
   try {
     const prepared = await prepareRequest(input);
     request = prepared.request;
+    focus = focusLabel(prepared.report);
     sensitive = hasOverride(prepared.report);
     // A Session that could never fit its own first request is refused before anything is sent.
     input.session?.assertPinnedFits(request.user.length);
@@ -176,6 +178,13 @@ export async function* explain(
       // Everything is recorded before anything is yielded, so a caller that stops reading at the usage event still leaves the Session complete.
       input.session?.recordUsage(usage);
       input.session?.begin(request, answer, sensitive);
+      input.session?.describe({
+        model: input.settings.model,
+        level: input.settings.level ?? DEFAULT_LEVEL,
+        ...(focus !== undefined && { reference: focus }),
+        // A context window is a real setting only for a local endpoint; for a hosted one it is not known, so it is not shown.
+        ...(resolveEndpoint(input.settings.baseUrl).local && { contextWindow: input.settings.contextWindow ?? DEFAULT_CONTEXT_WINDOW }),
+      });
       yield { type: "usage", usage };
     }
     if (input.signal.aborted) {

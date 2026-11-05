@@ -214,3 +214,22 @@ export function formatContextReport(report: ContextReport): string {
   out.push(...budgetLines(report));
   return out.join("\n");
 }
+
+/**
+ * What a frontend should call the code a request is about, from the report that was built for it: the project-relative
+ * file and range, `stdin` or `clipboard` for text with no file, `diff`, or a blame's repository-relative path and range.
+ * Built from the report, not from what the user typed, so it never holds an absolute path. Undefined for reports about
+ * a refusal or a trimmed Session, which point at nothing new.
+ */
+export function focusLabel(report: ContextReport): string | undefined {
+  switch (report.kind) {
+    case "sent":
+      return report.unnamed ? (report.unnamed === "piped input" ? "stdin" : "clipboard") : report.label;
+    case "diff":
+      return "diff";
+    case "blame":
+      return `${report.path}:${report.start}-${report.end}`;
+    default:
+      return undefined;
+  }
+}

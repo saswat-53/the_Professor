@@ -1,6 +1,6 @@
 export { explain, buildRequest, prepareRequest } from "./explain.js";
 export { Session, followUp } from "./session.js";
-export type { DroppedTurns, SessionStats } from "./session.js";
+export type { DroppedTurns, SessionInfo, SessionStats } from "./session.js";
 export { buildSystemPrompt } from "./prompt.js";
 export type { ExplainEvent, LanguageModel, Message, ModelEvent, ModelRequest, Settings, TurnUsage } from "./types.js";
 export {
