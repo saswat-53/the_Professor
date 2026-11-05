@@ -300,12 +300,12 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   const paste = (c: string, length: number) => `<<<${ENTER}${`${c.repeat(400)}${ENTER}`.repeat(Math.ceil(length / 400))}>>>${ENTER}`;
 
   it("derives a local endpoint's Session cap from --context-window, and refuses a message that cannot fit", async () => {
-    // Window 800 tokens: 600 for the prompt = 2400 characters, less the system prompt (a little over 1,300), about 1,000. A 1,200-character question cannot fit; a short one can. (A pty holds only so much echoed text, so the pastes stay small.)
+    // Window 1,450 tokens: about 1,090 for the prompt = 4,350 characters, less the system prompt (a little over 3,300), about 1,000. A 1,200-character question cannot fit; a short one can. (A pty holds only so much echoed text, so the pastes stay small.)
     const out = await chat([
       ["\n> ", paste("x", 1200)],
       ["too long to send", `short${ENTER}`],
       ["ANSWER2", `/exit${ENTER}`],
-    ], { LEARN_CONTEXT_WINDOW: "800" });
+    ], { LEARN_CONTEXT_WINDOW: "1450" });
     expect(out).toMatch(/\nexit 0\n$/);
     expect(out).toContain("--context-window");
     expect(bodies).toHaveLength(2);
