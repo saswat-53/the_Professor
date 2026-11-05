@@ -118,3 +118,47 @@ describe("turns that carry a file the Sensitive-file rules normally exclude", ()
     expect(session.turns.map((t) => t.sensitive)).toEqual([false, true, false]);
   });
 });
+
+describe("an open Session (a chat started with no code)", () => {
+  const settings = { baseUrl: "http://h/v1", model: "m", level: "beginner" as const };
+
+  it("answers the first question with nothing before it, and that question becomes the pinned turn", async () => {
+    const { model, requests } = fakeModel(["one", "two"]);
+    const session = new Session();
+    session.startEmpty(settings);
+    expect(session.stats).toMatchObject({ model: "m", level: "beginner" });
+    const first = await collect(followUp({ session, question: "what is a closure?", model, signal: new AbortController().signal }));
+    expect(first.at(-1)?.type).toBe("done");
+    expect(requests[0]).toMatchObject({ baseUrl: "http://h/v1", model: "m", user: "what is a closure?" });
+    expect(requests[0]!.history).toEqual([]);
+    expect(requests[0]!.system).toContain("Level: beginner");
+    await collect(followUp({ session, question: "and a generator?", model, signal: new AbortController().signal }));
+    expect(requests[1]!.history?.map((m) => m.content)).toEqual(["what is a closure?", "one"]);
+    expect(session.turns.map((t) => t.number)).toEqual([1, 2]);
+  });
+
+  it("tells the model what to do for a general question and for attached code, without claiming that no code is attached", () => {
+    const session = new Session();
+    session.startEmpty(settings);
+    const system = session.planFor("hi")!.request.system;
+    expect(system).toMatch(/general question/i);
+    expect(system).toMatch(/attached with @/i);
+    // The first message may carry code (`explain @file`); a prompt that says otherwise made a 14b model answer "I can't tell".
+    expect(system).not.toMatch(/no code has been attached|not been attached|nothing has been attached/i);
+  });
+
+  it("keeps its first turn when the cap forces older turns out", async () => {
+    const { model, requests } = fakeModel(["a".repeat(40), "b".repeat(40), "c".repeat(40)]);
+    const session = new Session(200);
+    session.startEmpty(settings);
+    for (const q of ["first", "second", "third"]) await collect(followUp({ session, question: q, model, signal: new AbortController().signal }));
+    expect(requests[2]!.history?.[0]?.content).toBe("first");
+    expect(session.turns[0]?.number).toBe(1);
+  });
+
+  it("has no turns to save or quiz on until something has been asked", () => {
+    const session = new Session();
+    session.startEmpty(settings);
+    expect(session.turns).toEqual([]);
+  });
+});

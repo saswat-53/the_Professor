@@ -17,8 +17,15 @@ export function isLevel(value: string): value is Level {
   return (LEVELS as readonly string[]).includes(value);
 }
 
-export function buildSystemPrompt(level: Level): string {
-  return `${teachingPrompt.trimEnd()}\n\n${LEVEL_GUIDANCE[level]}\n`;
+/**
+ * For a chat that starts with no code. It must not claim that no code is attached: the first message may carry some (`explain @file`), and a model that
+ * believes the claim answers "I can't tell" (seen with qwen2.5-coder:14b). It says what to do for each kind of message instead.
+ */
+const OPEN_CHAT_GUIDANCE =
+  "This conversation may start with a general question or with code. If a message includes code (a fenced block, or files attached with @), explain it in the structure above. If it is a general question with no code, answer it directly and briefly, without the four headings.";
+
+export function buildSystemPrompt(level: Level, { open = false }: { open?: boolean } = {}): string {
+  return `${teachingPrompt.trimEnd()}\n\n${LEVEL_GUIDANCE[level]}\n${open ? `\n${OPEN_CHAT_GUIDANCE}\n` : ""}`;
 }
 
 /** Wraps code in a backtick fence longer than any backtick run inside it, so the code cannot close the fence early. */

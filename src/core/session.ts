@@ -1,6 +1,9 @@
+import { DEFAULT_CONTEXT_WINDOW } from "./budget.js";
 import { LearnError, ProviderError, SessionTooLongError, UsageError } from "./errors.js";
+import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
 import type { Level } from "./prompt.js";
-import type { ExplainEvent, LanguageModel, Message, ModelRequest, TurnUsage } from "./types.js";
+import { resolveEndpoint } from "./sensitive.js";
+import type { ExplainEvent, LanguageModel, Message, ModelRequest, Settings, TurnUsage } from "./types.js";
 import { cancelled, turnUsage } from "./usage.js";
 
 /** One finished question and answer. `number` counts from 1 (the first explanation) and never changes, so a report can name it after earlier turns were dropped. */
@@ -59,6 +62,8 @@ export class Session {
   #last: TurnUsage | undefined;
   #total: TurnUsage = { inputTokens: 0, outputTokens: 0, source: "reported" };
   #first: ModelRequest | undefined;
+  /** Where an open Session sends its questions: the endpoint, model and system prompt a first request would have carried. */
+  #open: Pick<ModelRequest, "baseUrl" | "model" | "system"> | undefined;
   #turns: Turn[] = [];
   #count = 0;
 
@@ -67,6 +72,21 @@ export class Session {
     this.#first = request;
     this.#count = 1;
     this.#turns = [{ number: 1, user: request.user, assistant: answer, files: [], sensitive }];
+  }
+
+  /**
+   * Starts the Session with no code and no first turn (a chat opened bare). Nothing is sent; the first question
+   * asked becomes turn 1 and is the pinned one, so trimming still never drops it.
+   */
+  startEmpty(settings: Settings): void {
+    const level = settings.level ?? DEFAULT_LEVEL;
+    this.#open = { baseUrl: settings.baseUrl, model: settings.model, system: buildSystemPrompt(level, { open: true }) };
+    this.describe({
+      model: settings.model,
+      level,
+      // A context window is a real setting only for a local endpoint (as in `explain`).
+      ...(resolveEndpoint(settings.baseUrl).local && { contextWindow: settings.contextWindow ?? DEFAULT_CONTEXT_WINDOW }),
+    });
   }
 
   /** The turns still held, oldest first, for `/save`. Turns dropped to fit the cap are not here. */
@@ -130,11 +150,12 @@ export class Session {
    * that fit as history. `dropped` names what was left out; `total` is the transcript's size with the question.
    */
   planFor(question: string): { request: ModelRequest; dropped?: DroppedTurns; total: number } | undefined {
-    if (!this.#first) return undefined;
-    const { baseUrl, model, system } = this.#first;
+    const base = this.#first ?? this.#open;
+    if (!base) return undefined;
+    const { baseUrl, model, system } = base;
     const { drop, total } = this.#plan(question.length);
     const left = this.#turns.slice(1, 1 + drop);
-    const kept = [this.#turns[0]!, ...this.#turns.slice(1 + drop)];
+    const kept = this.#turns.length === 0 ? [] : [this.#turns[0]!, ...this.#turns.slice(1 + drop)];
     const history = kept.flatMap((t): Message[] => [{ role: "user", content: t.user }, { role: "assistant", content: t.assistant }]);
     return {
       request: { baseUrl, model, system, history, user: question },

@@ -30,6 +30,7 @@ async function collect(model: LanguageModel, request: ModelRequest, signal: Abor
 function sideRequest(session: Session, user: string): ModelRequest {
   const plan = session.planFor(user);
   if (!plan) throw new UsageError("there is no explanation yet to quiz you on");
+  if (session.turns.length === 0) throw new UsageError("there is nothing to quiz you on yet: ask something first");
   if (plan.total > session.capChars) throw new SessionTooLongError("the quiz request does not fit the Session cap");
   return plan.request;
 }

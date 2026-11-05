@@ -95,3 +95,14 @@ describe("grading an answer", () => {
     expect(session.turns).toHaveLength(1);
   });
 });
+
+describe("a quiz on an open Session with nothing asked yet", () => {
+  it("refuses before sending anything, since there is nothing to quiz on", async () => {
+    const session = new Session();
+    session.startEmpty({ baseUrl: "http://h/v1", model: "m" });
+    const requests: unknown[] = [];
+    const model = { async *stream(r: unknown) { requests.push(r); yield { type: "text" as const, text: "{}" }; } };
+    await expect(generateQuiz({ session, model, signal: new AbortController().signal })).rejects.toThrow(/nothing to quiz/i);
+    expect(requests).toEqual([]);
+  });
+});
