@@ -42,7 +42,7 @@ Project names, file names, reference labels and model names are untrusted text t
 
 ## Glossary
 
-- [ ] `GLOSSARY.md` has a **Footer** entry covering the field order, the drop order, the display-width rule, the escape-stripping rule and the local-only fill
+- [x] `GLOSSARY.md` has a **Footer** entry covering the field order, the drop order, the display-width rule, the escape-stripping rule and the local-only fill
 
 ## CI
 
