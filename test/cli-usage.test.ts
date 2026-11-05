@@ -464,3 +464,24 @@ describe.skipIf(!hasPython)("the chat footer with hostile names and real paths",
   }, 60_000);
 });
 
+describe.skipIf(!hasPython)("the chat footer when the terminal is resized", () => {
+  it("is built for the width the terminal has when each prompt is printed, narrower or wider than before", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], { PTY_COLS: "200" }, [
+      ["\n> ", "resize:50"],
+      // An empty wait fires at once, on the helper's next turn: the resize makes no output of its own to wait for.
+      ["", "and then?\r"],
+      ["\n> ", "resize:200"],
+      ["", "and again?\r"],
+      ["\n> ", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const footers = out.split("\r\n").filter((l) => /\d+k? in\/\d+ out/.test(l) && !l.includes("--usage"));
+    expect(footers).toHaveLength(3);
+    // 200 columns: everything. 50 columns: no room for the project, the level or the path, so the model, the tokens and the fill. 200 again: everything.
+    expect(footers[0]).toMatch(/^\S+ · learn-usage-\w+\/sample\.ts · m · intermediate · 1k in\/200 out · last 1k\/4\.1k \(24%\)$/);
+    expect(footers[1]).toBe("m · 2k in/400 out · last 1k/4.1k (24%)");
+    expect(footers[2]).toMatch(/^\S+ · learn-usage-\w+\/sample\.ts · m · intermediate · 3k in\/600 out · last 1k\/4\.1k \(24%\)$/);
+  }, 40_000);
+});
+
