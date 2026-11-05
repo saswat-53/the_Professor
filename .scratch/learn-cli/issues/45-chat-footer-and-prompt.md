@@ -19,7 +19,7 @@
 - [x] On narrow terminals fields drop in this order: project, level, `file:range`, tokens; the file path is first truncated from the left (`…/auth.ts:40-60`) before it is dropped; below about 40 columns only `model` and fill remain (on a hosted endpoint: `model` alone); if even that does not fit, `model` is truncated from the right
 - [x] The prompt is a rule above and `❯ ` on a colour terminal, and a plain `> ` otherwise (`NO_COLOR`, `TERM=dumb`); with `NO_COLOR` the footer prints uncoloured with no rule glyphs. Colour and mode come from the existing `outputMode` decision, not a second check
 - [x] No footer is printed when stdin or stdout is not a terminal (chat already refuses to start then) (by the existing test "`--chat` without a terminal refuses with exit 2", which shows the chat never starts, so no footer is printed)
-- [ ] The owl banner and mascot are unchanged and the footer does not draw over them **Open:** the colour-terminal tests run with `LEARN_OWL=off`, so the footer has not been checked against the animated owl
+- [x] The owl banner and mascot are unchanged and the footer does not draw over them (no commit since the mascot landed touches src/cli/mascot or owl.ts. Tested with the animated owl on, in a pty: it claims the rows below its 8-row header as the scrolling area, the rule and footer then arrive uninterrupted inside it, with none of the owl's cursor save or addressing codes among them, and the terminal is handed back after the last footer. Reasoning: a frame is one write and so is the header, so a frame can land between them but never inside. Not covered: how it looks on screen in a real terminal emulator, and the static-owl path, whose banner is printed once and is unchanged)
 - [x] `renderFooter` lives in `src/cli/`; core only supplies `SessionStats`
 
 ## Safety case: hostile names and no absolute paths
@@ -54,8 +54,7 @@ This ticket depends on terminal width, resize and process timing, so it is not d
 
 Local evidence only (macOS): the full suite passed 6 of 6 and 8 of 8 consecutive runs after the fixes below. Not yet done:
 
-- [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04), with `test/cli-usage.test.ts` run several times: the chat tests drive a pty, and the cancel and resize tests depend on how output is chunked and on the window-size signal arriving before the next footer is built.
-- [ ] The animated owl: the colour-terminal tests run with `LEARN_OWL=off`, so the footer has not been checked against the animated mascot. (Bare-word focus, very long names and `--root` are now tested.)
+- [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04), with `test/cli-usage.test.ts` run several times (it now includes the animated-owl test, which depends on timer-driven frames): the chat tests drive a pty, and the cancel and resize tests depend on how output is chunked and on the window-size signal arriving before the next footer is built.
 
 Things found along the way:
 

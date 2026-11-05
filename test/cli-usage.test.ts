@@ -534,3 +534,28 @@ describe.skipIf(!hasPython)("the chat footer for a bare word", () => {
   }, 40_000);
 });
 
+describe.skipIf(!hasPython)("the chat footer with the animated owl", () => {
+  const DIM = "\u001b[2m";
+  const RESET = "\u001b[0m";
+  /** What it takes for the owl to animate: a colour terminal of at least 20 rows (the helper's are 24) and 50 columns, and LEARN_OWL not set. */
+  const withOwl = { TERM: "xterm-256color", NO_COLOR: "", COLORTERM: "truecolor", LEARN_OWL: "", PTY_COLS: "100" };
+
+  it("is printed whole inside the scrolling area below the owl, with none of the owl's cursor moves inside it", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], withOwl, [["❯ ", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    // The owl really was on: it claimed the rows below its 8-row header as the scrolling area (24 rows), and handed the terminal back at the end.
+    const region = out.indexOf("\u001b[9;24r");
+    expect(region, "the owl's scroll region").toBeGreaterThan(-1);
+    // The rule, the footer and the prompt follow each other in the stream, with only the footer's own colour codes inside them.
+    const escaped = (text: string) => text.replace(/[[\]().*+?^${}|\\]/g, "\\$&");
+    const [dim, reset] = [escaped(DIM), escaped(RESET)];
+    const header = new RegExp(`${dim}${"─".repeat(100)}${reset}\\r\\n${dim}[^\\u001b]* · m · intermediate · 1k in/200 out · ${reset}${dim}last 1k/4\\.1k \\(24%\\)${reset}\\r\\n`);
+    const found = header.exec(out);
+    expect(found, "the rule and the footer, uninterrupted").not.toBeNull();
+    // It is drawn in the scrolling area, after the owl set it up, and the terminal is handed back after it.
+    expect(found!.index).toBeGreaterThan(region);
+    expect(out.lastIndexOf("\u001b[r")).toBeGreaterThan(found!.index);
+  }, 40_000);
+});
+
