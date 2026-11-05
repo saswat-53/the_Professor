@@ -41,7 +41,7 @@ The directory learn treats as "the project": the git root above the current dire
 _Avoid_: Workspace, base directory
 
 **Session**:
-One conversation: the first explanation of a Reference plus its follow-up questions.
+One conversation: the first explanation of a Reference plus its follow-up questions. It also keeps what it has used and what it is about (see **SessionStats**).
 _Avoid_: Chat, thread, conversation
 
 **Session cap**:
@@ -53,6 +53,14 @@ The first turn of a Session (the first Excerpt, its Context and the first explan
 
 **Context window**:
 The model's size in tokens, set with `context_window` / `LEARN_CONTEXT_WINDOW` / `--context-window` (default 4096, Ollama's default). Used only to derive the Session cap on a local endpoint, because an OpenAI-compatible endpoint does not report its real window.
+
+**Usage**:
+The tokens one request used: an input count and an output count, each with a source. *Reported* means the endpoint said so, in the stream's last chunk, which learn asks for with `stream_options.include_usage`. *Estimated* means learn worked it out at four characters a token, rounded up, from what was sent and what arrived. A turn with any estimated figure is estimated as a whole, and an estimate is always shown with a `~`, never as an exact number. An endpoint that rejects the option (a 400 naming `stream_options`, before any output) is sent the request once more without it, the one automatic retry in learn; that is remembered in memory by the chat's model adapter for the rest of the chat, so later turns don't ask again, and one stderr note names the host (never the path or key) and says counts are estimated. A cancelled turn counts as an estimate of what was sent and what arrived; a turn that failed counts nothing. Shown by `--usage` (one line, terminal only, one-shot only) and, in a chat, by the footer.
+_Avoid_: Cost, billing, quota (learn keeps no price table and never says what a request cost)
+
+**SessionStats**:
+A snapshot, as plain data, of what a **Session** has used and what it is about: the last turn's **Usage**, the total over every turn (estimated if any turn was), the model, the **Level**, the latest focused reference (a project-relative `file:range`, `stdin`, `clipboard` or `diff`, never an absolute path) and, for a local endpoint only, the **Context window**. Taken with `session.stats`; changing a snapshot does not change the Session. Core owns the numbers and knows nothing of colour or terminal width, so any frontend can show them in its own way.
+_Avoid_: Metrics, telemetry (nothing here leaves the machine)
 
 **Chat**:
 The interactive loop (`--chat`) over a Session: a `learn>` prompt where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
