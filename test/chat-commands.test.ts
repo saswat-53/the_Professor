@@ -10,7 +10,7 @@ import type { LanguageModel } from "../src/core/index.js";
 
 describe("the chat command table", () => {
   it("lists the commands the chat accepts, in the order they are shown", () => {
-    expect(CHAT_COMMANDS.map((c) => c.name)).toEqual(["/save", "/glossary", "/quiz", "/help", "/exit"]);
+    expect(CHAT_COMMANDS.map((c) => c.name)).toEqual(["/save", "/glossary", "/quiz", "/clear", "/help", "/exit"]);
   });
 
   it("gives every command a usage line that starts with its name, and some help text, none of them blank", () => {
@@ -34,6 +34,7 @@ describe("the chat command table", () => {
         "  /save [name]             write this Session as a note",
         "  /glossary term: meaning  add a glossary entry",
         "  /quiz                    ask 5 questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored)",
+        "  /clear                   clear the screen and start a fresh chat (notes you saved stay)",
         "  /help                    show this help",
         "  /exit (or /quit)         end the chat (Ctrl-D or Ctrl-C at the prompt does too)",
       ].join("\n"),
@@ -62,6 +63,10 @@ interface Run {
   asked: number;
   /** The chat's exit code, once it ended. */
   code: number;
+  /** How many turns the Session held when the chat ended. */
+  turns: number;
+  /** How many times the chat asked the frontend to clear the screen. */
+  cleared: number;
 }
 
 /** Runs the real chat, in memory, on a Session that already holds one explanation, and types `line`, then ends the input. */
@@ -77,7 +82,7 @@ async function typeAtPrompt(line: string): Promise<Run> {
   const output = new PassThrough();
   let text = "";
   output.on("data", (chunk) => (text += chunk));
-  const run: Run = { reports: [], output: "", saved: [], glossaryEntries: [], asked: 0, code: -1 };
+  const run: Run = { reports: [], output: "", saved: [], glossaryEntries: [], asked: 0, code: -1, turns: -1, cleared: 0 };
   const done = runChat({
     input,
     output,
@@ -90,12 +95,14 @@ async function typeAtPrompt(line: string): Promise<Run> {
     takeSignals: () => {},
     save: async (name) => (run.saved.push(name), "note.md"),
     glossary: async (term, definition) => (run.glossaryEntries.push([term, definition]), "glossary.md"),
+    onClear: () => void (run.cleared += 1),
   });
   input.write(`${line}\n`);
   input.end();
   run.code = await done;
   run.output = text;
   run.asked = asked;
+  run.turns = session.turns.length;
   return run;
 }
 
@@ -108,6 +115,11 @@ describe("every command in the table works at the chat prompt", () => {
     "/save": (run) => expect(run.saved).toEqual(["[name]"]),
     "/glossary": (run) => expect(run.glossaryEntries).toEqual([["term", " meaning"]]),
     "/quiz": (run) => expect(run.asked, "the quiz asks the model for its questions").toBe(1),
+    "/clear": (run) => {
+      expect(run.turns, "the Session is emptied (it held one explanation)").toBe(0);
+      expect(run.cleared, "the screen is cleared").toBe(1);
+      expect(run.asked, "nothing is sent to the model").toBe(0);
+    },
     // Once when the chat opens and once for /help.
     "/help": (run) => expect(run.output.match(/Chat commands:/g)).toHaveLength(2),
     "/exit": (run) => expect(run.asked).toBe(0),

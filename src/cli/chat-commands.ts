@@ -31,6 +31,7 @@ export const CHAT_COMMANDS = [
     help: `ask ${QUIZ_LENGTH} questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored)`,
     takesArgs: false,
   },
+  { name: "/clear", aliases: [], usage: "/clear", help: "clear the screen and start a fresh chat (notes you saved stay)", takesArgs: false },
   { name: "/help", aliases: [], usage: "/help", help: "show this help", takesArgs: false },
   { name: "/exit", aliases: ["/quit"], usage: "/exit", help: "end the chat (Ctrl-D or Ctrl-C at the prompt does too)", takesArgs: false },
 ] as const satisfies readonly ChatCommand[];

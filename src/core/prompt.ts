@@ -24,8 +24,14 @@ export function isLevel(value: string): value is Level {
 const OPEN_CHAT_GUIDANCE =
   "This conversation may start with a general question or with code. If a message includes code (a fenced block, or files attached with @), explain it in the structure above. If it is a general question with no code, answer it directly and briefly, without the four headings.";
 
+/** `system` with the open-chat guidance added (once: a prompt that has it is returned as it is). */
+export function withOpenChatGuidance(system: string): string {
+  return system.includes(OPEN_CHAT_GUIDANCE) ? system : `${system}\n${OPEN_CHAT_GUIDANCE}\n`;
+}
+
 export function buildSystemPrompt(level: Level, { open = false }: { open?: boolean } = {}): string {
-  return `${teachingPrompt.trimEnd()}\n\n${LEVEL_GUIDANCE[level]}\n${open ? `\n${OPEN_CHAT_GUIDANCE}\n` : ""}`;
+  const system = `${teachingPrompt.trimEnd()}\n\n${LEVEL_GUIDANCE[level]}\n`;
+  return open ? withOpenChatGuidance(system) : system;
 }
 
 /** Wraps code in a backtick fence longer than any backtick run inside it, so the code cannot close the fence early. */

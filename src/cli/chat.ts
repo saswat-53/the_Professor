@@ -36,6 +36,8 @@ export interface ChatOptions {
   header?: () => string;
   /** The main prompt. Default `learn> `. */
   prompt?: string;
+  /** `/clear`: the Session has just been emptied; clear the screen and start the display afresh. */
+  onClear?: () => void;
   /** Scrolling back through the chat while the animated owl pins the top of the screen (the terminal cannot, since it drops lines that leave a pinned region). Absent: nothing to scroll. */
   scrollback?: Scrollback;
   /** With a scrollback: also take the mouse wheel and trackpad scrolling from the terminal. Default true; it costs plain click-and-drag text selection (most terminals select with Option or Shift held). */
@@ -303,6 +305,12 @@ export async function runChat(opts: ChatOptions): Promise<number> {
         mood("startled");
         opts.report("error", opts.describe(err));
       }
+      return "next";
+    },
+    "/clear": async (): Promise<Outcome> => {
+      opts.session.clear();
+      opts.onClear?.();
+      mood("idle");
       return "next";
     },
     "/help": async (): Promise<Outcome> => {

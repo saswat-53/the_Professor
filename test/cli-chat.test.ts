@@ -171,6 +171,23 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(out).not.toMatch(/> (\x1b\[\d*G)?\S+ · /);
   }, 30_000);
 
+  it("/clear empties the Session and the screen: the next question is sent with no history and no earlier code", async () => {
+    const out = await chat([
+      ["\n> ", `why is it 1?${ENTER}`],
+      ["ANSWER2", `/clear${ENTER}`],
+      ["Cleared", `fresh question${ENTER}`],
+      ["ANSWER3", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toContain("\u001b[2J");
+    expect(bodies).toHaveLength(3);
+    // The request after /clear carries only the system prompt and the new question.
+    expect(bodies[2]!.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    expect(bodies[2]!.messages[1]!.content).toBe("fresh question");
+    expect(JSON.stringify(bodies[2])).not.toContain("export const a = 1;");
+    expect(JSON.stringify(bodies[2])).not.toContain("why is it 1?");
+  }, 30_000);
+
   it("--diff chats about the changes, and the diff stays in the history of every follow-up", async () => {
     const repo = await mkdtemp(join(tmpdir(), "learn-chat-diff-"));
     const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd: repo });
@@ -548,7 +565,7 @@ describe.skipIf(!hasPython)("learn --chat commands come from one table", () => {
       ["\n> ", `/nope${ENTER}`],
       ["\n> ", `/exit${ENTER}`],
     ]);
-    expect(out).toContain("/nope is not a command (commands: /save, /glossary, /quiz, /help, /exit");
+    expect(out).toContain("/nope is not a command (commands: /save, /glossary, /quiz, /clear, /help, /exit");
     expect(bodies).toHaveLength(1);
   }, 30_000);
 

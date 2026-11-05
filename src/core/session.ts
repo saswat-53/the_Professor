@@ -1,6 +1,6 @@
 import { DEFAULT_CONTEXT_WINDOW } from "./budget.js";
 import { LearnError, ProviderError, SessionTooLongError, UsageError } from "./errors.js";
-import { DEFAULT_LEVEL, buildSystemPrompt } from "./prompt.js";
+import { DEFAULT_LEVEL, buildSystemPrompt, withOpenChatGuidance } from "./prompt.js";
 import type { Level } from "./prompt.js";
 import { resolveEndpoint } from "./sensitive.js";
 import type { ExplainEvent, LanguageModel, Message, ModelRequest, Settings, TurnUsage } from "./types.js";
@@ -87,6 +87,25 @@ export class Session {
       // A context window is a real setting only for a local endpoint (as in `explain`).
       ...(resolveEndpoint(settings.baseUrl).local && { contextWindow: settings.contextWindow ?? DEFAULT_CONTEXT_WINDOW }),
     });
+  }
+
+  /**
+   * Starts over (`/clear`): every turn, the usage and what the Session was about are forgotten, so the next question is turn 1 of a fresh
+   * conversation and nothing earlier is sent again. The endpoint, model and level stay, and the model is told, as in an open Session, that
+   * it may be asked a general question or shown code.
+   */
+  clear(): void {
+    const base = this.#first ?? this.#open;
+    this.#open = base && { baseUrl: base.baseUrl, model: base.model, system: withOpenChatGuidance(base.system) };
+    this.#first = undefined;
+    this.#turns = [];
+    this.#count = 0;
+    this.#last = undefined;
+    this.#total = { inputTokens: 0, outputTokens: 0, source: "reported" };
+    if (this.#info) {
+      const { reference: _forgotten, ...kept } = this.#info;
+      this.#info = kept;
+    }
   }
 
   /** The turns still held, oldest first, for `/save`. Turns dropped to fit the cap are not here. */

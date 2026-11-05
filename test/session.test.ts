@@ -162,3 +162,53 @@ describe("an open Session (a chat started with no code)", () => {
     expect(session.turns).toEqual([]);
   });
 });
+
+describe("clearing a Session (/clear)", () => {
+  it("forgets every turn, the usage and what it was about, so the next question starts a fresh conversation with nothing before it", async () => {
+    const { model, requests } = fakeModel(["first answer", "second answer", "fresh answer"]);
+    const session = new Session();
+    await firstExplanation(session, model);
+    await collect(followUp({ session, question: "why 1?", model, signal: new AbortController().signal }));
+    expect(session.turns).toHaveLength(2);
+    session.clear();
+    expect(session.turns).toEqual([]);
+    expect(session.size).toBe(0);
+    expect(session.stats.total).toEqual({ inputTokens: 0, outputTokens: 0, source: "reported" });
+    expect(session.stats.last).toBeUndefined();
+    expect(session.stats.reference).toBeUndefined();
+    // The model and level the footer shows are still the Session's.
+    expect(session.stats.model).toBe("m");
+    const events = await collect(followUp({ session, question: "something new", model, signal: new AbortController().signal }));
+    expect(events.at(-1)?.type).toBe("done");
+    const sent = requests.at(-1)!;
+    expect(sent.history).toEqual([]);
+    expect(sent.user).toBe("something new");
+    // The earlier code and answers are not sent again.
+    expect(JSON.stringify(sent)).not.toContain("export const x = 1;");
+    expect(JSON.stringify(sent)).not.toContain("first answer");
+    expect(session.turns.map((t) => t.number)).toEqual([1]);
+  });
+
+  it("goes on with the same endpoint and model, and tells the model no code is pinned any more", async () => {
+    const { model, requests } = fakeModel(["a", "b"]);
+    const session = new Session();
+    await firstExplanation(session, model);
+    session.clear();
+    await collect(followUp({ session, question: "hi", model, signal: new AbortController().signal }));
+    expect(requests.at(-1)).toMatchObject({ baseUrl: "http://h/v1", model: "m" });
+    expect(requests.at(-1)!.system).toMatch(/general question/i);
+    // Clearing again does not stack the guidance.
+    session.clear();
+    session.clear();
+    const plan = session.planFor("again")!;
+    expect(plan.request.system.match(/This conversation may start/g)).toHaveLength(1);
+  });
+
+  it("is harmless on a Session that was never started", () => {
+    const session = new Session();
+    session.clear();
+    expect(session.turns).toEqual([]);
+    expect(session.planFor("hi")).toBeUndefined();
+  });
+});
+

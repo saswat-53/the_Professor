@@ -213,6 +213,7 @@ Over the cap, the oldest follow-up turns are dropped, a question and its answer 
 | `/save [name]` | write this Session as a note |
 | `/glossary term: meaning` | add a glossary entry |
 | `/quiz` | ask 5 questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored) |
+| `/clear` | clear the screen and start a fresh chat (notes you saved stay) |
 | `/help` | show this help |
 | `/exit (or /quit)` | end the chat (Ctrl-D or Ctrl-C at the prompt does too) |
 <!-- chat-commands:end -->
@@ -220,6 +221,8 @@ Over the cap, the oldest follow-up turns are dropped, a question and its answer 
 `learn --help` lists the same commands. A word starting with `/` that is not in the table is reported as "not a command"; a command typed with words it does not take (`/exit now`) is an ordinary question for the model.
 
 The Session lives in memory until you save it; nothing else is ever written.
+
+**Starting over (`/clear`).** Empties the Session (every turn, the usage and the focused file) and clears the visible screen; the next question starts a fresh conversation, and the earlier code and answers are no longer sent to the model. Nothing is deleted from disk: notes you saved stay, and your terminal's own scrollback is left alone.
 
 **Notes (`/save` and `/glossary`).** Both write only inside the notes directory (`notes_dir`, default `~/learn-notes`, created private if missing).
 

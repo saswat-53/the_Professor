@@ -473,6 +473,23 @@ async function main(): Promise<number> {
       mascot,
       scrollback,
       mouse,
+      onClear: () => {
+        screenLog.clear();
+        // Erase the saved lines (3J), the screen (2J) and go home: a fresh chat has nothing of the old one above it, even when scrolled up to look.
+        const wipe = "\u001b[3J\u001b[2J\u001b[H";
+        if (scrollback) {
+          // Pinned owl: it never moved. The saved lines go, and the scrolling area is blanked from the (now empty) log with the cursor at its top.
+          process.stdout.write("\u001b[3J");
+          scrollback.end();
+        } else if (mascot?.restart) {
+          // The owl in the conversation wipes the screen itself and starts animating again at the top.
+          mascot.restart();
+        } else {
+          process.stdout.write(wipe);
+          if (owl === "static") process.stdout.write(`\n${owlBanner({ color: mode.color })}\n`);
+        }
+        status("info", "Cleared. This is a fresh chat; nothing earlier is sent. Ask a question, or attach code with @path, @path:10-20 or @word.");
+      },
       session,
       model: llm,
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),

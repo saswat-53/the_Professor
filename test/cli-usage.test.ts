@@ -659,4 +659,19 @@ describe.skipIf(!hasPython)("the owl in the conversation (the default)", () => {
     expect(out).toContain("an explanation 2");
     expect(out).toContain("intermediate");
   }, 40_000);
+
+  it("/clear wipes the screen and its saved lines, and the owl is drawn again and animates", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], inline, [["❯ ", "hello\r"], ["intermediate", "/clear\r"], ["Cleared", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const wipe = out.indexOf("\u001b[3J\u001b[2J\u001b[H");
+    expect(wipe, "the erase sequence").toBeGreaterThan(-1);
+    // The owl is drawn at the top again after the wipe, with its words, and the fresh-chat note follows.
+    const after = out.slice(wipe);
+    expect(after).toContain("\u001b[1;1H");
+    expect(after).toContain("Professor");
+    expect(after).toContain("Cleared.");
+    // Nothing is left to scroll back to: the footer printed before the wipe is not printed again after it.
+    expect(after).not.toContain("an explanation 2");
+  }, 40_000);
 });

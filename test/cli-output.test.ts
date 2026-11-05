@@ -124,6 +124,7 @@ describe("--help lists the chat commands", () => {
     "  /save [name]             write this Session as a note",
     "  /glossary term: meaning  add a glossary entry",
     "  /quiz                    ask 5 questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored)",
+    "  /clear                   clear the screen and start a fresh chat (notes you saved stay)",
     "  /help                    show this help",
     "  /exit (or /quit)         end the chat (Ctrl-D or Ctrl-C at the prompt does too)",
   ].join("\n");
