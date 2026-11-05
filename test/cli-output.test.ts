@@ -118,6 +118,41 @@ describe("--help and --version", () => {
   });
 });
 
+describe("--help lists the chat commands", () => {
+  const SECTION = [
+    "Chat commands:",
+    "  /save [name]             write this Session as a note",
+    "  /glossary term: meaning  add a glossary entry",
+    "  /quiz                    ask 5 questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored)",
+    "  /help                    show this help",
+    "  /exit (or /quit)         end the chat (Ctrl-D or Ctrl-C at the prompt does too)",
+  ].join("\n");
+
+  it("prints the Chat commands section, from the command table, between the usage and the exit codes", async () => {
+    const r = await run(["--help"]);
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(SECTION);
+    const at = (text: string) => r.stdout.indexOf(text);
+    expect(at("Level is one of")).toBeGreaterThan(-1);
+    expect(at("Level is one of")).toBeLessThan(at("Chat commands:"));
+    expect(at("Chat commands:")).toBeLessThan(at("Exit codes:"));
+    expect(r.stderr).toBe("");
+  });
+
+  it("needs no terminal, config file, key or model, and touches no network: a base URL that would refuse a connection is never tried", async () => {
+    const r = await run(["--help"], { LEARN_BASE_URL: "http://127.0.0.1:1/v1" });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(SECTION);
+    expect(r.stderr).toBe("");
+  });
+
+  it("is left out of a usage error, which shows the short usage only", async () => {
+    const r = await run(["--no-such-flag"]);
+    expect(r.code).toBe(2);
+    expect(r.stdout + r.stderr).not.toContain("Chat commands:");
+  });
+});
+
 describe("subcommand routing", () => {
   it("--help documents the exit codes and the commands", async () => {
     const r = await run(["--help"]);

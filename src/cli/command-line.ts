@@ -1,5 +1,6 @@
 import { Command, CommanderError } from "commander";
 import { ExitCode, LEVELS } from "../core/index.js";
+import { chatCommandsSection } from "./chat-commands.js";
 
 /** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
@@ -32,8 +33,10 @@ const EXIT_CODES: [number, string][] = [
   [ExitCode.Cancelled, "cancelled (Ctrl-C; SIGTERM ends with 143)"],
 ];
 
-/** What `--help` prints: the usage plus the exit codes scripts can rely on. */
+/** What `--help` prints: the usage, the commands typed at the chat prompt (generated from the same table the chat uses), and the exit codes scripts can rely on. */
 export const HELP = `${USAGE}
+
+${chatCommandsSection()}
 
 Exit codes:
 ${EXIT_CODES.map(([code, meaning]) => `  ${String(code).padEnd(4)}${meaning}`).join("\n")}`;

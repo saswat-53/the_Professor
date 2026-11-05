@@ -4,7 +4,7 @@
 
 **Blocked by:** none (independent of 44 and 45)
 
-**Status:** in progress: the table, dispatch, `/help` and the unknown-command message are done; `--help` and the glossary entry are not
+**Status:** in progress: everything but the glossary entry is done
 
 **Concepts to look up:** table-driven dispatch, single source of truth, discriminated unions, exhaustiveness checks, snapshot testing of help text.
 
@@ -12,8 +12,8 @@
 
 - [x] Each chat command is one entry in `src/cli/chat-commands.ts`: name, aliases, usage line, one-line help text, and whether it takes words. Its handler is in a map in `chat.ts` typed by the table's names (`satisfies Record<ChatCommandName, …>`), because the handlers need readline, the Session and the mascot and `--help` must be able to import the table without them. Chat dispatch looks commands up in the table; the `if` chain is gone (a command typed with words it does not take, such as `/exit now`, is still an ordinary question, as before; a test pins that)
 - [x] `/help` in chat prints the command section from the table; the `CHAT_HELP` string and the hard-coded list in the "is not a command" message are generated from the table too (the opening help, `/help` and the unknown-command message are all generated; the message now also says `/help` shows what each does)
-- [ ] `learn --help` keeps commander's output and gains a "Chat commands" section generated from the same table; nothing else in `--help` changes (usage forms, options, exit codes stay as they are)
-- [ ] `--help`, `--version` and `/help` make no network call and need no terminal, config or API key
+- [x] `learn --help` keeps commander's output and gains a "Chat commands" section generated from the same table; nothing else in `--help` changes (usage forms, options, exit codes stay as they are) (tested: the exact section, between the usage text and the exit codes, and left out of the shorter usage a usage error prints; mutants "section after the exit codes" and "section in the usage text" fail)
+- [x] `--help` and `--version` make no network call and need no config file, key or model, and `/help` sends nothing to the model (it is only available inside a chat, which needs a terminal) (tested: `--help` with a base URL that would refuse a connection exits 0 with the section and no stderr; the no-network test from ADR 0003 already covers `--help` and `--version`; the pty `/help` test shows no request is sent)
 - [x] The chat's multi-line paste convention and Ctrl-C/Ctrl-D behaviour stay documented in the help output, as they are in `CHAT_HELP` today (tested against the generated help text)
 - [x] `--usage` (ticket 44) appears in `--help` once that ticket lands; this ticket does not depend on it (done in ticket 44)
 
