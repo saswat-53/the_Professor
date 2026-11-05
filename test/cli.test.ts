@@ -397,13 +397,13 @@ describe("piped input (ticket 25)", () => {
   });
 
   // Needs a real TTY on stdin, so it runs on a pseudo-terminal through the Python helper (SIGCONT is a harmless signal: the run ends on its own).
-  it.skipIf(spawnSync("python3", ["--version"]).status !== 0)("an interactive terminal on stdin prints usage instead of waiting", async () => {
+  it.skipIf(spawnSync("python3", ["--version"]).status !== 0)("an interactive terminal on stdin with nothing to explain (a dry run) prints usage instead of waiting", async () => {
     const helper = join(import.meta.dirname, "support/pty-run.py");
     const bin = join(import.meta.dirname, "../dist/cli.js");
     const output = await new Promise<string>((resolve, reject) => {
       execFile(
         "python3",
-        ["-I", helper, "Usage:", "SIGCONT", "node", bin],
+        ["-I", helper, "Usage:", "SIGCONT", "node", bin, "--dry-run"],
         { env: { ...process.env, ...env(), TERM: "dumb", HOME: tmpdir(), XDG_CONFIG_HOME: join(tmpdir(), "no-learn-config") }, cwd: tmpdir() },
         (err, stdout) => (err ? reject(err) : resolve(stdout)),
       );

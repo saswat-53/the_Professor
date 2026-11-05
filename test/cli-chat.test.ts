@@ -84,6 +84,54 @@ async function chat(steps: [string, string][], extraEnv: Record<string, string> 
   });
 }
 
+/** Types `steps` into `learn` with the given arguments (none: a bare `learn`) on a pseudo-terminal. */
+async function bare(steps: [string, string][], args: string[] = []): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "learn-chat-home-"));
+  return await new Promise((resolve, reject) => {
+    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, cwd: dir }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+}
+
+describe.skipIf(!hasPython)("a bare `learn` (or `learn --chat`) on a terminal opens an empty chat", () => {
+  it.each([[[]], [["--chat"]]])("with args %j: sends nothing until the first question, which is answered with no code before it", async (args) => {
+    const out = await bare([
+      ["\n> ", `what is a closure?${ENTER}`],
+      ["ANSWER1", `and with @a.ts?${ENTER}`],
+      ["ANSWER2", `/exit${ENTER}`],
+    ], args);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toMatch(/no code attached yet/i);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]!.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    expect(bodies[0]!.messages[0]!.content).toMatch(/general question/i);
+    expect(bodies[0]!.messages[1]!.content).toBe("what is a closure?");
+    expect(bodies[1]!.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(bodies[1]!.messages.at(-1)!.content).toContain("export const a = 1;");
+  }, 30_000);
+
+  it("quitting at once sends no request at all", async () => {
+    const out = await bare([["\n> ", `/exit${ENTER}`]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toEqual([]);
+  }, 30_000);
+
+  it("/quiz and /save say there is nothing yet, and send no request", async () => {
+    const out = await bare([
+      ["\n> ", `/quiz${ENTER}`],
+      ["nothing to quiz", `/save${ENTER}`],
+      ["nothing to save", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toEqual([]);
+  }, 30_000);
+
+  it("--dry-run still has nothing to explain: it prints usage and exits 2", async () => {
+    const out = await bare([["Usage:", ""]], ["--dry-run"]);
+    expect(out).toMatch(/\nexit 2\n$/);
+    expect(bodies).toEqual([]);
+  }, 30_000);
+});
+
 describe("learn --chat without a terminal", () => {
   it("refuses with exit 2 and a message, and sends no request", async () => {
     const r = await run([file, "--chat"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, dir, undefined, "ignored\n");

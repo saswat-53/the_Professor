@@ -229,6 +229,10 @@ async function main(): Promise<number> {
   if (parsed.kind === "init") return await initCommand();
   if (parsed.kind === "auth") return await authCommand(parsed.action, parsed.flags);
   const { reference, flags: values } = parsed;
+  // Nothing to explain and a person at the keyboard: open an empty chat and let them attach code with `@` as they go. A dry run or --usage has nothing to
+  // show without a Reference, so those keep their old answer (usage, exit 2); piped or clipboard input is a Reference too, and wins.
+  const bare = !reference && !values.clip && values.diff === undefined && values.blame === undefined && !values.dryRun && !values.usage && !!process.stdin.isTTY && !!process.stdout.isTTY;
+  const chat = values.chat || bare;
   if (values.chat) {
     const problem = values.usage
       ? "--usage is for one-shot runs: in a chat the footer already shows usage"
@@ -286,8 +290,8 @@ async function main(): Promise<number> {
   }
   if (diffRequested || blameRequested) {
     if (values.lang !== undefined) status("warning", `warning: --lang only applies to piped input and clipboard text and is ignored for ${blameRequested ? "--blame" : "--diff"}`);
-  } else if (reference) {
-    if (values.lang !== undefined) status("warning", "warning: --lang only applies to piped input and clipboard text and is ignored for a file reference");
+  } else if (reference || bare) {
+    if (values.lang !== undefined) status("warning", `warning: --lang only applies to piped input and clipboard text and is ignored for ${bare ? "a chat with no code yet" : "a file reference"}`);
   } else if (values.clip) {
     try {
       piped = { text: await readClipboard({ maxBytes: INPUT_MAX_BYTES }), lang: values.lang, origin: "clipboard" };
@@ -348,9 +352,9 @@ async function main(): Promise<number> {
 
   const controller = new AbortController();
   // What names a saved note: the Reference as typed, or where piped text came from.
-  const sessionTitle = reference ?? (blameRequested ? "blame" : diffRequested ? "diff" : values.clip ? "clipboard" : "piped input");
+  const sessionTitle = reference ?? (bare ? "chat" : blameRequested ? "blame" : diffRequested ? "diff" : values.clip ? "clipboard" : "piped input");
   // The cap on the transcript: hosted, four times the context budget; local, derived from the context window (see `resolveSessionCap`).
-  const session = values.chat
+  const session = chat
     ? new Session(resolveSessionCap(resolveEndpoint(baseUrl), { contextBudget, contextWindow, systemChars: buildSystemPrompt(level).length }))
     : undefined;
   // Conventional shell codes: 128 + the signal number. A signal ends the request through the abort signal, never by killing the process mid-write.
@@ -376,7 +380,9 @@ async function main(): Promise<number> {
   let usageLine: string | undefined;
   // In terminal mode the model's text could carry escape sequences; in plain mode it is data, left as sent.
   const stripTerminalEscapes = mode.stripEscapes ? createEscapeStripper() : (text: string) => text;
-  for await (const event of explain({
+  // An open chat has nothing to explain yet: the Session is opened empty and the first question is the first request.
+  if (bare) session?.startEmpty(settings);
+  for await (const event of bare ? [] : explain({
     reference,
     piped,
     diff,
@@ -406,13 +412,13 @@ async function main(): Promise<number> {
       return code;
     }
   }
-  process.stdout.write("\n");
+  if (!bare) process.stdout.write("\n");
   // Terminal mode only: in plain mode (a pipe or a file) nothing is added.
   if (values.usage && usageLine !== undefined && mode.stripEscapes) status("info", usageLine);
   if (!session) return 0;
   // The explanation is already on screen; if its size leaves no room to ask anything, say so instead of opening a chat that refuses every question.
   try {
-    session.assertPinnedFits();
+    if (!bare) session.assertPinnedFits();
   } catch (err) {
     status("info", "the explanation above is complete; only the chat that would follow it is refused");
     return fail(err);
@@ -429,6 +435,7 @@ async function main(): Promise<number> {
   // The owl: animated in a header when the terminal allows, a still picture otherwise, nothing with LEARN_OWL=off.
   const owl = chooseOwlStyle({ color: mode.color, rows: process.stdout.rows, columns: process.stdout.columns, env: process.env });
   const mascot = owl === "animated" ? startMascot({ output: process.stdout, depth: colorDepth(process.env) }) : undefined;
+  if (bare) status("info", "No code attached yet. Ask a question, or attach code with @path, @path:10-20 or @word.");
   let finished: number | undefined;
   try {
     finished = await runChat({
@@ -446,7 +453,7 @@ async function main(): Promise<number> {
       describe,
       attach: (question) => attachReferences({ question, settings, root: values.root, allowSensitive: values.allowSensitive }),
       onRequest: values.showPrompt ? printRequest : undefined,
-      save: async (name) => (await warnIfNotesInRepo(), saveNote({ notesDir, turns: session.turns, title: name ?? sessionTitle, now: new Date() })),
+      save: async (name) => (session.turns.length === 0 ? Promise.reject(new UsageError("there is nothing to save yet: ask something first")) : (await warnIfNotesInRepo(), saveNote({ notesDir, turns: session.turns, title: name ?? sessionTitle, now: new Date() }))),
       glossary: async (term, definition) => (await warnIfNotesInRepo(), appendGlossaryEntry({ notesDir, term, definition, now: new Date() })),
       takeSignals: (handler) => {
         onSignal = (code) => {

@@ -5,7 +5,8 @@ import { chatCommandsSection } from "./chat-commands.js";
 /** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
-export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat] [--usage]
+export const USAGE = `Usage: learn                      (on a terminal: an empty chat; attach code with @path, @path:N-M or @word)
+       learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat] [--usage]
        learn --diff [<ref>] [-- <path>...] [same options]
        learn --blame <file:N-M> [same options]
        cat <file> | learn [--lang <language>] [same options]

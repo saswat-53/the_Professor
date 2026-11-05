@@ -41,7 +41,7 @@ The directory learn treats as "the project": the git root above the current dire
 _Avoid_: Workspace, base directory
 
 **Session**:
-One conversation: the first explanation of a Reference plus its follow-up questions. It also keeps what it has used and what it is about (see **SessionStats**).
+One conversation: the first explanation of a Reference plus its follow-up questions. An **open** Session (a bare `learn`) has no first explanation: its first question is turn 1, and is the pinned one. It also keeps what it has used and what it is about (see **SessionStats**).
 _Avoid_: Chat, thread, conversation
 
 **Session cap**:

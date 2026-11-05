@@ -147,7 +147,9 @@ Both are handled the same way: the whole text is the Excerpt, with no Enclosing 
 
 ## Interactive chat
 
-`--chat` keeps a Session going after the explanation, with follow-up questions at a prompt (`> `, or `❯ ` on a colour terminal) under a one-line [footer](#the-footer). It needs a terminal (exit 2 otherwise) and cannot be combined with `--dry-run`. Follow-ups carry the earlier turns, so the model remembers them.
+Run `learn` on its own (or `learn --chat`) on a terminal to open an **empty chat**: nothing is sent until you ask. Ask a general question, or attach code with `@path`, `@path:10-20` or `@word`; your first question starts the Session. `/save` and `/quiz` have nothing to work on until something has been asked. With `--dry-run` or `--usage` there is nothing to show, so those still print usage and exit 2; piped input, `--clip`, `--diff` and `--blame` are explained first, as before.
+
+`--chat` after a Reference keeps a Session going after the explanation, with follow-up questions at a prompt (`> `, or `❯ ` on a colour terminal) under a one-line [footer](#the-footer). It needs a terminal (exit 2 otherwise) and cannot be combined with `--dry-run`. Follow-ups carry the earlier turns, so the model remembers them.
 
 ### Typing and leaving
 
