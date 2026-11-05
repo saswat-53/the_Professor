@@ -147,15 +147,31 @@ Both are handled the same way: the whole text is the Excerpt, with no Enclosing 
 
 ## Interactive chat
 
-`--chat` keeps a Session going after the explanation, with follow-up questions at a `learn>` prompt. It needs a terminal (exit 2 otherwise) and cannot be combined with `--dry-run`. Follow-ups carry the earlier turns, so the model remembers them.
+`--chat` keeps a Session going after the explanation, with follow-up questions at a prompt (`> `, or `❯ ` on a colour terminal) under a one-line [footer](#the-footer). It needs a terminal (exit 2 otherwise) and cannot be combined with `--dry-run`. Follow-ups carry the earlier turns, so the model remembers them.
 
 ### Typing and leaving
 
 - Type a question and press Enter.
 - **Multi-line paste:** type `<<<` on its own line, paste, then `>>>` on its own line. (These markers are used because code contains `"""` and trailing backslashes.)
-- **Leave:** `/exit`, Ctrl-D, or Ctrl-C at the prompt (exit 0).
+- **Leave:** `/exit` (or `/quit`), Ctrl-D, or Ctrl-C at the prompt (exit 0).
+- **Help:** `/help` lists the commands below.
 - **Cancel an answer:** Ctrl-C while streaming cancels only that answer, and that turn is not remembered. A second Ctrl-C exits immediately. SIGTERM ends the chat with 143.
 - Anything typed or pasted while an answer streams is discarded. The note gives only the number of lines, never their text, so a pasted block cannot turn into several questions.
+
+### The footer
+
+Above each prompt one dim line says where you are:
+
+```
+Professor · src/auth.ts:40-60 · llama3.1 · intermediate · 3.1k in/420 out · last 1.8k/4.1k (44%)
+```
+
+- **Project and file.** The project root's directory name, then the code you last asked about: it follows the last `@file` or `@word` you attach, and reads `stdin`, `clipboard` or `diff` for those inputs. Paths are always relative to the project root; no absolute path, home directory or `--root` value is ever shown.
+- **Tokens.** `in/out` are the tokens the Session has used so far. An endpoint that reports usage gives exact figures. For one that does not, `learn` estimates (four characters a token) and puts a `~` before every estimated figure. If an endpoint rejects the request for usage, `learn` sends the request once more without it and says so once. A cancelled answer still counts what it spent, as an estimate. There is no cost: `learn` keeps no price table.
+- **Fill.** `last 1.8k/4.1k (44%)` is the last request's input tokens over your `context_window`, and appears only for a local endpoint. A hosted endpoint shows no fill, since `learn` does not know its window. The fill turns yellow above 70% and red above 90%.
+- **Narrow terminals.** The line never wraps. Fields drop in this order: the project, the level, the file (shortened from the left first), then the tokens. The model and the fill stay, and below 40 columns they are all you see. Widths are measured in terminal columns, so wide characters count double.
+- **Colour.** On a colour terminal a dim rule sits above the footer and the prompt is `❯`. With `NO_COLOR` set or `TERM=dumb` there is no rule, no escape sequence, and the prompt is a plain `>`.
+- **Untrusted names.** Directory, file and model names are cleaned of escape sequences and control characters before they are shown.
 
 ### Attaching code with `@`
 
@@ -186,12 +202,17 @@ Over the cap, the oldest follow-up turns are dropped, a question and its answer 
 
 ### Chat commands
 
+<!-- chat-commands:start (generated from src/cli/chat-commands.ts; a test fails if this table drifts from it) -->
 | Command | What it does |
 | --- | --- |
-| `/save [slug]` | Write the Session as a markdown note |
-| `/glossary term: meaning` | Add a line to the glossary |
-| `/quiz` | Test yourself on the Session |
-| `/exit` | Leave the chat |
+| `/save [name]` | write this Session as a note |
+| `/glossary term: meaning` | add a glossary entry |
+| `/quiz` | ask 5 questions about this Session (answer in your own words; /skip passes, /quit stops; nothing is scored or stored) |
+| `/help` | show this help |
+| `/exit (or /quit)` | end the chat (Ctrl-D or Ctrl-C at the prompt does too) |
+<!-- chat-commands:end -->
+
+`learn --help` lists the same commands. A word starting with `/` that is not in the table is reported as "not a command"; a command typed with words it does not take (`/exit now`) is an ordinary question for the model.
 
 The Session lives in memory until you save it; nothing else is ever written.
 
@@ -254,10 +275,11 @@ An OpenAI-compatible endpoint does not report its real window, so for a local en
 | `--diff [ref] [-- path...]` | Explain uncommitted changes (see below) |
 | `--blame path:N-M` | Explain why a range of lines changed (see below) |
 | `--chat` | Keep a Session going after the explanation ([chat](#interactive-chat)) |
+| `--usage` | Print one dim line on stderr after the explanation with the tokens it used (`in 1.2k · out 340 · <model>`, with a `~` on an estimate). Terminal only, and not with `--chat`, whose [footer](#the-footer) shows usage |
 | `--dry-run` | Print the Context report and the exact request (both on stderr), send nothing. Needs no API key |
 | `--show-prompt` | Run normally and also print the request on stderr (see warning below) |
 | `--base-url`, `--model`, `--context-budget`, `--context-window` | Override those settings for one run |
-| `-h`, `--help` | Print usage and the exit-code table to stdout, exit 0 |
+| `-h`, `--help` | Print usage, the chat commands and the exit-code table to stdout, exit 0 |
 | `-v`, `--version` | Print the version to stdout, exit 0 |
 
 A flag's value may not start with `-`: `--model --dry-run` is a usage error (exit 2), not a model called `--dry-run`.
@@ -283,7 +305,7 @@ Explains why a range of lines changed. The history comes from git's line-range l
 
 ### Output streams
 
-Output goes to stdout; the Context report, warnings and errors go to stderr. When stdout is a terminal, escape sequences and control characters in the model's text are removed (the text is untrusted); when piped, it is left exactly as sent. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
+Output goes to stdout; the Context report, warnings, errors and the `--usage` line go to stderr. When stdout is a terminal, escape sequences and control characters in the model's text are removed (the text is untrusted); when piped, it is left exactly as sent. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
 
 ## Exit codes
 
@@ -296,7 +318,7 @@ Output goes to stdout; the Context report, warnings and errors go to stderr. Whe
 | 130 | Cancelled by Ctrl-C (SIGINT) while a request is running |
 | 143 | Cancelled by SIGTERM |
 
-In `--chat`, Ctrl-C at the idle `learn>` prompt is an ordinary way to leave and exits 0, as in `python` or `sqlite3`; 130 stays for cancelling a request. Ctrl-C during a streaming answer cancels only that answer.
+In `--chat`, Ctrl-C at the idle prompt is an ordinary way to leave and exits 0, as in `python` or `sqlite3`; 130 stays for cancelling a request. Ctrl-C during a streaming answer cancels only that answer.
 
 ## Reporting bugs
 

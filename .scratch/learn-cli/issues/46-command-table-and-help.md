@@ -41,5 +41,5 @@
 Everything on the list is done. Not yet done:
 
 - [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04). The new chat tests drive a pty like the others, but the in-process command tests and the `--help` tests do not depend on timing.
-- [ ] `README.md` still describes a `learn>` prompt and does not mention `/help`, the footer or `--usage`; the "Typing and leaving" section should be updated from the command table.
+- [x] `README.md` updated: the new prompt and a "The footer" section, `/help`, `--usage` (in Options), and the chat commands table, which is generated from the command table between markers; `test/readme.test.ts` fails if that table drifts, and if the README mentions the old `learn>` prompt
 
