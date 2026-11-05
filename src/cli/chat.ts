@@ -2,13 +2,11 @@ import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { CancelledError, QUIZ_LENGTH, focusLabel, followUp, formatContextReport, generateQuiz, gradeAnswer, hasOverride, reportForError } from "../core/index.js";
 import type { Attached, ExplainEvent, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
+import { BLOCK_CLOSE, BLOCK_OPEN, chatHelpText, findChatCommand, unknownCommandMessage } from "./chat-commands.js";
+import type { ChatCommandName } from "./chat-commands.js";
 import type { Mood } from "./mascot/animator.js";
 
-/** A line that opens a pasted block, and the line that closes it. Code can contain `"""` or a trailing backslash, so neither is used. */
-export const BLOCK_OPEN = "<<<";
-export const BLOCK_CLOSE = ">>>";
-
-export const CHAT_HELP = `Type a question and press Enter. To paste code or several lines, type ${BLOCK_OPEN} on a line of its own, paste, then type ${BLOCK_CLOSE} on a line of its own. /save [name] writes this Session as a note, /glossary term: meaning adds a glossary entry. /quiz asks five questions about this Session (answer each in your own words; /skip passes, /quit stops; nothing is scored or stored). /exit (or /quit), Ctrl-D or Ctrl-C at the prompt ends the chat; Ctrl-C while an answer is streaming cancels just that answer.`;
+export { BLOCK_CLOSE, BLOCK_OPEN } from "./chat-commands.js";
 
 export interface ChatOptions {
   input: Readable;
@@ -199,8 +197,48 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     opts.output.write("\nThat was the quiz. Nothing was scored or stored.\n");
   };
 
+  /** What each command does. Typed by the table's names, so a table entry with no handler, or a handler for a command not in the table, does not compile. */
+  type Outcome = "next" | "end";
+  const handlers = {
+    "/quiz": async (): Promise<Outcome> => {
+      quizFailed = false;
+      await quiz();
+      if (!quizFailed) mood("idle");
+      return endedBy !== undefined ? "end" : "next";
+    },
+    "/save": async (args: string): Promise<Outcome> => {
+      try {
+        mood("saving");
+        opts.report("info", `saved to ${await opts.save(args === "" ? undefined : args)}`);
+      } catch (err) {
+        mood("startled");
+        opts.report("error", opts.describe(err));
+      }
+      return "next";
+    },
+    "/glossary": async (args: string): Promise<Outcome> => {
+      try {
+        const split = /^([^:]+):([\s\S]+)$/.exec(args);
+        if (!split || split[1]!.trim() === "" || split[2]!.trim() === "") opts.report("info", "usage: /glossary term: meaning");
+        else {
+          mood("saving");
+          opts.report("info", `added to ${await opts.glossary(split[1]!, split[2]!)}`);
+        }
+      } catch (err) {
+        mood("startled");
+        opts.report("error", opts.describe(err));
+      }
+      return "next";
+    },
+    "/help": async (): Promise<Outcome> => {
+      opts.output.write(`${chatHelpText()}\n`);
+      return "next";
+    },
+    "/exit": async (): Promise<Outcome> => "end",
+  } satisfies Record<ChatCommandName, (args: string) => Promise<Outcome>>;
+
   if (opts.banner) opts.output.write(`\n${opts.banner}\n`);
-  opts.output.write(`${CHAT_HELP}\n`);
+  opts.output.write(`${chatHelpText()}\n`);
   while (!closed) {
     rl.setPrompt(mainPrompt);
     const header = opts.header?.();
@@ -212,38 +250,19 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     if (message === undefined) return endedBy ?? 0; // closed inside a block: the half-pasted text is dropped
     let question = message;
     if (question === "") continue;
-    if (question === "/quiz") {
-      quizFailed = false;
-      await quiz();
-      if (!quizFailed) mood("idle");
-      if (endedBy !== undefined) break;
-      continue;
-    }
-    const command = /^\/(save|glossary)(?:\s+([\s\S]*))?$/.exec(question);
-    if (command) {
-      const args = command[2]?.trim() ?? "";
-      try {
-        if (command[1] === "save") {
-          mood("saving");
-          opts.report("info", `saved to ${await opts.save(args === "" ? undefined : args)}`);
-        } else {
-          const split = /^([^:]+):([\s\S]+)$/.exec(args);
-          if (!split || split[1]!.trim() === "" || split[2]!.trim() === "") opts.report("info", "usage: /glossary term: meaning");
-          else {
-            mood("saving");
-            opts.report("info", `added to ${await opts.glossary(split[1]!, split[2]!)}`);
-          }
-        }
-      } catch (err) {
-        mood("startled");
-        opts.report("error", opts.describe(err));
+    // A command is `/word`, optionally followed by words. The table says what it is; one that takes no words, typed with some, is an ordinary question.
+    const typed = /^(\/[a-z]+)(?:\s+([\s\S]*))?$/.exec(question);
+    if (typed) {
+      const command = findChatCommand(typed[1]!);
+      const args = typed[2]?.trim() ?? "";
+      if (command && (command.takesArgs || args === "")) {
+        if ((await handlers[command.name](args)) === "end") break;
+        continue;
       }
-      continue;
-    }
-    if (/^\/[a-z]+$/.test(question)) {
-      if (question === "/exit" || question === "/quit") break;
-      opts.report("info", `${question} is not a command (commands: /save, /glossary, /quiz, /exit)`);
-      continue;
+      if (!command && args === "") {
+        opts.report("info", unknownCommandMessage(typed[1]!));
+        continue;
+      }
     }
     let attachedFiles: string[] = [];
     let sensitive = false;

@@ -462,3 +462,52 @@ describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's s
     expect(out).toMatch(/\nexit 0\n$/);
   }, 30_000);
 });
+
+describe.skipIf(!hasPython)("learn --chat commands come from one table", () => {
+  /** The Chat commands section as `/help` and the opening help print it. */
+  const SECTION = [
+    "Chat commands:",
+    "  /save [name]             write this Session as a note",
+    "  /glossary term: meaning  add a glossary entry",
+  ].join("\r\n");
+
+  it("/help prints the Chat commands section from the table, sends nothing, and the chat goes on", async () => {
+    const out = await chat([
+      ["\n> ", `/help${ENTER}`],
+      ["\n> ", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    // Once when the chat opens and once for /help.
+    expect(out.match(/Chat commands:/g)).toHaveLength(2);
+    expect(out.split(SECTION).length - 1).toBe(2);
+    expect(out).toContain("/exit (or /quit)         end the chat");
+    // Only the first explanation was ever sent.
+    expect(bodies).toHaveLength(1);
+  }, 30_000);
+
+  it("names every command in the table when one is not a command, and sends nothing", async () => {
+    const out = await chat([
+      ["\n> ", `/nope${ENTER}`],
+      ["\n> ", `/exit${ENTER}`],
+    ]);
+    expect(out).toContain("/nope is not a command (commands: /save, /glossary, /quiz, /help, /exit");
+    expect(bodies).toHaveLength(1);
+  }, 30_000);
+
+  it("/quit ends the chat as /exit does", async () => {
+    const out = await chat([["\n> ", `/quit${ENTER}`]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(1);
+  }, 30_000);
+
+  it("takes a command written with extra words as a question for the model, as it always has", async () => {
+    const out = await chat([
+      ["\n> ", `/exit now${ENTER}`],
+      ["ANSWER2", `/exit${ENTER}`],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]!.messages.at(-1)!.content).toBe("/exit now");
+  }, 30_000);
+});
+
