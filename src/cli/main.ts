@@ -10,6 +10,7 @@ import { readHidden } from "./hidden-input.js";
 import { runInit } from "./init.js";
 import { KeychainUnavailableError, osKeychain } from "./keychain.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
+import { formatUsageLine } from "./usage-line.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
 import { owlBanner } from "./owl.js";
@@ -224,7 +225,9 @@ async function main(): Promise<number> {
   if (parsed.kind === "auth") return await authCommand(parsed.action, parsed.flags);
   const { reference, flags: values } = parsed;
   if (values.chat) {
-    const problem = values.dryRun
+    const problem = values.usage
+      ? "--usage is for one-shot runs: in a chat the footer already shows usage"
+      : values.dryRun
       ? "--chat cannot be combined with --dry-run: a dry run sends nothing, so there is nothing to talk about"
       : !process.stdin.isTTY || !process.stdout.isTTY
         ? "--chat needs a terminal (standard input and output must both be one), because it asks you questions; run it directly in your shell, without a pipe"
@@ -360,6 +363,8 @@ async function main(): Promise<number> {
   }
   const llm = openAICompatibleModel(apiKey, keyEnv, (host) => status("info", `${host} does not report token usage, so counts are estimated (~)`));
   let lastChar = "\n";
+  // `--usage`: held until the explanation has ended, so it does not land in the middle of a line of text.
+  let usageLine: string | undefined;
   // In terminal mode the model's text could carry escape sequences; in plain mode it is data, left as sent.
   const stripTerminalEscapes = mode.stripEscapes ? createEscapeStripper() : (text: string) => text;
   for await (const event of explain({
@@ -381,6 +386,8 @@ async function main(): Promise<number> {
       const text = stripTerminalEscapes(event.text);
       process.stdout.write(text);
       lastChar = text.at(-1) ?? lastChar;
+    } else if (event.type === "usage") {
+      usageLine = formatUsageLine(event.usage, model);
     } else if (event.type === "error") {
       const code = event.error instanceof CancelledError ? cancelCode : event.error.exitCode;
       record(code);
@@ -391,6 +398,8 @@ async function main(): Promise<number> {
     }
   }
   process.stdout.write("\n");
+  // Terminal mode only: in plain mode (a pipe or a file) nothing is added.
+  if (values.usage && usageLine !== undefined && mode.stripEscapes) status("info", usageLine);
   if (!session) return 0;
   // The explanation is already on screen; if its size leaves no room to ask anything, say so instead of opening a chat that refuses every question.
   try {

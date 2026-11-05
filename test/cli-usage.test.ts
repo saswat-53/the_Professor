@@ -21,6 +21,8 @@ let bodies: Array<Record<string, unknown>>;
 /** What the fake endpoint does with a request that carries stream_options: accept it, or answer 400 naming it. */
 let rejectStreamOptions = false;
 /** A fixed failure the fake endpoint answers every request with, instead of streaming. */
+/** When set, the fake endpoint ends its stream with a usage chunk reporting these token counts, as an endpoint asked for usage does. */
+let reportedUsage: { prompt_tokens: number; completion_tokens: number } | undefined;
 let streamMode: "normal" | "mid-stream-error" | "hold" = "normal";
 let failWith: { status: number; message: string; headers?: Record<string, string> } | undefined;
 
@@ -54,6 +56,10 @@ beforeAll(async () => {
         return;
       }
       res.write(chunk({}, "stop"));
+      if (reportedUsage) {
+        const { prompt_tokens, completion_tokens } = reportedUsage;
+        res.write(`data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [], usage: { prompt_tokens, completion_tokens, total_tokens: prompt_tokens + completion_tokens } })}\n\n`);
+      }
       res.end("data: [DONE]\n\n");
     });
   });
@@ -69,6 +75,7 @@ beforeEach(() => {
   rejectStreamOptions = false;
   failWith = undefined;
   streamMode = "normal";
+  reportedUsage = undefined;
 });
 
 afterAll(() => server.close());
@@ -188,4 +195,68 @@ describe.skipIf(!hasPython)("a chat on an endpoint that rejects stream_options",
     // Request 1 is rejected, 2 is the retry, 3 is the follow-up: only the first carries the option.
     expect(bodies.map((b) => b.stream_options)).toEqual([{ include_usage: true }, undefined, undefined]);
   }, 30_000);
+});
+
+/** Runs one-shot `learn` on a terminal (a pty), as a person would; the output is everything the terminal showed, ending in `exit <code>`. */
+async function onTerminal(args: string[], env: Record<string, string> = {}): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "learn-usage-home-"));
+  return await new Promise((resolve, reject) => {
+    execFile("python3", ["-I", HELPER, "[]", "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...env }, cwd: tmpdir() }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+  });
+}
+
+describe.skipIf(!hasPython)("--usage on a terminal", () => {
+  it.each([
+    [{ prompt_tokens: 1234, completion_tokens: 340 }, "in 1.2k · out 340 · m"],
+    [{ prompt_tokens: 999, completion_tokens: 1000 }, "in 999 · out 1k · m"],
+    [{ prompt_tokens: 12_000, completion_tokens: 12_345 }, "in 12k · out 12.3k · m"],
+  ])("prints one line of what the endpoint reported (%j)", async (usage, line) => {
+    reportedUsage = usage;
+    const out = await onTerminal([file, "--usage"]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out.split("\n").filter((l) => l.includes(" · out "))).toEqual([expect.stringContaining(line)]);
+  }, 30_000);
+
+  it("marks the figures with ~ when the endpoint reported nothing", async () => {
+    const out = await onTerminal([file, "--usage"]);
+    expect(out).toMatch(/in ~\d[\d.]*k? · out ~\d[\d.]*k? · m/);
+  }, 30_000);
+
+  it("prints nothing about usage without the flag", async () => {
+    reportedUsage = { prompt_tokens: 1234, completion_tokens: 340 };
+    const out = await onTerminal([file]);
+    expect(out).not.toContain(" · out ");
+  }, 30_000);
+
+  it("strips terminal escapes from the model name before showing it", async () => {
+    const out = await onTerminal([file, "--usage"], { LEARN_MODEL: "m\u001b[31mred\u001b]0;pwned\u0007" });
+    expect(out).toContain(" · out ");
+    expect(out).not.toContain("\u001b");
+  }, 30_000);
+});
+
+describe("--usage off a terminal", () => {
+  it("prints nothing extra: plain output stays exactly what it was", async () => {
+    reportedUsage = { prompt_tokens: 1234, completion_tokens: 340 };
+    const plain = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    const withFlag = await run([file, "--usage"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(withFlag.code).toBe(0);
+    expect(withFlag.stdout).toBe(plain.stdout.replace(/an explanation 1/, "an explanation 2"));
+    expect(withFlag.stderr).not.toContain(" · out ");
+  });
+});
+
+describe("--usage with --chat", () => {
+  it("is refused with exit 2, saying the footer already shows usage, before anything is sent", async () => {
+    const r = await run([file, "--chat", "--usage"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain("the footer already shows usage");
+    expect(r.stdout).toBe("");
+    expect(bodies).toEqual([]);
+  });
+
+  it("is listed in --help", async () => {
+    const r = await run(["--help"]);
+    expect(r.stdout + r.stderr).toContain("--usage");
+  });
 });

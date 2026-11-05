@@ -4,7 +4,7 @@ import { ExitCode, LEVELS } from "../core/index.js";
 /** The subcommands `learn` routes to. */
 export const SUBCOMMANDS = ["init", "auth"] as const;
 
-export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat]
+export const USAGE = `Usage: learn <file> [--base-url <url>] [--model <name>] [--root <dir>] [--level <level>] [--context-budget <chars>] [--context-window <tokens>] [--allow-sensitive] [--show-prompt] [--dry-run] [--chat] [--usage]
        learn --diff [<ref>] [-- <path>...] [same options]
        learn --blame <file:N-M> [same options]
        cat <file> | learn [--lang <language>] [same options]
@@ -20,6 +20,7 @@ then the config file (~/.config/learn/config.toml), then the default.
 --blame explains why a range of lines changed, from git's history of those lines (commit messages and patches); history can hold secrets that were later removed, which no file name rule can see.
 --chat keeps the conversation going after the explanation: ask follow-up questions at the prompt (needs a terminal; nothing is saved). A long chat drops its oldest turns to stay inside the model's window;
 for a local model that window is --context-window (default 4096 tokens, Ollama's default).
+--usage prints one dim line to stderr after the explanation with the tokens it used ("in 1.2k · out 340 · <model>"; a ~ marks an estimate, used when the endpoint reports none); only on a terminal, and not with --chat, whose footer already shows usage.
 Level is one of: ${LEVELS.join(", ")} (default intermediate).`;
 
 /** The exit codes scripts can rely on, with what each means. */
@@ -54,6 +55,7 @@ export type Flags = {
   lang?: string;
   clip?: boolean;
   chat?: boolean;
+  usage?: boolean;
   /** `--diff` alone is true; `--diff <ref>` is the ref. */
   diff?: string | true;
   /** `--blame path:N-M`: explain why that range changed. */
@@ -110,6 +112,7 @@ export function parseCommandLine(argv: string[]): Parsed {
     .option("--lang <language>")
     .option("--clip")
     .option("--chat")
+    .option("--usage")
     .option("--diff [ref]")
     .option("--blame <path:range>")
     .option("-h, --help")
