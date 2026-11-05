@@ -1,0 +1,191 @@
+import { execFile, spawnSync } from "node:child_process";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { run } from "./support/cli.js";
+
+const BIN = join(import.meta.dirname, "../dist/cli.js");
+const HELPER = join(import.meta.dirname, "support/pty-script.py");
+const hasPython = spawnSync("python3", ["--version"]).status === 0;
+
+let server: Server;
+let baseUrl: string;
+let file: string;
+/** The Authorization header of every request the fake endpoint received, in order. */
+let auths: Array<string | undefined>;
+/** The JSON body of every request the fake endpoint received, in order. */
+let bodies: Array<Record<string, unknown>>;
+/** What the fake endpoint does with a request that carries stream_options: accept it, or answer 400 naming it. */
+let rejectStreamOptions = false;
+/** A fixed failure the fake endpoint answers every request with, instead of streaming. */
+let streamMode: "normal" | "mid-stream-error" | "hold" = "normal";
+let failWith: { status: number; message: string; headers?: Record<string, string> } | undefined;
+
+const chunk = (delta: object, finish: string | null = null) =>
+  `data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+
+beforeAll(async () => {
+  server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (d) => (raw += d));
+    req.on("end", () => {
+      const body = JSON.parse(raw);
+      bodies.push(body);
+      auths.push(req.headers.authorization);
+      if (failWith) {
+        res.writeHead(failWith.status, { "content-type": "application/json", ...failWith.headers });
+        res.end(JSON.stringify({ error: { message: failWith.message } }));
+        return;
+      }
+      if (rejectStreamOptions && body.stream_options !== undefined) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options" } }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      // Numbered by request, so a chat test can wait for one particular answer.
+      res.write(chunk({ content: `an explanation ${bodies.length}` }));
+      if (streamMode === "hold") return; // the response stays open, so a test can cancel it
+      if (streamMode === "mid-stream-error") {
+        res.end(`data: ${JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options" } })}\n\n`);
+        return;
+      }
+      res.write(chunk({}, "stop"));
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1`;
+  file = join(await mkdtemp(join(tmpdir(), "learn-usage-")), "sample.ts");
+  await writeFile(file, "export const answer = 42;\n");
+});
+
+beforeEach(() => {
+  bodies = [];
+  auths = [];
+  rejectStreamOptions = false;
+  failWith = undefined;
+  streamMode = "normal";
+});
+
+afterAll(() => server.close());
+
+describe("asking the endpoint for streamed usage", () => {
+  it("sends stream_options.include_usage on the request, so the endpoint reports tokens", async () => {
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.stream_options).toEqual({ include_usage: true });
+  });
+});
+
+describe("an endpoint that rejects stream_options", () => {
+  it("is sent the request once more without it, and the answer streams", async () => {
+    rejectStreamOptions = true;
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("an explanation");
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]!.stream_options).toEqual({ include_usage: true });
+    expect(bodies[1]!.stream_options).toBeUndefined();
+  });
+});
+
+describe("the note about estimated usage", () => {
+  const NOTE = /does not report token usage, so counts are estimated/g;
+
+  it("is one stderr line naming the host only, never the path or the key", async () => {
+    rejectStreamOptions = true;
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+    expect(r.stderr.match(NOTE)).toHaveLength(1);
+    const host = new URL(baseUrl).host;
+    expect(r.stderr).toContain(`${host} does not report token usage`);
+    expect(r.stderr).not.toContain(`${host}/v1`);
+  });
+
+  it("is not printed when the endpoint accepts the option", async () => {
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.stderr).not.toMatch(NOTE);
+  });
+});
+
+describe("an endpoint that accepts stream_options but reports no usage", () => {
+  it("gets one request, and the answer streams", async () => {
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("an explanation");
+    expect(bodies).toHaveLength(1);
+  });
+});
+
+describe("the retry is only for a rejected stream_options", () => {
+  it("does not retry an error that arrives after output has streamed", async () => {
+    streamMode = "mid-stream-error";
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(1);
+    expect(r.stdout).toContain("an explanation");
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("does not retry a request that was cancelled", async () => {
+    streamMode = "hold";
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, undefined, (child) => {
+      // Wait for the answer to start (observable output), not a fixed delay, then interrupt.
+      child.stdout!.once("data", () => child.kill("SIGINT"));
+    });
+    expect(r.code).toBe(130);
+    expect(bodies).toHaveLength(1);
+  });
+
+  it.each([
+    ["a 400 about another field", { status: 400, message: "Unrecognized request argument supplied: temperature" }, /HTTP 400/],
+    ["a 401", { status: 401, message: "bad key, stream_options" }, /rejected the API key/],
+    ["a 429", { status: 429, message: "slow down, stream_options", headers: { "retry-after": "7" } }, /too many requests/],
+  ])("does not retry %s", async (_name, failure, message) => {
+    failWith = failure;
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(message);
+    expect(bodies).toHaveLength(1);
+  });
+
+  it("never prints the API key, whichever way the request goes, while sending it on every request", async () => {
+    const key = "sk-canary-0123456789";
+    const config = await mkdtemp(join(tmpdir(), "learn-usage-config-"));
+    await mkdir(join(config, "learn"));
+    await writeFile(join(config, "learn", "config.toml"), '[provider]\nkey_env = "MY_PROVIDER_KEY"\n');
+    for (const reject of [false, true]) {
+      bodies = [];
+      auths = [];
+      rejectStreamOptions = reject;
+      const r = await run([file, "--show-prompt"], { XDG_CONFIG_HOME: config, LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", MY_PROVIDER_KEY: key });
+      expect(r.code).toBe(0);
+      // The key really was in play: every request, the retry included, carried it.
+      expect(auths).toEqual(Array(reject ? 2 : 1).fill(`Bearer ${key}`));
+      expect(r.stdout + r.stderr).not.toContain(key);
+    }
+  });
+});
+
+describe.skipIf(!hasPython)("a chat on an endpoint that rejects stream_options", () => {
+  it("asks without it from the next turn on, instead of being rejected every time", async () => {
+    rejectStreamOptions = true;
+    const home = await mkdtemp(join(tmpdir(), "learn-usage-home-"));
+    const steps: [string, string][] = [
+      ["learn> ", "and then?\r"],
+      ["an explanation 3", "/exit\r"],
+    ];
+    const out = await new Promise<string>((resolve, reject) => {
+      execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, file, "--chat"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, cwd: tmpdir() }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    });
+    expect(out).toMatch(/\nexit 0\n$/);
+    // One note for the whole chat, not one per turn.
+    expect(out.match(/does not report token usage, so counts are estimated/g)).toHaveLength(1);
+    // Request 1 is rejected, 2 is the retry, 3 is the follow-up: only the first carries the option.
+    expect(bodies.map((b) => b.stream_options)).toEqual([{ include_usage: true }, undefined, undefined]);
+  }, 30_000);
+});

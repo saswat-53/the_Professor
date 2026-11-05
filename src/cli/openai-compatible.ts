@@ -80,24 +80,58 @@ export function classifyProviderError(err: unknown, keyEnv?: string, now = Date.
   }
 }
 
+/** A 400 that names `stream_options`: the endpoint does not know the usage option we asked for, and nothing else is wrong with the request. */
+function rejectsStreamOptions(err: unknown): boolean {
+  if (!APICallError.isInstance(err) || err.statusCode !== 400) return false;
+  return /stream_options/i.test(`${err.message} ${err.responseBody ?? ""}`);
+}
+
 /** Adapts the Vercel AI SDK to core's plain LanguageModel interface. */
-export function openAICompatibleModel(apiKey: string | undefined, keyEnv?: string): LanguageModel {
+export function openAICompatibleModel(
+  apiKey: string | undefined,
+  keyEnv?: string,
+  /** Called once, with the endpoint's host only (never its path, query or key), when the endpoint rejects the usage option. */
+  onUsageUnavailable?: (host: string) => void,
+): LanguageModel {
+  /** Remembered for the life of this model (one chat), in memory only: once an endpoint has rejected the usage option, it is not asked again. */
+  let usageUnsupported = false;
+
+  /** One request. Raw errors are thrown as they are so the caller can tell a rejected `stream_options` from any other failure. */
+  async function* attempt(request: Parameters<LanguageModel["stream"]>[0], signal: AbortSignal | undefined, includeUsage: boolean) {
+    const provider = createOpenAICompatible({ name: "learn", baseURL: request.baseUrl, apiKey, includeUsage });
+    const result = streamText({
+      model: provider(request.model),
+      system: request.system,
+      messages: [...(request.history ?? []), { role: "user" as const, content: request.user }],
+      abortSignal: signal,
+      maxRetries: 0,
+      onError: () => {}, // errors surface through the stream below
+    });
+    for await (const part of result.fullStream) {
+      if (part.type === "text-delta") yield part.text;
+      else if (part.type === "error") throw part.error;
+    }
+  }
+
   return {
     async *stream(request, signal) {
-      const provider = createOpenAICompatible({ name: "learn", baseURL: request.baseUrl, apiKey });
-      const result = streamText({
-        model: provider(request.model),
-        system: request.system,
-        messages: [...(request.history ?? []), { role: "user" as const, content: request.user }],
-        abortSignal: signal,
-        maxRetries: 0,
-        onError: () => {}, // errors surface through the stream below
-      });
+      let yielded = false;
       try {
-        for await (const part of result.fullStream) {
-          if (part.type === "text-delta") yield part.text;
-          else if (part.type === "error") throw classifyProviderError(part.error, keyEnv);
+        for await (const text of attempt(request, signal, !usageUnsupported)) {
+          yielded = true;
+          yield text;
         }
+        return;
+      } catch (err) {
+        // The one automatic retry (ADR 0004): only a 400 naming stream_options, and only before any output was streamed.
+        // `yielded` is defence in depth: a real HTTP 400 cannot follow a started body (a mid-stream error is an SSE event with no status, which
+        // rejectsStreamOptions already refuses), so no test on the wire can reach it. It keeps the rule "never retry after output" explicit.
+        if (yielded || usageUnsupported || !rejectsStreamOptions(err)) throw classifyProviderError(err, keyEnv);
+        usageUnsupported = true;
+        onUsageUnavailable?.(new URL(request.baseUrl).host);
+      }
+      try {
+        yield* attempt(request, signal, false);
       } catch (err) {
         // The stream itself can throw too (a connection cut mid-stream): classify it the same way.
         throw classifyProviderError(err, keyEnv);

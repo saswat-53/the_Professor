@@ -358,7 +358,7 @@ async function main(): Promise<number> {
   } catch (err) {
     return fail(err);
   }
-  const llm = openAICompatibleModel(apiKey, keyEnv);
+  const llm = openAICompatibleModel(apiKey, keyEnv, (host) => status("info", `${host} does not report token usage, so counts are estimated (~)`));
   let lastChar = "\n";
   // In terminal mode the model's text could carry escape sequences; in plain mode it is data, left as sent.
   const stripTerminalEscapes = mode.stripEscapes ? createEscapeStripper() : (text: string) => text;
