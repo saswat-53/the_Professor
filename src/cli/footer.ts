@@ -170,3 +170,15 @@ export function renderFooter({ stats, project: rawProject, width, color = false 
     })();
   return paintFooter(chosen, color);
 }
+
+/** The glyph the rule above the prompt is drawn with. */
+const RULE = "─";
+
+/**
+ * What is printed above the chat prompt: the footer line, and on a colour terminal a dim rule above it, as wide as the
+ * terminal. Without colour it is the footer alone, with no rule and no escape sequence.
+ */
+export function renderPromptHeader(input: FooterInput): string {
+  const footer = renderFooter(input);
+  return input.color ? `${sgr("2", RULE.repeat(Math.max(input.width, 0)))}\n${footer}` : footer;
+}

@@ -2,16 +2,23 @@
 
 usage: pty-script.py '<json list of [wait-for-text, text-to-send]>' <command...>
 For each step it waits until the text shows up in the output printed since the previous step, then sends the
-text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). A text of the form "signal:SIGINT" sends that signal to the command itself, as `kill` would. A text of the form "get:<url>" makes a GET request to the url instead (for a test that must release a fake server at a known point). Prints the output and ends with
+text exactly as given (so include "\\r" for Enter and "\\u0003" for Ctrl-C). A text of the form "signal:SIGINT" sends that signal to the command itself, as `kill` would. A text of the form "resize:<columns>" changes the terminal's width at that point. A text of the form "get:<url>" makes a GET request to the url instead (for a test that must release a fake server at a known point). Prints the output and ends with
 "exit <code>" on the last line (128 + n if the command died of a signal n).
 """
-import json, os, pty, select, signal, sys, time, urllib.request
+import fcntl, json, os, pty, select, signal, struct, sys, termios, time, urllib.request
 
 steps = json.loads(sys.argv[1])
 cmd = sys.argv[2:]
+def set_columns(fd, columns):
+    """Sets the terminal's size (24 rows), as dragging a window's edge would; the program sees it in process.stdout.columns."""
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
+
 pid, fd = pty.fork()
 if pid == 0:
     os.execvp(cmd[0], cmd)
+# PTY_COLS gives the terminal a width from the start; without it the size is unset (zero columns).
+if os.environ.get("PTY_COLS"):
+    set_columns(fd, int(os.environ["PTY_COLS"]))
 out = b""
 mark = 0
 deadline = time.time() + 20
@@ -30,6 +37,8 @@ while time.time() < deadline:
         text = steps.pop(0)[1]
         if text.startswith("signal:"):
             os.kill(pid, getattr(signal, text[len("signal:"):]))
+        elif text.startswith("resize:"):
+            set_columns(fd, int(text[len("resize:"):]))
         elif text.startswith("get:"):
             urllib.request.urlopen(text[len("get:"):]).read()
         else:

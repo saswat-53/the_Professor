@@ -98,7 +98,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("answers follow-ups that remember the earlier turns, and writes nothing to disk", async () => {
     const before = await readdir(dir);
     const out = await chat([
-      ["learn> ", `why is it 1?${ENTER}`],
+      ["\n> ", `why is it 1?${ENTER}`],
       ["ANSWER2", `and then?${ENTER}`],
       ["ANSWER3", `/exit${ENTER}`],
     ]);
@@ -122,7 +122,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     git("commit", "-qm", "base");
     await writeFile(join(repo, "a.ts"), "export const a = 'DIFF_MARKER';\n");
     const out = await chat([
-      ["learn> ", `why did it change?${ENTER}`],
+      ["\n> ", `why did it change?${ENTER}`],
       ["ANSWER2", `and now?${ENTER}`],
       ["ANSWER3", `/exit${ENTER}`],
     ], {}, ["--diff"], repo);
@@ -134,7 +134,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
 
   it("takes pasted code between <<< and >>> as one message", async () => {
     const out = await chat([
-      ["learn> ", `<<<${ENTER}`],
+      ["\n> ", `<<<${ENTER}`],
       ["...", `const b = 2;${ENTER}`],
       ["...", `const c = 3;${ENTER}`],
       ["...", `>>>${ENTER}`],
@@ -147,7 +147,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("attaches an @file to the question, shows it in a Context report, and remembers it", async () => {
     await writeFile(join(dir, "b.ts"), "export const bee = 'BEE_MARKER';\n");
     const out = await chat([
-      ["learn> ", `what is @b.ts for? me@example.com${ENTER}`],
+      ["\n> ", `what is @b.ts for? me@example.com${ENTER}`],
       ["ANSWER2", `and?${ENTER}`],
       ["ANSWER3", `/exit${ENTER}`],
     ]);
@@ -163,7 +163,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     const outside = join(tmpdir(), `learn-outside-${process.pid}.ts`);
     await writeFile(outside, "export const OUTSIDE_MARKER = 1;\n");
     const out = await chat([
-      ["learn> ", `explain @nope.ts${ENTER}`],
+      ["\n> ", `explain @nope.ts${ENTER}`],
       ["not sent", `read @../${outside.split("/").pop()}${ENTER}`],
       ["outside the project root", `/exit${ENTER}`],
     ]);
@@ -182,7 +182,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     const hosted = baseUrl.replace("127.0.0.1", "127.1");
     const out = await chat(
       [
-        ["learn> ", `read @.env${ENTER}`],
+        ["\n> ", `read @.env${ENTER}`],
         ["not sent", `and @.env:1${ENTER}`],
         ["not sent", `/exit${ENTER}`],
       ],
@@ -199,7 +199,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("warns once that the root is the home directory, however many files are attached", async () => {
     const out = await chat(
       [
-        ["learn> ", `@a.ts and @b.ts${ENTER}`],
+        ["\n> ", `@a.ts and @b.ts${ENTER}`],
         ["ANSWER2", `@a.ts:1${ENTER}`],
         ["ANSWER3", `/exit${ENTER}`],
       ],
@@ -210,7 +210,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
 
   it("Ctrl-C during a response cancels only that response; the chat goes on", async () => {
     const out = await chat([
-      ["learn> ", `hang${ENTER}`],
+      ["\n> ", `hang${ENTER}`],
       ["ANSWER2", "\u0003"],
       ["cancelled", `again${ENTER}`],
       ["ANSWER3", `/exit${ENTER}`],
@@ -224,7 +224,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("discards a multi-line paste made while an answer streams, with a note, and sends no extra requests", async () => {
     const releaseUrl = `${baseUrl.replace(/\/v1$/, "")}/release`;
     const out = await chat([
-      ["learn> ", `slow${ENTER}`],
+      ["\n> ", `slow${ENTER}`],
       ["ANSWER2", `PASTE-ONE-sk-live${ENTER}PASTE-TWO${ENTER}PASTE-THREE${ENTER}`],
       // The terminal has echoed the last pasted line, so every line has been read; only now does the answer finish.
       ["PASTE-THREE", `get:${releaseUrl}`],
@@ -244,7 +244,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   it("derives a local endpoint's Session cap from --context-window, and refuses a message that cannot fit", async () => {
     // Window 800 tokens: 600 for the prompt = 2400 characters, less the system prompt (a little over 1,300), about 1,000. A 1,200-character question cannot fit; a short one can. (A pty holds only so much echoed text, so the pastes stay small.)
     const out = await chat([
-      ["learn> ", paste("x", 1200)],
+      ["\n> ", paste("x", 1200)],
       ["too long to send", `short${ENTER}`],
       ["ANSWER2", `/exit${ENTER}`],
     ], { LEARN_CONTEXT_WINDOW: "800" });
@@ -257,7 +257,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     // Each question is 1200 characters. The cap is about 4,700, so the fourth question no longer fits beside turn 1 and turns 2 and 3.
     const q = (c: string) => paste(c, 1200);
     const out = await chat([
-      ["learn> ", q("a")],
+      ["\n> ", q("a")],
       ["ANSWER2", q("b")],
       ["ANSWER3", q("c")],
       ["ANSWER4", q("d")],
@@ -280,7 +280,7 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
   }, 30_000);
 
   it("Ctrl-C at an idle prompt ends the chat", async () => {
-    const out = await chat([["learn> ", "\u0003"]]);
+    const out = await chat([["\n> ", "\u0003"]]);
     expect(out).toMatch(/\nexit 0\n$/);
   }, 30_000);
 });
@@ -297,7 +297,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
 
   it("/save writes the Session to a new note in the notes directory, says where, and sends no request", async () => {
     const { out, notes } = await withNotes([
-      ["learn> ", `why is it 1?${ENTER}`],
+      ["\n> ", `why is it 1?${ENTER}`],
       ["ANSWER2", `/save${ENTER}`],
       ["saved", `/exit${ENTER}`],
     ]);
@@ -313,7 +313,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
 
   it("a second /save makes a second file, and a name such as ../../x stays inside the notes directory", async () => {
     const { notes } = await withNotes([
-      ["learn> ", `/save${ENTER}`],
+      ["\n> ", `/save${ENTER}`],
       ["saved", `/save ../../x${ENTER}`],
       ["saved", `/exit${ENTER}`],
     ]);
@@ -323,7 +323,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
 
   it("/glossary term: meaning appends to glossary.md; without a colon it explains and writes nothing", async () => {
     const { out, notes } = await withNotes([
-      ["learn> ", `/glossary closure a function plus its captured variables${ENTER}`],
+      ["\n> ", `/glossary closure a function plus its captured variables${ENTER}`],
       ["usage", `/glossary closure: a function plus its captured variables${ENTER}`],
       ["glossary.md", `/exit${ENTER}`],
     ]);
@@ -337,7 +337,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
     execFileSync("git", ["init", "-q", repo]);
     const { out, notes } = await withNotes(
       [
-        ["learn> ", `/save${ENTER}`],
+        ["\n> ", `/save${ENTER}`],
         ["saved", `/save again${ENTER}`],
         ["saved", `/glossary a: b${ENTER}`],
         ["added", `/exit${ENTER}`],
@@ -351,7 +351,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
 
   it("does not warn when the notes directory is outside any repository", async () => {
     const { out } = await withNotes([
-      ["learn> ", `/save${ENTER}`],
+      ["\n> ", `/save${ENTER}`],
       ["saved", `/exit${ENTER}`],
     ]);
     expect(out).not.toContain("git repository");
@@ -360,7 +360,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
   it("says in the note when the Session included a file that is normally excluded, and only then", async () => {
     await writeFile(join(dir, ".env"), "SECRET_FOR_NOTE=1\n");
     const flagged = await withNotes([
-      ["learn> ", `what is in @.env?${ENTER}`],
+      ["\n> ", `what is in @.env?${ENTER}`],
       ["ANSWER2", `/save${ENTER}`],
       ["saved", `/exit${ENTER}`],
     ]);
@@ -369,7 +369,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
     expect(text.split("\n")[0]).toMatch(/contains code/);
     expect(text).toContain("this note includes content from a file normally excluded.");
     const plain = await withNotes([
-      ["learn> ", `/save${ENTER}`],
+      ["\n> ", `/save${ENTER}`],
       ["saved", `/exit${ENTER}`],
     ]);
     expect(await readFile(join(plain.notes, (await readdir(plain.notes))[0]!), "utf8")).not.toContain("normally excluded");
@@ -380,7 +380,7 @@ describe.skipIf(!hasPython)("learn --chat /save and /glossary", () => {
     await writeFile(blocker, "");
     const { out } = await withNotes(
       [
-        ["learn> ", `/save${ENTER}`],
+        ["\n> ", `/save${ENTER}`],
         ["notes directory", `more?${ENTER}`],
         ["ANSWER2", `/exit${ENTER}`],
       ],
@@ -403,7 +403,7 @@ describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's s
     await writeFile(secretFile, `export const token = "${CANARY}";\n`);
     const out = await chat(
       [
-        ["learn> ", `first${ENTER}`],
+        ["\n> ", `first${ENTER}`],
         ["ANSWER2", `second${ENTER}`],
         ["ANSWER3", `badkey${ENTER}`],
         ["rejected the API key", `third${ENTER}`],
@@ -430,7 +430,7 @@ describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's s
   it("/quiz asks five questions one at a time, grades each answer, lets you skip and quit, and stores nothing", async () => {
     const before = await readdir(dir);
     const out = await chat([
-      ["learn> ", `/quiz${ENTER}`],
+      ["\n> ", `/quiz${ENTER}`],
       ["QONE?", `because it is a constant${ENTER}`],
       ["GRADE3", `/skip${ENTER}`],
       ["QTHREE?", `a second answer${ENTER}`],
@@ -454,7 +454,7 @@ describe.skipIf(!hasPython)("learn --chat keeps every turn on the first turn's s
   it("/quiz with a malformed reply shows a clear error, starts no quiz, and the chat goes on", async () => {
     quizReply = "here are some questions, hope they help";
     const out = await chat([
-      ["learn> ", `/quiz${ENTER}`],
+      ["\n> ", `/quiz${ENTER}`],
       ["no quiz", `/exit${ENTER}`],
     ]);
     expect(out).toContain("no quiz");

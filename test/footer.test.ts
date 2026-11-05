@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionStats } from "../src/core/index.js";
-import { renderFooter } from "../src/cli/footer.js";
+import { renderFooter, renderPromptHeader } from "../src/cli/footer.js";
 
 /** A hosted endpoint after a first explanation and one follow-up: every field known, the endpoint reporting usage. */
 const hosted: SessionStats = {
@@ -200,6 +200,22 @@ describe("renderFooter colour", () => {
     const line = coloured({ ...hosted, model: "gpt-\u001b[31mx\u001b]0;pwned\u0007" }, 120, "Pro\u001b[2Jfessor");
     expect(line.replace(ANSI, "")).not.toContain("\u001b");
     expect(line).not.toContain("pwned");
+  });
+});
+
+describe("renderPromptHeader", () => {
+  const DIM = "\u001b[2m";
+  const RESET = "\u001b[0m";
+  const input = { stats: hosted, project: "Professor", width: 66 };
+
+  it("is just the footer line when colour is off: no rule, no escape sequence", () => {
+    expect(renderPromptHeader({ ...input, color: false })).toBe("Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+    expect(renderPromptHeader(input)).toBe("Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("is a dim rule as wide as the terminal, then the coloured footer, when colour is on", () => {
+    expect(renderPromptHeader({ ...input, width: 20, color: true })).toBe(`${DIM}${"─".repeat(20)}${RESET}\n${renderFooter({ ...input, width: 20, color: true })}`);
+    expect(renderPromptHeader({ ...input, color: true }).split("\n")).toEqual([`${DIM}${"─".repeat(66)}${RESET}`, `${DIM}Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out${RESET}`]);
   });
 });
 

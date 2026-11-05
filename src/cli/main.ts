@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
+import { basename } from "node:path";
 import { appendGlossaryEntry, attachReferences, findRepoAround, BlockedFileError, buildSystemPrompt, CancelledError, ContextTooLongError, ExitCode, FileRefusedError, SessionTooLongError, findProjectRoot, LEVELS, LearnError, UsageError, WordNotFoundError, configPath, describeMissing, Session, explain, firstRunMessage, formatContextReport, insecureTransportWarning, parseConfig, prepareRequest, readClipboard, readTextFile, redactUrl, reportForError, resolveApiKey, resolveEndpoint, resolveSessionCap, resolveSettings, saveNote, trimEnds } from "../core/index.js";
 import type { Config, ModelRequest, Resolution } from "../core/index.js";
 import { SUBCOMMANDS, USAGE, looksLikeCommand, parseCommandLine } from "./command-line.js";
@@ -10,6 +11,7 @@ import { readHidden } from "./hidden-input.js";
 import { runInit } from "./init.js";
 import { KeychainUnavailableError, osKeychain } from "./keychain.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
+import { renderPromptHeader } from "./footer.js";
 import { formatUsageLine } from "./usage-line.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
@@ -309,8 +311,10 @@ async function main(): Promise<number> {
   const transportWarning = insecureTransportWarning(baseUrl);
   if (transportWarning) status("warning", transportWarning);
   if (contextWindow !== undefined && !resolveEndpoint(baseUrl).local) status("warning", "warning: context_window only applies to local endpoints; it is ignored for this one");
+  let projectName = "";
   try {
     const project = await findProjectRoot(process.cwd(), values.root);
+    projectName = basename(project.root);
     if (project.isHome) {
       status("warning", "warning: the project root is your home directory, so everything in it is in reach; run learn from inside a project or pass --root");
     }
@@ -425,6 +429,9 @@ async function main(): Promise<number> {
     finished = await runChat({
       input: process.stdin,
       output: process.stdout,
+      // The footer above each prompt, from the Session's latest numbers and the terminal's width right now (so a resize is honoured).
+      header: () => renderPromptHeader({ stats: session.stats, project: projectName, width: process.stdout.columns || 80, color: mode.color }),
+      prompt: mode.color ? "❯ " : "> ",
       banner: owl === "static" ? owlBanner({ color: mode.color }) : undefined,
       mascot,
       session,

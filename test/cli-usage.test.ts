@@ -1,9 +1,9 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
 
@@ -194,7 +194,7 @@ describe.skipIf(!hasPython)("a chat on an endpoint that rejects stream_options",
     rejectStreamOptions = true;
     const home = await mkdtemp(join(tmpdir(), "learn-usage-home-"));
     const steps: [string, string][] = [
-      ["learn> ", "and then?\r"],
+      ["\n> ", "and then?\r"],
       ["an explanation 3", "/exit\r"],
     ];
     const out = await new Promise<string>((resolve, reject) => {
@@ -209,10 +209,10 @@ describe.skipIf(!hasPython)("a chat on an endpoint that rejects stream_options",
 });
 
 /** Runs one-shot `learn` on a terminal (a pty), as a person would; the output is everything the terminal showed, ending in `exit <code>`. */
-async function onTerminal(args: string[], env: Record<string, string> = {}): Promise<string> {
+async function onTerminal(args: string[], env: Record<string, string> = {}, steps: [string, string][] = []): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "learn-usage-home-"));
   return await new Promise((resolve, reject) => {
-    execFile("python3", ["-I", HELPER, "[]", "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...env }, cwd: tmpdir() }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...env }, cwd: tmpdir() }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 }
 
@@ -271,3 +271,33 @@ describe("--usage with --chat", () => {
     expect(r.stdout + r.stderr).toContain("--usage");
   });
 });
+
+describe.skipIf(!hasPython)("the chat footer on a plain terminal", () => {
+  it("is printed above the prompt, which is a plain > ", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const project = basename(await realpath(tmpdir()));
+    // A wide terminal, so no field is dropped whatever the temporary path is called.
+    const out = await onTerminal([file, "--chat"], { PTY_COLS: "200" }, [["\n> ", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const footer = new RegExp(`^${project} · learn-usage-\\w+/sample\\.ts · m · intermediate · 1k in/200 out · last 1k/4\\.1k \\(24%\\)\\r?\\n> `, "m");
+    expect(out).toMatch(footer);
+    expect(out).not.toContain("learn> ");
+    // Without colour there is no escape sequence and no rule.
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("─");
+  }, 30_000);
+
+  it("is rebuilt before every prompt, so it follows the numbers as the chat goes on", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], { PTY_COLS: "200" }, [
+      ["\n> ", "and then?\r"],
+      ["\n> ", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const footers = out.split("\n").filter((l) => l.includes(" · m · "));
+    expect(footers).toHaveLength(2);
+    expect(footers[0]).toContain("1k in/200 out");
+    expect(footers[1]).toContain("2k in/400 out");
+  }, 30_000);
+});
+

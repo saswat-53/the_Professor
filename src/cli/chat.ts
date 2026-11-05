@@ -32,6 +32,10 @@ export interface ChatOptions {
   glossary: (term: string, definition: string) => Promise<string>;
   /** Printed once before the help line; the caller leaves it out when nobody is watching a terminal. */
   banner?: string;
+  /** What to print above each main prompt (the footer, with a rule on a colour terminal), built fresh every time so it shows the latest numbers and the terminal's current width. Absent: nothing is printed. */
+  header?: () => string;
+  /** The main prompt. Default `learn> `. */
+  prompt?: string;
   /** The animated owl. The chat only says what it is doing; how that is drawn is the owl's business. */
   mascot?: { mood(mood: Mood): void };
 }
@@ -41,7 +45,8 @@ export interface ChatOptions {
  * Only readline lives here; the Session and the model call are core's.
  */
 export async function runChat(opts: ChatOptions): Promise<number> {
-  const rl = createInterface({ input: opts.input, output: opts.output, terminal: true, prompt: "learn> " });
+  const mainPrompt = opts.prompt ?? "learn> ";
+  const rl = createInterface({ input: opts.input, output: opts.output, terminal: true, prompt: opts.prompt ?? "learn> " });
   let current: AbortController | undefined;
   const mood = (m: Mood) => opts.mascot?.mood(m);
   // A quiz that could not start leaves the owl startled; the loop must not wipe that with "idle".
@@ -197,11 +202,13 @@ export async function runChat(opts: ChatOptions): Promise<number> {
   if (opts.banner) opts.output.write(`\n${opts.banner}\n`);
   opts.output.write(`${CHAT_HELP}\n`);
   while (!closed) {
-    rl.setPrompt("learn> ");
+    rl.setPrompt(mainPrompt);
+    const header = opts.header?.();
+    if (header) opts.output.write(`${header}\n`);
     rl.prompt();
     const first = await next();
     if (first === undefined) break;
-    const message = await readMessage(first, "learn> ");
+    const message = await readMessage(first, mainPrompt);
     if (message === undefined) return endedBy ?? 0; // closed inside a block: the half-pasted text is dropped
     let question = message;
     if (question === "") continue;
