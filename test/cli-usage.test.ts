@@ -50,7 +50,9 @@ beforeAll(async () => {
       res.writeHead(200, { "content-type": "text/event-stream" });
       // Numbered by request, so a chat test can wait for one particular answer.
       res.write(chunk({ content: `an explanation ${bodies.length}` }));
-      if (streamMode === "hold") return; // the response stays open, so a test can cancel it
+      // The response stays open, so a test can cancel it: for the whole test, or for one question, "hang".
+      const asked = (body.messages as { content: string }[] | undefined)?.at(-1)?.content;
+      if (streamMode === "hold" || asked === "hang") return;
       if (streamMode === "mid-stream-error") {
         res.end(`data: ${JSON.stringify({ error: { message: "Unrecognized request argument supplied: stream_options" } })}\n\n`);
         return;
@@ -388,6 +390,27 @@ describe.skipIf(!hasPython)("the chat footer follows what the chat is asked abou
     expect(footers[1]).toContain(`${basename(dirname(file))}/sample.ts · m ·`);
     // And the failed question counted for nothing: the totals are as they were.
     expect(footers[1]).toContain("1k in/200 out");
+  }, 40_000);
+});
+
+describe.skipIf(!hasPython)("the chat footer after a cancelled answer", () => {
+  it("is printed once, with the tokens the cancelled turn spent counted as an estimate", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], { PTY_COLS: "200" }, [
+      ["\n> ", "hang\r"],
+      ["an explanation 2", "\u0003"],
+      // The next prompt can only come after the cancel, and the footer is printed just above it. (Waiting on the "cancelled" message first would be a
+      // race: the helper marks its place after everything read so far, so a prompt that arrived in the same read as the message would be skipped.)
+      ["\n> ", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).toContain("cancelled");
+    const footers = out.split("\n").filter((l) => l.includes(" · m · ")).map((l) => l.replace(/\r$/, ""));
+    // One for the first prompt, one after the cancel: not two after it.
+    expect(footers).toHaveLength(2);
+    expect(footers[0]).toContain("1k in/200 out");
+    // The cancelled turn spent something, and it was never reported: the totals are now estimates, and so is the last request.
+    expect(footers[1]).toMatch(/ · ~[\d.]+k? in\/~[\d.]+k? out · last ~[\d.]+k?\/4\.1k \(\d+%\)$/);
   }, 40_000);
 });
 
