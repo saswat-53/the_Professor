@@ -134,7 +134,11 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     current = undefined;
     // Lines that were already queued in the same read as the question are typed-ahead too, and so is a half-typed line.
     discarded += lines.splice(0).length;
+    // Clearing the line makes readline redraw it, prompt included; with the prompt empty it redraws nothing, so no stray `❯ ` is left where the footer starts.
+    const prompt = rl.getPrompt();
+    rl.setPrompt("");
     rl.write(null, { ctrl: true, name: "u" });
+    rl.setPrompt(prompt);
     if (discarded > 0) opts.report("info", `discarded ${discarded} line${discarded === 1 ? "" : "s"} typed while the answer was streaming; type again to ask`);
     discarded = 0;
   };

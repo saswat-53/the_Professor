@@ -161,6 +161,16 @@ describe.skipIf(!hasPython)("learn --chat on a terminal", () => {
     expect(await readdir(dir)).toEqual(before);
   }, 30_000);
 
+  it("leaves no stray prompt before the footer after an answer", async () => {
+    const out = await chat([
+      [" in/", `why is it 1?${ENTER}`],
+      ["ANSWER2", `/exit${ENTER}`],
+    ], { TERM: "xterm-256color" }); // a dumb terminal makes readline skip the redraw that caused the stray prompt
+    expect(out).toMatch(/\nexit 0\n$/);
+    // The line is cleared after an answer without being redrawn, so the footer starts its own line.
+    expect(out).not.toMatch(/> (\x1b\[\d*G)?\S+ · /);
+  }, 30_000);
+
   it("--diff chats about the changes, and the diff stays in the history of every follow-up", async () => {
     const repo = await mkdtemp(join(tmpdir(), "learn-chat-diff-"));
     const git = (...args: string[]) => execFileSync("git", ["-c", "user.email=t@example.com", "-c", "user.name=T", ...args], { cwd: repo });
