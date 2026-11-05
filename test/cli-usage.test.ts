@@ -1,8 +1,8 @@
 import { execFile, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
@@ -211,10 +211,10 @@ describe.skipIf(!hasPython)("a chat on an endpoint that rejects stream_options",
 });
 
 /** Runs one-shot `learn` on a terminal (a pty), as a person would; the output is everything the terminal showed, ending in `exit <code>`. */
-async function onTerminal(args: string[], env: Record<string, string> = {}, steps: [string, string][] = []): Promise<string> {
+async function onTerminal(args: string[], env: Record<string, string> = {}, steps: [string, string][] = [], cwd: string = tmpdir()): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), "learn-usage-home-"));
   return await new Promise((resolve, reject) => {
-    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...env }, cwd: tmpdir() }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, ...args], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m", ...env }, cwd }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
   });
 }
 
@@ -412,5 +412,55 @@ describe.skipIf(!hasPython)("the chat footer after a cancelled answer", () => {
     // The cancelled turn spent something, and it was never reported: the totals are now estimates, and so is the last request.
     expect(footers[1]).toMatch(/ · ~[\d.]+k? in\/~[\d.]+k? out · last ~[\d.]+k?\/4\.1k \(\d+%\)$/);
   }, 40_000);
+});
+
+describe.skipIf(!hasPython)("the chat footer with hostile names and real paths", () => {
+  /** Runs a chat from inside `cwd` on a wide, plain terminal and returns the footer line of the first prompt, with everything the terminal showed. */
+  async function firstFooter(cwd: string, args: string[]): Promise<{ footer: string; out: string }> {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([...args, "--chat"], { PTY_COLS: "200" }, [["\n> ", "/exit\r"]], cwd);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const lines = out.split("\r\n");
+    const footer = lines.find((l) => l.includes(" · m · intermediate · "));
+    expect(footer, "a footer line").toBeDefined();
+    return { footer: footer!, out };
+  }
+  /** A fresh, empty directory to build a project in, by its real path. */
+  const parent = async () => await realpath(await mkdtemp(join(tmpdir(), "learn-hostile-")));
+
+  it("cleans a project directory name made of escape sequences and a newline, and nothing else leaks it", async () => {
+    const dir = join(await parent(), "proj\u001b[31mred\u001b]0;pwn\u0007\nnewline");
+    await mkdir(dir);
+    await writeFile(join(dir, "sample.ts"), "export const a = 1;\n");
+    const { footer, out } = await firstFooter(dir, ["sample.ts"]);
+    expect(footer).toBe("projred newline · sample.ts · m · intermediate · 1k in/200 out · last 1k/4.1k (24%)");
+    // Not the footer alone: nothing anywhere on the terminal carries the name's escape sequences.
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+  }, 40_000);
+
+  it("cleans a file name made of escape sequences", async () => {
+    const dir = join(await parent(), "project");
+    await mkdir(dir);
+    const name = "a\u001b[31m\u001b]0;pwn\u0007b.ts";
+    await writeFile(join(dir, name), "export const a = 1;\n");
+    const { footer } = await firstFooter(dir, [name]);
+    expect(footer).toBe("project · ab.ts · m · intermediate · 1k in/200 out · last 1k/4.1k (24%)");
+  }, 40_000);
+
+  it("never shows an absolute path: the project is its directory's name, the file is relative to it, whether it was reached through a symlink or not", async () => {
+    const root = await parent();
+    const dir = join(root, "project");
+    await mkdir(dir);
+    await writeFile(join(dir, "real.ts"), "export const a = 1;\n");
+    await symlink("real.ts", join(dir, "link.ts"));
+    for (const target of ["real.ts", "link.ts", join(dir, "real.ts")]) {
+      const { footer } = await firstFooter(dir, [target]);
+      expect(footer, target).toMatch(/^project · (real|link)\.ts · m · /);
+      expect(footer, target).not.toContain(root);
+      expect(footer, target).not.toContain(tmpdir());
+      expect(footer, target).not.toContain(homedir());
+    }
+  }, 60_000);
 });
 
