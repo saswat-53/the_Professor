@@ -5,6 +5,8 @@ import type { Attached, ExplainEvent, LanguageModel, LearnError, ModelRequest, S
 import { BLOCK_CLOSE, BLOCK_OPEN, chatHelpText, findChatCommand, unknownCommandMessage } from "./chat-commands.js";
 import type { ChatCommandName } from "./chat-commands.js";
 import type { Mood } from "./mascot/animator.js";
+import { MOUSE_OFF, MOUSE_ON, filterMouse } from "./mouse.js";
+import type { Scrollback } from "./scrollback.js";
 
 export { BLOCK_CLOSE, BLOCK_OPEN } from "./chat-commands.js";
 
@@ -34,6 +36,10 @@ export interface ChatOptions {
   header?: () => string;
   /** The main prompt. Default `learn> `. */
   prompt?: string;
+  /** Scrolling back through the chat while the animated owl pins the top of the screen (the terminal cannot, since it drops lines that leave a pinned region). Absent: nothing to scroll. */
+  scrollback?: Scrollback;
+  /** With a scrollback: also take the mouse wheel and trackpad scrolling from the terminal. Default true; it costs plain click-and-drag text selection (most terminals select with Option or Shift held). */
+  mouse?: boolean;
   /** The animated owl. The chat only says what it is doing; how that is drawn is the owl's business. */
   mascot?: { mood(mood: Mood): void };
 }
@@ -44,9 +50,16 @@ export interface ChatOptions {
  */
 export async function runChat(opts: ChatOptions): Promise<number> {
   const mainPrompt = opts.prompt ?? "learn> ";
-  const rl = createInterface({ input: opts.input, output: opts.output, terminal: true, prompt: opts.prompt ?? "learn> " });
+  // The wheel arrives as escape sequences mixed in with the keys; they are taken out before readline can type them into the line.
+  const mouse = opts.scrollback && opts.mouse !== false ? filterMouse(opts.input as Parameters<typeof filterMouse>[0], (turn) => onWheel(turn)) : undefined;
+  const rl = createInterface({ input: mouse?.input ?? opts.input, output: opts.output, terminal: true, prompt: opts.prompt ?? "learn> " });
   let current: AbortController | undefined;
   const mood = (m: Mood) => opts.mascot?.mood(m);
+  /** Everything the chat prints goes through here, so the scrollback has it. */
+  const emit = (text: string) => {
+    opts.scrollback?.record(text);
+    opts.output.write(text);
+  };
   // A quiz that could not start leaves the owl startled; the loop must not wipe that with "idle".
   let quizFailed = false;
   // Lines are queued as they arrive, so none is lost between one answer finishing and the next prompt.
@@ -61,6 +74,8 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       discarded += 1;
       return;
     }
+    // What the reader typed is part of the conversation they may scroll back to.
+    opts.scrollback?.record(`${rl.getPrompt()}${line}\n`);
     lines.push(line);
     wake();
   });
@@ -81,6 +96,62 @@ export async function runChat(opts: ChatOptions): Promise<number> {
     if (!current || code === 143) rl.close();
   };
   rl.on("SIGINT", () => interrupt(130));
+
+  // Scrolling back: PageUp and PageDown (fn+up and fn+down on a Mac) go through the history; any other key returns to the live view and is then
+  // typed as usual. Readline would otherwise type the raw escape sequence of a key it does not know into the line, so those keys are taken
+  // before it sees them (`_ttyWrite` is how readline handles a key; wrapping it is the one place to do that).
+  const sb = opts.scrollback;
+  /** Lines a notch of the wheel moves. */
+  const WHEEL_LINES = 3;
+  /** A move through the history. Not while an answer streams: each new piece of text would snap the view back. */
+  const moveHistory = (move: () => void) => {
+    if (!sb || current) return;
+    const was = sb.active;
+    move();
+    // Coming back to the live view leaves the prompt line to be redrawn.
+    if (was && !sb.active) rl.prompt(true);
+  };
+  const onWheel = (turn: "up" | "down") => moveHistory(() => (turn === "up" ? sb!.up(WHEEL_LINES) : sb!.down(WHEEL_LINES)));
+  if (sb) {
+    type TtyWrite = (s: string | undefined, key: { name?: string } | undefined) => void;
+    const inner = rl as unknown as { _ttyWrite: TtyWrite };
+    const original = inner._ttyWrite.bind(rl);
+    inner._ttyWrite = (s, key) => {
+      const name = key?.name;
+      if (name === "pageup" || name === "pagedown") {
+        moveHistory(() => (name === "pageup" ? sb.up() : sb.down()));
+        return;
+      }
+      // While a history page is showing, the arrow keys move a line at a time; at the live view they keep recalling earlier questions.
+      if (sb.active && (name === "up" || name === "down")) {
+        moveHistory(() => (name === "up" ? sb.up(1) : sb.down(1)));
+        return;
+      }
+      if (sb.active) {
+        sb.end();
+        rl.prompt(true);
+        // Escape and End only mean "back"; anything else is also typed.
+        if (name === "escape" || name === "end") return;
+      }
+      original(s, key);
+    };
+    // A new size re-flows the page, so go back to the live view rather than show a stale one.
+    const onResize = () => {
+      if (!sb.active) return;
+      sb.end();
+      rl.prompt(true);
+    };
+    opts.output.on("resize", onResize);
+    rl.on("close", () => opts.output.off("resize", onResize));
+    if (mouse) {
+      opts.output.write(MOUSE_ON);
+      // Handed back whichever way the chat ends, or the shell would be left printing a report for every mouse move.
+      rl.on("close", () => {
+        opts.output.write(MOUSE_OFF);
+        mouse.close();
+      });
+    }
+  }
   opts.takeSignals(interrupt);
 
   /** A message whose first line is `first`: that line, or a pasted block when it is `<<<`. Undefined when input ends inside the block. */
@@ -109,10 +180,10 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       } else if (event.type === "text-delta") {
         mood("speaking");
         const text = strip(event.text);
-        opts.output.write(text);
+        emit(text);
         lastChar = text.at(-1) ?? lastChar;
       } else if (event.type === "error") {
-        if (lastChar !== "\n") opts.output.write("\n");
+        if (lastChar !== "\n") emit("\n");
         lastChar = "\n";
         if (event.error instanceof CancelledError) {
           mood("idle");
@@ -123,7 +194,7 @@ export async function runChat(opts: ChatOptions): Promise<number> {
         }
       } else if (event.type === "done") {
         mood("idle");
-        opts.output.write("\n");
+        emit("\n");
         lastChar = "\n";
       }
     }
@@ -163,10 +234,10 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       return;
     }
     settle();
-    opts.output.write(`${QUIZ_LENGTH} questions. Answer in your own words; /skip passes, /quit stops.\n`);
+    emit(`${QUIZ_LENGTH} questions. Answer in your own words; /skip passes, /quit stops.\n`);
     for (const [i, question] of questions.entries()) {
       if (closed || endedBy !== undefined) return;
-      opts.output.write(`\nQuestion ${i + 1} of ${questions.length}: ${opts.stripper()(question)}\n`);
+      emit(`\nQuestion ${i + 1} of ${questions.length}: ${opts.stripper()(question)}\n`);
       let answer = "";
       mood("quiz");
       while (answer === "") {
@@ -179,11 +250,11 @@ export async function runChat(opts: ChatOptions): Promise<number> {
         answer = text;
       }
       if (answer === "/quit") {
-        opts.output.write("quiz stopped\n");
+        emit("quiz stopped\n");
         return;
       }
       if (answer === "/skip") {
-        opts.output.write("skipped\n");
+        emit("skipped\n");
         continue;
       }
       current = new AbortController();
@@ -193,12 +264,12 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       settle();
       // Ctrl-C while a grade streams stops the quiz, as /quit does.
       if (signal.aborted) {
-        opts.output.write("quiz stopped\n");
+        emit("quiz stopped\n");
         return;
       }
       if (endedBy !== undefined) return;
     }
-    opts.output.write("\nThat was the quiz. Nothing was scored or stored.\n");
+    emit("\nThat was the quiz. Nothing was scored or stored.\n");
   };
 
   /** What each command does. Typed by the table's names, so a table entry with no handler, or a handler for a command not in the table, does not compile. */
@@ -235,18 +306,18 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       return "next";
     },
     "/help": async (): Promise<Outcome> => {
-      opts.output.write(`${chatHelpText()}\n`);
+      emit(`${chatHelpText()}\n`);
       return "next";
     },
     "/exit": async (): Promise<Outcome> => "end",
   } satisfies Record<ChatCommandName, (args: string) => Promise<Outcome>>;
 
-  if (opts.banner) opts.output.write(`\n${opts.banner}\n`);
-  opts.output.write(`${chatHelpText()}\n`);
+  if (opts.banner) emit(`\n${opts.banner}\n`);
+  emit(`${chatHelpText()}\n`);
   while (!closed) {
     rl.setPrompt(mainPrompt);
     const header = opts.header?.();
-    if (header) opts.output.write(`${header}\n`);
+    if (header) emit(`${header}\n`);
     rl.prompt();
     const first = await next();
     if (first === undefined) break;

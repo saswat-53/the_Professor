@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAnimator } from "../src/cli/mascot/animator.js";
 import type { Mood } from "../src/cli/mascot/animator.js";
-import { chooseOwlStyle, HEADER_ROWS, startMascot } from "../src/cli/mascot/mascot.js";
+import { chooseOwlStyle, HEADER_ROWS, startInlineMascot, startMascot } from "../src/cli/mascot/mascot.js";
 import type { MascotOutput } from "../src/cli/mascot/mascot.js";
 import { CANVAS_HEIGHT, CANVAS_WIDTH, REST, SPRITE, composePose } from "../src/cli/mascot/pose.js";
 import type { Eyes } from "../src/cli/mascot/pose.js";
@@ -139,14 +139,20 @@ describe("animator", () => {
 
 describe("chooseOwlStyle", () => {
   const big = { color: true, rows: 40, columns: 100, env: {} };
-  it("animates for a person on a colour terminal that is big enough", () => {
-    expect(chooseOwlStyle(big)).toBe("animated");
+  it("puts the owl in the conversation by default, for a person on a colour terminal that is big enough", () => {
+    expect(chooseOwlStyle(big)).toBe("inline");
+    expect(chooseOwlStyle({ ...big, env: { LEARN_OWL: "" } })).toBe("inline");
   });
-  it("falls back to the still owl without colour or without room", () => {
-    expect(chooseOwlStyle({ ...big, color: false })).toBe("static");
-    expect(chooseOwlStyle({ ...big, rows: 12 })).toBe("static");
-    expect(chooseOwlStyle({ ...big, columns: 40 })).toBe("static");
-    expect(chooseOwlStyle({ ...big, rows: undefined })).toBe("static");
+  it("pins the owl to the top only when asked for with LEARN_OWL=pinned", () => {
+    expect(chooseOwlStyle({ ...big, env: { LEARN_OWL: "pinned" } })).toBe("pinned");
+  });
+  it("falls back to the still owl without colour or without room, whichever was chosen", () => {
+    for (const env of [{}, { LEARN_OWL: "pinned" }]) {
+      expect(chooseOwlStyle({ ...big, env, color: false })).toBe("static");
+      expect(chooseOwlStyle({ ...big, env, rows: 12 })).toBe("static");
+      expect(chooseOwlStyle({ ...big, env, columns: 40 })).toBe("static");
+      expect(chooseOwlStyle({ ...big, env, rows: undefined })).toBe("static");
+    }
   });
   it("lets LEARN_OWL opt out", () => {
     expect(chooseOwlStyle({ ...big, env: { LEARN_OWL: "static" } })).toBe("static");
@@ -239,5 +245,161 @@ describe("mascot driver", () => {
     fake.resize();
     expect(vi.getTimerCount()).toBe(1);
     await owl.close();
+  });
+});
+
+describe("inline mascot driver", () => {
+  afterEach(() => vi.useRealTimers());
+  const ESC = "\u001b";
+
+  /** A stream the owl can watch: it records what was written, and its `write` can be replaced and put back. */
+  const watched = () => {
+    const seen: unknown[][] = [];
+    const stream = { write: (...args: unknown[]) => (seen.push(args), true) };
+    return { stream, seen, original: stream.write };
+  };
+  const setup = (rows = 30) => {
+    vi.useFakeTimers();
+    const fake = fakeOutput(rows);
+    const out = watched();
+    const err = watched();
+    const owl = startInlineMascot({ output: fake.output, watch: [out.stream, err.stream], depth: "256", random: () => 0 });
+    return { ...fake, owl, out, err };
+  };
+  const frames = (writes: string[]) => writes.filter((w) => w.startsWith(`${ESC}7`)).length;
+
+  it("draws the owl at the top of a cleared screen, leaves the cursor below it, and sets no scroll region", () => {
+    const { writes } = setup(30);
+    expect(writes[0]).toBe("\n".repeat(30));
+    const all = writes.join("");
+    expect(all).toContain(`${ESC}[1;1H`);
+    expect(all).toContain("Professor");
+    // The cursor waits on the row below the owl and its spacer, where the chat starts.
+    expect(writes.some((w) => w.endsWith(`${ESC}[${HEADER_ROWS + 1};1H`))).toBe(true);
+    expect(all).not.toMatch(/\u001b\[\d*;?\d*r/);
+  });
+
+  it("does not claim a scroll hint: it scrolls with the terminal's own scrollback", () => {
+    const { writes } = setup(30);
+    expect(writes.join("")).not.toMatch(/scroll/i);
+  });
+
+  it("animates while there is room, and passes everything written to the watched streams through unchanged", async () => {
+    const { writes, out, err } = setup(30);
+    const before = frames(writes);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(frames(writes)).toBeGreaterThan(before);
+    expect(out.stream.write("hello\n", "utf8")).toBe(true);
+    expect(err.stream.write("warn\n")).toBe(true);
+    expect(out.seen).toEqual([["hello\n", "utf8"]]);
+    expect(err.seen).toEqual([["warn\n"]]);
+  });
+
+  it("stops animating, with one last still frame, before the text reaches the owl's rows scrolling away", async () => {
+    const { writes, out } = setup(30);
+    await vi.advanceTimersByTimeAsync(500);
+    // Text down to the last rows of the screen: the owl is about to scroll off.
+    for (let i = 0; i < 25; i++) out.stream.write("line\n");
+    const settled = frames(writes);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(frames(writes)).toBe(settled);
+    expect(vi.getTimerCount()).toBe(0);
+    // The last thing drawn is a settled owl, drawn at the top rows.
+    expect(writes.at(-1)!.startsWith(`${ESC}7`)).toBe(true);
+    expect(writes.at(-1)).toContain(`${ESC}[1;1H`);
+  });
+
+  it("never draws once the screen has scrolled, since the owl's rows then hold something else", async () => {
+    const { writes, out } = setup(30);
+    out.stream.write("x\n".repeat(200));
+    const count = writes.length;
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(writes).toHaveLength(count);
+  });
+
+  it("does not count its own drawing as text when the output it draws on is one of the streams it watches", async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const output = { rows: 30, columns: 100, write: (text: string) => (writes.push(text), true), on: () => undefined, off: () => undefined };
+    const owl = startInlineMascot({ output: output as unknown as MascotOutput, watch: [output], depth: "256", random: () => 0 });
+    const frames0 = frames(writes);
+    // Far more animation than would fit if each frame counted as text: it must still be going.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(frames(writes)).toBeGreaterThan(frames0 + 10);
+    expect(vi.getTimerCount()).toBe(1);
+    await owl.close();
+  });
+
+  it("gives the streams their own write back once it stops, and on close", async () => {
+    const { owl, out, err } = setup(30);
+    expect(out.stream.write).not.toBe(out.original);
+    for (let i = 0; i < 25; i++) out.stream.write("line\n");
+    expect(out.stream.write).toBe(out.original);
+    await owl.close();
+    expect(err.stream.write).toBe(err.original);
+  });
+
+  it("stops when the terminal is resized, since the text re-flows and the owl's place is unknown", async () => {
+    const fake = setup(30);
+    fake.output.rows = 40;
+    fake.resize();
+    const count = fake.writes.length;
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fake.writes.length).toBe(count);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("waves goodbye on close while it is still on screen, and is safe to close twice", async () => {
+    const { owl, writes, listening } = setup(30);
+    const closing = owl.close({ farewell: true });
+    await vi.advanceTimersByTimeAsync(3000);
+    await closing;
+    expect(writes.join("")).toContain("see you!");
+    expect(listening()).toBe(false);
+    await owl.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("restarts after /clear: the screen and its scrollback are erased, the owl is drawn at the top again, and it animates once more", async () => {
+    const { owl, writes, out } = setup(30);
+    // Let it run out of room, as a long chat does.
+    for (let i = 0; i < 25; i++) out.stream.write("line\n");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(vi.getTimerCount()).toBe(0);
+    const before = writes.length;
+    owl.restart!();
+    const after = writes.slice(before).join("");
+    // Erase the saved lines, then the screen, then home: nothing of the old chat is left above.
+    expect(after.startsWith(`${ESC}[3J${ESC}[2J${ESC}[H`)).toBe(true);
+    expect(after).toContain(`${ESC}[1;1H`);
+    expect(after.endsWith(`${ESC}[${HEADER_ROWS + 1};1H`)).toBe(true);
+    expect(vi.getTimerCount()).toBe(1);
+    const frames1 = frames(writes);
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(frames(writes)).toBeGreaterThan(frames1);
+    // The room is counted afresh: a few lines do not stop it, and many still do.
+    out.stream.write("a\nb\nc\n");
+    expect(vi.getTimerCount()).toBe(1);
+    for (let i = 0; i < 25; i++) out.stream.write("line\n");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("restarts cleanly while it is still animating, with one timer and no doubled watching", async () => {
+    const { owl, out } = setup(30);
+    owl.restart!();
+    owl.restart!();
+    expect(vi.getTimerCount()).toBe(1);
+    out.stream.write("x\n");
+    expect(out.seen).toEqual([["x\n"]]);
+    await owl.close();
+  });
+
+  it("does not wave after it has stopped, and ignores mood changes", async () => {
+    const { owl, writes, out } = setup(30);
+    for (let i = 0; i < 25; i++) out.stream.write("line\n");
+    const count = writes.length;
+    owl.mood("thinking");
+    await owl.close({ farewell: true });
+    expect(writes).toHaveLength(count);
   });
 });

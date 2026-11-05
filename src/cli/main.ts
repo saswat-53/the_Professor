@@ -17,7 +17,9 @@ import { visibleControls } from "./visible-controls.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
 import { owlBanner } from "./owl.js";
-import { chooseOwlStyle, startMascot } from "./mascot/mascot.js";
+import { HEADER_ROWS, chooseOwlStyle, startInlineMascot, startMascot } from "./mascot/mascot.js";
+import { MOUSE_OFF } from "./mouse.js";
+import { createScreenLog, createScrollback } from "./scrollback.js";
 import { colorDepth } from "./mascot/render.js";
 import type { StatusKind } from "./output.js";
 
@@ -26,7 +28,14 @@ const mode = outputMode({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!pr
 const paint = painter(mode.color);
 // Status text carries names from the project, from git and from the user's own typing, none of which can be trusted not to hold escape sequences: on a
 // terminal it is cleaned here, in the one place every status line goes through, and before it is painted, so the tool's own colours stay.
-const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, mode.stripStatus ? createEscapeStripper()(text) : text)}\n`);
+/** What the chat has printed, kept so the reader can scroll back under the pinned owl (see `createScrollback`); only an animated-owl chat reads it. */
+const screenLog = createScreenLog();
+let remember = (text: string) => screenLog.append(text);
+const status = (kind: StatusKind, text: string) => {
+  const line = `${paint(kind, mode.stripStatus ? createEscapeStripper()(text) : text)}\n`;
+  remember(line);
+  process.stderr.write(line);
+};
 
 /** The exit code the run is heading for. Recorded before the message is written, so a pipe that closes mid-message cannot turn a failure into a success. */
 let exitCode = 0;
@@ -399,6 +408,7 @@ async function main(): Promise<number> {
       status("info", formatContextReport(event.report));
     } else if (event.type === "text-delta") {
       const text = stripTerminalEscapes(event.text);
+      remember(text);
       process.stdout.write(text);
       lastChar = text.at(-1) ?? lastChar;
     } else if (event.type === "usage") {
@@ -412,7 +422,10 @@ async function main(): Promise<number> {
       return code;
     }
   }
-  if (!bare) process.stdout.write("\n");
+  if (!bare) {
+    remember("\n");
+    process.stdout.write("\n");
+  }
   // Terminal mode only: in plain mode (a pipe or a file) nothing is added.
   if (values.usage && usageLine !== undefined && mode.stripEscapes) status("info", usageLine);
   if (!session) return 0;
@@ -432,10 +445,22 @@ async function main(): Promise<number> {
     const repo = await findRepoAround(notesDir).catch(() => undefined);
     if (repo) status("warning", `warning: the notes directory ${notesDir} is inside the git repository ${repo.root}; saved notes contain code and could be committed by accident (add the folder to .gitignore, or point notes_dir somewhere else)`);
   };
-  // The owl: animated in a header when the terminal allows, a still picture otherwise, nothing with LEARN_OWL=off.
+  // The owl: animated at the top of the conversation when the terminal allows (LEARN_OWL=pinned fixes it to the top instead), a still picture otherwise, nothing with LEARN_OWL=off.
   const owl = chooseOwlStyle({ color: mode.color, rows: process.stdout.rows, columns: process.stdout.columns, env: process.env });
-  const mascot = owl === "animated" ? startMascot({ output: process.stdout, depth: colorDepth(process.env) }) : undefined;
+  const depth = colorDepth(process.env);
+  const mascot =
+    owl === "pinned"
+      ? startMascot({ output: process.stdout, depth })
+      : owl === "inline"
+        ? startInlineMascot({ output: process.stdout, watch: [process.stdout, process.stderr], depth })
+        : undefined;
   if (bare) status("info", "No code attached yet. Ask a question, or attach code with @path, @path:10-20 or @word.");
+  const scrollback = owl === "pinned" ? createScrollback({ output: process.stdout, log: screenLog, headerRows: HEADER_ROWS }) : undefined;
+  if (scrollback) remember = (text) => scrollback.record(text);
+  // LEARN_MOUSE=off keeps the terminal's own click-and-drag selection, and leaves scrolling to the keys.
+  const mouse = process.env.LEARN_MOUSE !== "off";
+  // If the process dies without closing the chat, still hand the terminal's mouse back.
+  if (scrollback && mouse) process.once("exit", () => process.stdout.write(MOUSE_OFF));
   let finished: number | undefined;
   try {
     finished = await runChat({
@@ -446,6 +471,8 @@ async function main(): Promise<number> {
       prompt: mode.color ? "❯ " : "> ",
       banner: owl === "static" ? owlBanner({ color: mode.color }) : undefined,
       mascot,
+      scrollback,
+      mouse,
       session,
       model: llm,
       stripper: () => (mode.stripEscapes ? createEscapeStripper() : (text: string) => text),

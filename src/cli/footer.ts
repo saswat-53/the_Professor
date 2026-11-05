@@ -23,7 +23,7 @@ const PLACEHOLDER = "(unnamed)";
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 /** The characters as a person sees them: a letter with its accents, or an emoji sequence, is one. */
-const graphemes = (text: string): string[] => Array.from(segmenter.segment(text), (part) => part.segment);
+export const graphemes = (text: string): string[] => Array.from(segmenter.segment(text), (part) => part.segment);
 
 /** Code point ranges that a terminal draws two columns wide: Hangul Jamo, CJK, kana, Hangul, fullwidth forms. */
 const WIDE: readonly (readonly [number, number])[] = [
@@ -32,7 +32,7 @@ const WIDE: readonly (readonly [number, number])[] = [
 ];
 
 /** Columns one character takes: 0 for a combining mark on its own, 2 for a wide character or an emoji, else 1. */
-function columnsOf(grapheme: string): number {
+export function columnsOf(grapheme: string): number {
   const first = grapheme.codePointAt(0)!;
   if (/^\p{M}+$/u.test(grapheme)) return 0;
   if (/\p{Emoji_Presentation}/u.test(String.fromCodePoint(first)) || WIDE.some(([low, high]) => first >= low && first <= high)) return 2;

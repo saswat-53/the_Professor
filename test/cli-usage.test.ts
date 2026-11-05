@@ -534,11 +534,11 @@ describe.skipIf(!hasPython)("the chat footer for a bare word", () => {
   }, 40_000);
 });
 
-describe.skipIf(!hasPython)("the chat footer with the animated owl", () => {
+describe.skipIf(!hasPython)("the chat footer with the owl pinned to the top (LEARN_OWL=pinned)", () => {
   const DIM = "\u001b[2m";
   const RESET = "\u001b[0m";
-  /** What it takes for the owl to animate: a colour terminal of at least 20 rows (the helper's are 24) and 50 columns, and LEARN_OWL not set. */
-  const withOwl = { TERM: "xterm-256color", NO_COLOR: "", COLORTERM: "truecolor", LEARN_OWL: "", PTY_COLS: "100" };
+  /** What it takes for the owl to animate: a colour terminal of at least 20 rows (the helper's are 24) and 50 columns, and LEARN_OWL=pinned. */
+  const withOwl = { TERM: "xterm-256color", NO_COLOR: "", COLORTERM: "truecolor", LEARN_OWL: "pinned", PTY_COLS: "100" };
 
   it("is printed whole inside the scrolling area below the owl, with none of the owl's cursor moves inside it", async () => {
     reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
@@ -557,5 +557,106 @@ describe.skipIf(!hasPython)("the chat footer with the animated owl", () => {
     expect(found!.index).toBeGreaterThan(region);
     expect(out.lastIndexOf("\u001b[r")).toBeGreaterThan(found!.index);
   }, 40_000);
+
+  it("scrolls back through the chat with PageUp and PageDown while the owl stays pinned, and returns on End", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const PAGE_UP = "\u001b[5~";
+    const PAGE_DOWN = "\u001b[6~";
+    const END = "\u001b[F";
+    // Enough exchanges to push the first explanation off the 16-row scrolling area, then back two pages, one forward, and End.
+    const asks: [string, string][] = ["one", "two", "three", "four", "five", "six"].map((q) => ["intermediate", `${q}\r`]);
+    const out = await onTerminal([file, "--chat"], withOwl, [
+      ...asks,
+      ["intermediate", PAGE_UP],
+      ["scrolled back", PAGE_UP],
+      ["scrolled back", PAGE_DOWN],
+      ["scrolled back", END],
+      ["intermediate", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const firstView = out.indexOf("scrolled back");
+    expect(firstView, "the history page's status row").toBeGreaterThan(-1);
+    // Two pages back reaches the very first explanation, which had long scrolled out of the area.
+    expect(out.slice(firstView)).toContain("an explanation 1");
+    // The keys were taken, not typed: the line the reader types into stays empty, so the exit command is the only thing ever submitted.
+    expect(out).not.toContain("[5~");
+    expect(out).not.toContain("[6~");
+    // The owl was never drawn over the history page: its rows are 1-8 and the page starts at row 9.
+    const afterView = out.slice(firstView);
+    expect(afterView).not.toMatch(/\u001b\[[1-8];1H(?!\u001b)[^\u001b]*scrolled back/);
+    // End brought the live view back: the footer is painted again after the last status row.
+    expect(out.lastIndexOf("intermediate")).toBeGreaterThan(out.lastIndexOf("scrolled back"));
+  }, 60_000);
+
+  const WHEEL_UP = "\u001b[<64;10;10M";
+  const WHEEL_DOWN = "\u001b[<65;10;10M";
+  const asks = (): [string, string][] => ["one", "two", "three", "four", "five", "six"].map((q) => ["intermediate", `${q}\r`]);
+
+  it("scrolls with the mouse wheel or trackpad, takes the mouse only while the chat runs, and never types the reports", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], withOwl, [
+      ...asks(),
+      ["intermediate", WHEEL_UP.repeat(14)],
+      ["scrolled back", WHEEL_DOWN.repeat(14)],
+      ["intermediate", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const firstView = out.indexOf("scrolled back");
+    expect(firstView, "the history page's status row").toBeGreaterThan(-1);
+    // Fourteen notches of three lines reach the first explanation.
+    expect(out.slice(firstView)).toContain("an explanation 1");
+    // Mouse reporting was asked for when the chat started and handed back at the end, after everything else.
+    expect(out.indexOf("\u001b[?1000h")).toBeGreaterThan(-1);
+    expect(out.lastIndexOf("\u001b[?1000l")).toBeGreaterThan(out.lastIndexOf("an explanation 7"));
+    // The reports were taken, not typed into the line.
+    expect(out).not.toContain("<64;");
+    expect(out).not.toContain("<65;");
+    // Wheeling back down returned to the live view.
+    expect(out.lastIndexOf("intermediate")).toBeGreaterThan(out.lastIndexOf("scrolled back"));
+  }, 60_000);
+
+  it("moves one line at a time with the arrow keys while scrolled back, and an arrow key still recalls earlier questions at the live view", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const UP = "\u001b[A";
+    const DOWN = "\u001b[B";
+    const out = await onTerminal([file, "--chat"], withOwl, [
+      ...asks(),
+      ["intermediate", "\u001b[5~"],
+      ["scrolled back", UP],
+      ["scrolled back", UP],
+      ["scrolled back", DOWN],
+      ["scrolled back", "\u001b[F"],
+      ["intermediate", "/exit\r"],
+    ]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    // One page back, then up two lines (the status row says 14 + 1 + 1 below), then down one (15 below).
+    const notes = [...out.matchAll(/scrolled back · (\d+) lines? below/g)].map((m) => Number(m[1]));
+    expect(notes.slice(0, 4)).toEqual([14, 15, 16, 15]);
+  }, 60_000);
+
+  it("LEARN_MOUSE=off leaves the mouse alone, so the terminal's own selection works", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], { ...withOwl, LEARN_MOUSE: "off" }, [["intermediate", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).not.toContain("\u001b[?1000h");
+  }, 40_000);
 });
 
+describe.skipIf(!hasPython)("the owl in the conversation (the default)", () => {
+  const inline = { TERM: "xterm-256color", NO_COLOR: "", COLORTERM: "truecolor", LEARN_OWL: "", PTY_COLS: "100" };
+
+  it("reserves nothing on the screen: no scroll region and no mouse capture, so the terminal scrolls and selects as usual", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], inline, [["❯ ", "hello\r"], ["intermediate", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    // The owl was drawn at the top rows, with its words, and the chat ran as ordinary output below it.
+    expect(out).toContain("\u001b[1;1H");
+    expect(out).toContain("Professor");
+    expect(out).not.toMatch(/\u001b\[\d*;?\d*r/);
+    expect(out).not.toContain("\u001b[?1000h");
+    expect(out).not.toMatch(/scrolled back/);
+    // The footer and the answers are in the output as normal text.
+    expect(out).toContain("an explanation 2");
+    expect(out).toContain("intermediate");
+  }, 40_000);
+});
