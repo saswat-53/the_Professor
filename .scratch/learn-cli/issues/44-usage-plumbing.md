@@ -14,7 +14,7 @@
 - [x] The first request of a chat asks the endpoint for usage on the stream. When the endpoint reports it, `SessionStats` holds the reported numbers and marks them `reported`
 - [x] When the endpoint accepts the request but sends no usage, `SessionStats` holds a chars ÷ 4 estimate of the request and of the answer, marked `estimated`, and nothing is retried
 - [x] When the endpoint answers 400 and the error names `stream_options`, **before any output was streamed**, the request is sent once more without it; this succeeds, the chat's model adapter remembers "no usage here" for the rest of the chat (in memory only, never in the config file), and later requests do not ask again. Figures from then on are `estimated`
-- [ ] The retry happens once per Session at most, and a second 400 is reported as an ordinary provider error
+- [x] The retry happens once per Session at most, and a second 400 is reported as an ordinary provider error
 - [x] One dim stderr note per chat says usage is estimated for this endpoint, naming the host only (no path, no query, no key)
 - [x] `--usage` (one-shot only) prints one dim line to stderr after the explanation in terminal mode (`in 1.2k · out 340 · <model>`, with `~` when estimated); nothing in plain mode; it is listed in `--help`
 - [x] `--usage` with `--chat` is rejected up front with exit code 2 and a message saying the chat footer already shows usage; nothing is sent
@@ -55,7 +55,7 @@ Verify before calling it done: run once against local Ollama and once against on
 
 Done and checked above. Still open:
 
-- [ ] Once-per-Session retry limit with a second 400: the code lets a 400 naming `stream_options` on the retry fall through to the ordinary provider error, but no test names that case.
+- [x] Once-per-Session retry limit with a second 400: tested (an endpoint that answers 400 naming `stream_options` to every request gets exactly two requests, the second without the option, and exit 1 with the ordinary "HTTP 400" error). The test passed on first run, being a characterisation of existing behaviour; it fails if the retry asks for usage again or may itself be retried.
 - [ ] Break-it "retry after output has streamed": the `yielded` guard cannot be reached from the wire (a real HTTP 400 cannot follow a started body, and a mid-stream error is an SSE event with no status), so no test fails when it is removed. It stays as defence in depth, with a comment saying so.
 - [ ] Break-it "print the Authorization header in the note": not run.
 - [ ] Smoke test: one run against local Ollama and one against a hosted endpoint, recording here whether each reported streamed usage. The fake endpoint in the tests sends usage in the OpenAI chunk shape; real endpoints may differ.

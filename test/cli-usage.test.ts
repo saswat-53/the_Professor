@@ -130,6 +130,17 @@ describe("an endpoint that accepts stream_options but reports no usage", () => {
 });
 
 describe("the retry is only for a rejected stream_options", () => {
+  it("retries only once: when the request without stream_options is also answered 400, that is an ordinary provider error", async () => {
+    // This endpoint blames stream_options for every request, whether it carries the option or not.
+    failWith = { status: 400, message: "Unrecognized request argument supplied: stream_options" };
+    const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
+    expect(r.code).toBe(1);
+    expect(r.stderr).toMatch(/HTTP 400/);
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]!.stream_options).toEqual({ include_usage: true });
+    expect(bodies[1]!.stream_options).toBeUndefined();
+  });
+
   it("does not retry an error that arrives after output has streamed", async () => {
     streamMode = "mid-stream-error";
     const r = await run([file], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" });
