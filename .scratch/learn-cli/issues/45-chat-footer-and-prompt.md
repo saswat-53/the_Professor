@@ -62,3 +62,7 @@ Things found along the way:
 - On a terminal that is not `TERM=dumb`, readline writes its own cursor-control codes in front of the prompt, so a test cannot wait for `\n❯ ` or `\n> `; the colour tests wait for `❯ ` or for the footer text instead.
 - Not part of this ticket: the Context report prints a file name raw, so a hostile file name can put escape sequences on the terminal through it (the footer is clean). Suggested as its own ticket.
 
+### First CI run (a partial result, before the fix below)
+
+One push ran the suite on Linux: 1,487 tests passed, including every pty test (chat, footer, colour, cancel, resize), and one failed: "shortens a very long file path from the left" in `test/footer.test.ts`, which timed out at 5 s. The cause was real, not the CI machine: `fitReference` re-measured every candidate tail of a path, so shortening a path took time in proportion to the square of its number of directories (110, 408, 1,519 and 6,469 ms for 1,250, 2,500, 5,000 and 10,000 directories on a laptop). It now measures each directory once, from the end (400,000 directories take about 220 ms), and a test with 20,000 directories, whose quadratic version takes about 26 s, guards it with a generous timeout so only the algorithm decides the result. That CI run was of an earlier commit and one job; a green run of the current commit on Node 22, 24 and 26 is still needed.
+

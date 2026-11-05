@@ -85,10 +85,16 @@ function fitReference(reference: string, budget: number): string | undefined {
   if (widthOf(reference) <= budget) return reference;
   if (budget < MIN_REFERENCE) return undefined;
   const parts = reference.split("/");
-  for (let i = 1; i < parts.length; i++) {
-    const candidate = `${ELLIPSIS}/${parts.slice(i).join("/")}`;
-    if (widthOf(candidate) <= budget) return candidate;
+  // The longest tail of whole directories that fits, found by measuring each part once, from the end: re-measuring a longer candidate at every step
+  // takes time in proportion to the square of the path's length, which a path of thousands of directories turns into seconds.
+  let used = widthOf(`${ELLIPSIS}/`);
+  let first: number | undefined;
+  for (let i = parts.length - 1; i >= 1; i--) {
+    used += widthOf(parts[i]!) + (i < parts.length - 1 ? widthOf("/") : 0);
+    if (used > budget) break;
+    first = i;
   }
+  if (first !== undefined) return `${ELLIPSIS}/${parts.slice(first).join("/")}`;
   return `${ELLIPSIS}${tail(reference, budget - 1)}`;
 }
 

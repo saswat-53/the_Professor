@@ -249,6 +249,13 @@ describe("renderFooter with names thousands of characters long", () => {
     }
   });
 
+  it("takes time in proportion to the length of a path, not its square: 20,000 directories are shortened at once", () => {
+    // Not a stopwatch, which would be flaky on a slow machine: a quadratic way of shortening this path takes about 26 seconds on a laptop,
+    // far past the timeout below, while a linear one takes a few milliseconds, so only the algorithm decides whether this passes.
+    const stats: SessionStats = { ...hosted, reference: `${"d/".repeat(20_000)}auth.ts:40-60` };
+    expect(lineOf(stats, "Professor", 66)).toBe(`…/${"d/".repeat(12)}auth.ts:40-60 · gpt-x · 3.1k in/420 out`);
+  }, 20_000);
+
   it("shortens a very long file path from the left, keeping the end of it: as many trailing directories as the room allows, then the file name and the lines", () => {
     const stats: SessionStats = { ...hosted, reference: `${"d/".repeat(2500)}auth.ts:40-60` };
     // 66 columns. The project and then the level go first. The rest, "gpt-x · 3.1k in/420 out" and two separators, takes 26,
