@@ -37,8 +37,8 @@ The retry is the only automatic retry in the tool (ADR 0004), so it is narrow, a
 
 - [x] Delete the `include_usage` request option: the "reports usage" test must fail
 - [x] Make the retry fire on any 400: the "different field" test must fail
-- [ ] Make the retry fire after output has streamed: the mid-stream test must fail
-- [ ] Print the Authorization header in the note: the canary test must fail
+- [x] Make the retry fire after output has streamed: cannot be met as written. A real HTTP 400 cannot follow a started body, and a mid-stream error is an SSE event with no status, so the `yielded` guard is unreachable from the wire and removing it fails no test. The mid-stream test pins the behaviour a user can see instead (an error after output is never retried), and the guard stays as defence in depth, with a code comment saying so.
+- [x] Print the Authorization header in the note: the canary test must fail
 - [x] Let `--usage` through with `--chat`: the exit-code-2 test must fail
 
 ## Glossary
@@ -56,8 +56,7 @@ Verify before calling it done: run once against local Ollama and once against on
 Done and checked above. Still open:
 
 - [x] Once-per-Session retry limit with a second 400: tested (an endpoint that answers 400 naming `stream_options` to every request gets exactly two requests, the second without the option, and exit 1 with the ordinary "HTTP 400" error). The test passed on first run, being a characterisation of existing behaviour; it fails if the retry asks for usage again or may itself be retried.
-- [ ] Break-it "retry after output has streamed": the `yielded` guard cannot be reached from the wire (a real HTTP 400 cannot follow a started body, and a mid-stream error is an SSE event with no status), so no test fails when it is removed. It stays as defence in depth, with a comment saying so.
-- [ ] Break-it "print the Authorization header in the note": not run.
+- [x] Break-it "print the Authorization header in the note": run (the note printed `Authorization: Bearer <key>`); the key canary test failed, as it should.
 - [ ] Smoke test: one run against local Ollama and one against a hosted endpoint, recording here whether each reported streamed usage. The fake endpoint in the tests sends usage in the OpenAI chunk shape; real endpoints may differ.
 - [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04): the chat-memory and `--usage` tests drive a pty.
 
