@@ -13,6 +13,7 @@ import { KeychainUnavailableError, osKeychain } from "./keychain.js";
 import { openAICompatibleModel } from "./openai-compatible.js";
 import { renderPromptHeader } from "./footer.js";
 import { formatUsageLine } from "./usage-line.js";
+import { visibleControls } from "./visible-controls.js";
 import { createEscapeStripper } from "./escape-stripper.js";
 import { outputMode, painter } from "./output.js";
 import { owlBanner } from "./owl.js";
@@ -324,10 +325,12 @@ async function main(): Promise<number> {
     return fail(err);
   }
   const diff = diffRequested ? { ...(typeof values.diff === "string" && { ref: values.diff }), ...(values.diffPaths && { paths: values.diffPaths }) } : undefined;
-  const printRequest = (request: ModelRequest) =>
-    process.stderr.write(
-      `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n${(request.history ?? []).map((m) => `--- ${m.role} (earlier) ---\n${m.content}\n`).join("")}--- user ---\n${request.user}\n`,
-    );
+  // The request is shown to be read, and it holds file contents, git text and the model's earlier answers: on a terminal its control characters are shown as pictures, not acted on (and not removed, so it is still what is sent).
+  const printRequest = (request: ModelRequest) => {
+    const text =
+      `base URL: ${redactUrl(request.baseUrl)}\nmodel: ${request.model}\n--- system ---\n${request.system}\n${(request.history ?? []).map((m) => `--- ${m.role} (earlier) ---\n${m.content}\n`).join("")}--- user ---\n${request.user}\n`;
+    process.stderr.write(mode.stripStatus ? visibleControls(text) : text);
+  };
 
   if (values.dryRun) {
     try {

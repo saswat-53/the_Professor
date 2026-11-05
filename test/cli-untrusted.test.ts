@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
 
 const BIN = join(import.meta.dirname, "../dist/cli.js");
@@ -19,16 +19,22 @@ const HOSTILE_FILE = `a\u001b[31m${osc("pwnNAME")}b.ts`;
 let server: Server;
 let baseUrl: string;
 let project: string;
+/** The JSON body of every request the fake endpoint received. */
+let bodies: { messages: { role: string; content: string }[] }[] = [];
+/** When set, the fake model's answers carry a title-changing sequence, as a hostile model's could. */
+let hostileAnswer = false;
 
 const chunk = (delta: object, finish: string | null = null) =>
   `data: ${JSON.stringify({ id: "1", object: "chat.completion.chunk", created: 0, model: "m", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
 
 beforeAll(async () => {
   server = createServer((req, res) => {
-    req.resume();
+    let raw = "";
+    req.on("data", (d) => (raw += d));
     req.on("end", () => {
+      bodies.push(JSON.parse(raw));
       res.writeHead(200, { "content-type": "text/event-stream" });
-      res.write(chunk({ content: "ok" }));
+      res.write(chunk({ content: hostileAnswer ? `answer ${osc("pwnANSWER")} done` : "ok" }));
       res.write(chunk({}, "stop"));
       res.end("data: [DONE]\n\n");
     });
@@ -44,12 +50,18 @@ beforeAll(async () => {
   await writeFile(join(project, HOSTILE_FILE), "export const a = 1;\n");
   await writeFile(join(project, "src/util.ts"), "export function wordy() { return 1; }\n");
   await writeFile(join(project, `src/other${osc("pwnWORD")}.ts`), "export function wordy() { return 2; }\n");
+  await writeFile(join(project, "src/plain.ts"), `export const p = 1; // ${osc("pwnCONTENT")}\n`);
   git("add", "-A");
   git("commit", "-qm", `base ${osc("pwnMSG")}`);
   await writeFile(join(project, HOSTILE_FILE), "export const a = 2;\n");
 });
 
 afterAll(() => server.close());
+
+beforeEach(() => {
+  bodies = [];
+  hostileAnswer = false;
+});
 
 /** Runs `learn` in the project on a terminal: stdout and stderr are both a pty. Returns everything the terminal showed. */
 async function onTerminal(args: string[], env: Record<string, string> = {}): Promise<string> {
@@ -132,5 +144,60 @@ describe.skipIf(!hasPython)("colour and cleaning together", () => {
     expect(out).not.toContain("pwn");
     expect(out).toContain("ab.ts");
   }, 40_000);
+});
+
+describe.skipIf(!hasPython)("the request that --dry-run and --show-prompt print", () => {
+  const VISIBLE_CONTENT = "␛]0;pwnCONTENT␇";
+
+  it("shows a file's escape sequences as pictures on a terminal, and sends nothing in --dry-run", async () => {
+    const out = await onTerminal(["src/plain.ts", "--dry-run"]);
+    expect(out).toContain(VISIBLE_CONTENT);
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+    expect(bodies).toEqual([]);
+  }, 40_000);
+
+  it("shows it as pictures with --show-prompt too, and the model still receives the real bytes", async () => {
+    const out = await onTerminal(["src/plain.ts", "--show-prompt"]);
+    expect(out).toContain(VISIBLE_CONTENT);
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+    // What is shown is a picture of what is sent, not a changed request: the body the endpoint got holds the raw sequence.
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]!.messages.at(-1)!.content).toContain(osc("pwnCONTENT"));
+  }, 40_000);
+
+  it("shows the file name, the diff and a commit message as pictures too", async () => {
+    const out = await onTerminal(["--blame", `${HOSTILE_FILE}:1-1`, "--dry-run"]);
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+    expect(out).toContain("␛]0;pwnNAME␇");
+    expect(out).toContain("␛]0;pwnMSG␇");
+  }, 40_000);
+
+  it("leaves the request exactly as it is when stderr is redirected, so a saved log is the real request", async () => {
+    const r = await run(["src/plain.ts", "--dry-run"], { LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, project);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toContain(osc("pwnCONTENT"));
+    expect(r.stderr).not.toContain("␛");
+  });
+
+  it("in a chat, shows an earlier answer from the model as pictures when it is printed again with the next request", async () => {
+    hostileAnswer = true;
+    const home = await mkdtemp(join(tmpdir(), "learn-untrusted-home-"));
+    const steps: [string, string][] = [
+      ["\n> ", "and then?\r"],
+      ["\n> ", "/exit\r"],
+    ];
+    const out = await new Promise<string>((resolve, reject) => {
+      execFile("python3", ["-I", HELPER, JSON.stringify(steps), "node", BIN, "src/plain.ts", "--chat", "--show-prompt"], { env: { ...process.env, HOME: home, XDG_CONFIG_HOME: "", TERM: "dumb", NO_COLOR: "1", LEARN_BASE_URL: baseUrl, LEARN_MODEL: "m" }, cwd: project }, (err, stdout) => (err ? reject(err) : resolve(stdout)));
+    });
+    expect(out).toMatch(/\nexit 0\n$/);
+    // The answer reached stdout cleaned, as before; the second request printed it again among the earlier turns, now as pictures.
+    expect(out).toContain("␛]0;pwnANSWER␇");
+    expect(out).not.toContain("\u001b");
+    expect(out).not.toContain("\u0007");
+    expect(bodies).toHaveLength(2);
+  }, 60_000);
 });
 

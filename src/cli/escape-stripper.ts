@@ -30,7 +30,7 @@ const STRING_INTRODUCERS_8BIT = new Set([0x90, 0x98, 0x9d, 0x9e, 0x9f]);
  * right-to-left letters (Arabic, Hebrew), ZWJ and ZWNJ (U+200D, U+200C: emoji sequences, Persian and
  * Indic scripts), the direction marks LRM and RLM (U+200E, U+200F: they hide nothing), and U+2028/2029.
  */
-const INVISIBLE = /[\u200b\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+export const INVISIBLE = /[\u200b\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
 
 /**
  * Returns a function that removes terminal escape sequences and control characters from streamed
