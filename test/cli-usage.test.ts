@@ -301,3 +301,51 @@ describe.skipIf(!hasPython)("the chat footer on a plain terminal", () => {
   }, 30_000);
 });
 
+describe.skipIf(!hasPython)("the chat footer on a colour terminal", () => {
+  const DIM = "\u001b[2m";
+  const RESET = "\u001b[0m";
+  /** A colour terminal 100 columns wide: not dumb, NO_COLOR unset (set empty, which counts as unset), the owl off so its animation stays out of the way. */
+  const colour = { TERM: "xterm-256color", NO_COLOR: "", LEARN_OWL: "off", PTY_COLS: "100" };
+  /** On a terminal that is not "dumb", readline puts its own cursor-control codes (column 1, clear below) before the prompt text. */
+  const READLINE = "(?:\\u001b\\[\\d*[GJK])*";
+
+  it("prints a dim rule as wide as the terminal, then the footer, then a ❯ prompt", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const out = await onTerminal([file, "--chat"], colour, [["❯ ", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const lines = out.split("\r\n");
+    const rule = lines.findIndex((l) => l === `${DIM}${"─".repeat(100)}${RESET}`);
+    expect(rule).toBeGreaterThan(-1);
+    // The footer is the very next line, dim as a whole, and the prompt follows it.
+    expect(lines[rule + 1]).toMatch(new RegExp(`^${DIM.replace("[", "\\[")}.* · m · intermediate · 1k in/200 out · ${RESET.replace("[", "\\[")}${DIM.replace("[", "\\[")}last 1k/4\\.1k \\(24%\\)${RESET.replace("[", "\\[")}$`));
+    expect(lines[rule + 2]).toMatch(new RegExp(`^${READLINE}❯ `));
+    expect(out).not.toMatch(new RegExp(`\\r\\n${READLINE}> `));
+  }, 30_000);
+
+  it.each([
+    [3000, "\u001b[33m", "last 3k/4.1k (73%)"],
+    [3800, "\u001b[31m", "last 3.8k/4.1k (93%)"],
+  ])("colours a fill that is getting full: %i tokens of the window", async (tokens, code, fill) => {
+    reportedUsage = { prompt_tokens: tokens, completion_tokens: 10 };
+    const out = await onTerminal([file, "--chat"], colour, [["❯ ", "/exit\r"]]);
+    expect(out).toContain(`${code}${fill}${RESET}`);
+  }, 30_000);
+
+  it.each([
+    ["NO_COLOR set", { TERM: "xterm-256color", NO_COLOR: "1" }],
+    ["TERM=dumb", { TERM: "dumb", NO_COLOR: "" }],
+  ])("prints neither the rule nor ❯, and no escape sequence in the footer, with %s", async (_name, env) => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    // Wait on the footer, not the prompt: off "dumb" readline's own cursor codes sit in front of the prompt text.
+    const out = await onTerminal([file, "--chat"], { ...colour, ...env }, [["1k in/200 out", "/exit\r"]]);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(out).not.toContain("─");
+    expect(out).not.toContain("❯");
+    const lines = out.split("\r\n");
+    const footer = lines.findIndex((l) => l.includes(" · m · "));
+    expect(footer).toBeGreaterThan(-1);
+    expect(lines[footer]).not.toContain("\u001b");
+    // The prompt is the plain > on the next line (after readline's own cursor codes, if the terminal gets any).
+    expect(lines[footer + 1]).toMatch(new RegExp(`^${READLINE}> `));
+  }, 30_000);
+});
