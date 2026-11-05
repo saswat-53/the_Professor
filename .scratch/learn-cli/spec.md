@@ -263,3 +263,39 @@ A command-line tool, `learn`, that you run from inside any project. You point it
 - **Decision for the M3 ticket (the `context_window` setting):** an OpenAI-compatible endpoint doesn't report its real context window, so the local Session cap needs a source. The ticket must decide whether to add a `context_window` setting (in tokens, following the usual flag, environment, config, default precedence) from which the local cap is derived, with a documented default that assumes Ollama's default window, and whether it also applies to hosted endpoints. Querying the endpoint is an optional later improvement. Ollama's default window depends on VRAM (about 4k tokens below 24 GiB); it can be raised in the Ollama app's settings or by starting the server with a context-length environment variable, and `ollama ps` shows the allocated length. The stderr note in Milestone 1 uses this wording.
 - **Small gaps filled here, to confirm in tickets:** terminal-escape stripping also covers sequences split across stream chunks; in the chat, Ctrl-C at an idle prompt ends the chat while Ctrl-C during a response cancels only that response.
 - **Teaching:** the project owner is learning as they build. Each ticket should name the concepts it introduces (for example: abort signals, async iteration, dependency injection, exit codes, symlink escape, command injection, snapshot testing) in its notes so they can be looked up.
+
+## Addendum: chat footer, usage and chat help (after Milestone 4)
+
+Added after a grilling session. Tickets 44 to 46; the architecture decision is ADR 0004.
+
+### User stories
+
+122. As a learner in a chat, I want a one-line footer above each prompt showing the project, the code I'm asking about, the model and level, and how many tokens I've used, so that I can see my situation at a glance, like a status line in Claude Code.
+123. As a learner on a narrow terminal, I want the footer to drop the least useful fields first and never wrap, so that my prompt stays readable.
+124. As a learner using a local model, I want to see how full the model's context window was on the last request, so that I know when old turns will start to be dropped.
+125. As a learner, I want estimated token counts clearly marked `~`, so that I'm never shown a made-up number as if it were exact.
+126. As a developer using an endpoint that rejects the usage option, I want the chat to keep working with estimated counts and to be told once why, so that a footer feature doesn't break my provider.
+127. As a developer, I want one-shot `--usage` to print a single usage line to stderr, off by default, so that scripts and pipes are unaffected.
+128. As a privacy-conscious developer, I want project and file names cleaned of terminal control characters before they are shown, and never an absolute path, so that a hostile directory name can't move my cursor or leak my home directory.
+129. As a learner, I want `/help` in chat and a "Chat commands" section in `--help`, generated from one list, so that the help can't drift from what the chat accepts.
+130. As a future desktop-app author, I want usage and context numbers as plain data from core, so that the app draws them its own way.
+
+### Implementation decisions
+
+- **Printed, not pinned.** The footer is printed above each prompt (and once after a cancelled answer) by `renderFooter(stats, width)` in `src/cli/`; chat stays on readline. Ink or scroll regions are deferred (ADR 0004).
+- **Core owns data.** A plain `SessionStats` (last and total tokens, reported or estimated, focused reference label, model, level, context window for local endpoints) is updated after each turn. No ANSI or width knowledge in core.
+- **Fields and drop order.** `project · file:range · model · level · tokens · fill`; no cost. Narrow terminals drop project, then level, then `file:range` (truncated from the left first), then tokens; `model` and fill stay (hosted: `model` alone). One line, display width measured after stripping ANSI, width re-read before each render.
+- **Names are untrusted.** Project names, file names, reference labels and model names pass through the existing escape stripper; paths are project-relative, or the file name only when they can't be.
+- **Prompt.** A rule and `❯ ` on a colour terminal; plain `> ` otherwise; colour from the existing `outputMode`. No footer without a terminal.
+- **Usage.** The first request asks for streamed usage (`include_usage`). Reported figures are shown plainly, estimates (chars ÷ 4) with `~`. Fill is the last request's input tokens over `--context-window`, local endpoints only, labelled as the last request; hosted endpoints show no percentage, and there is no built-in window table.
+- **The one automatic retry.** If an endpoint answers 400 naming `stream_options` before any output was streamed, the request is sent once more without it, the Session remembers (in memory) and later figures are estimates, with one stderr note per chat naming the host only. This is a deliberate, narrow exception to "no automatic retries". Other 400s, 401, 429, mid-stream errors and cancelled requests are never retried.
+- **`--usage`.** One-shot only; prints one dim stderr line in terminal mode; rejected with `--chat` (exit 2, because the footer already shows usage).
+- **Command table.** Chat commands, `/help`, the unknown-command message and the "Chat commands" section of `--help` all come from one table with required help text.
+- **Tests.** Seam 2 for hostile names, no absolute paths, colour modes and the retry paths; pure-function tests and a small snapshot for `renderFooter`; a test that fails when a command lacks help text. Footer and resize tests need a green Linux CI run before ticket 45 is done.
+
+### Out of scope
+
+- A pinned footer, a bordered live input box, and Ink (see ADR 0004).
+- Cost estimates and any price table.
+- A built-in table of hosted-model context windows.
+- Persisting usage or the "no usage here" flag.
