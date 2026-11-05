@@ -120,7 +120,7 @@ describe("Context report", () => {
     const dir = await project("a.txt", numbered(5));
     const events: ExplainEvent[] = [];
     for await (const e of explain({ reference: "a.txt:2", cwd: dir, settings: hosted, model, signal: new AbortController().signal })) events.push(e);
-    expect(events.map((e) => e.type)).toEqual(["context-report", "text-delta", "done"]);
+    expect(events.map((e) => e.type)).toEqual(["context-report", "text-delta", "usage", "done"]);
     // Structured data, not rendered text: a frontend decides how to show it.
     const report = (events[0] as { report: ContextReport }).report;
     expect(report.kind).toBe("sent");
