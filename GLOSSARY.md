@@ -101,7 +101,10 @@ How a bare-word Reference (`learn debounce`, or `@debounce` in Chat) becomes an 
 _Avoid_: Grep, lookup
 
 **Plain mode / Terminal mode**:
-Whether stdout is a terminal. In terminal mode the model's text has escape sequences, control characters (except newline and tab) and invisible bidi and zero-width characters removed, since the model's text is untrusted and could move the cursor, retitle the window or disguise a command. Colour on status lines is a separate choice (both streams terminals, `NO_COLOR` unset, `TERM` not `dumb`); stripping stays on whatever the colour preference. In plain mode (piped or redirected) the text is exactly as the model sent it. Decided in one place, `outputMode`.
+Whether each output stream is a terminal; stdout and stderr are judged separately, so `learn file | less` has a piped stdout and a terminal stderr. Text that is not the tool's own is untrusted, because it can move the cursor, retitle the window or disguise a command, so what reaches a terminal is cleaned:
+- **stdout a terminal:** the model's text has escape sequences, control characters (except newline and tab) and invisible bidi and zero-width characters removed.
+- **stderr a terminal:** every status line (the Context report, errors, warnings, the chat's reports, and the names, file contents and git text in them) is cleaned the same way, in one place and before the tool adds its own colour. The request that `--dry-run` and `--show-prompt` print is not cleaned but shown with its control characters as pictures (`␛` for ESC, `␇` for BEL, `<U+202E>` for characters with no picture), because that output exists to show exactly what is sent, and what is sent does not change.
+In plain mode (the stream piped or redirected) the text is exactly as it was, so a log keeps the truth. Colour is a separate choice (both streams terminals, `NO_COLOR` unset, `TERM` not `dumb`); cleaning stays on whatever the colour preference. Decided in one place, `outputMode`. The chat footer cleans its own names (see **Footer**).
 _Avoid_: Interactive mode, TTY mode
 
 **Level**:

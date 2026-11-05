@@ -305,7 +305,7 @@ Explains why a range of lines changed. The history comes from git's line-range l
 
 ### Output streams
 
-Output goes to stdout; the Context report, warnings, errors and the `--usage` line go to stderr. When stdout is a terminal, escape sequences and control characters in the model's text are removed (the text is untrusted); when piped, it is left exactly as sent. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
+Output goes to stdout; the Context report, warnings, errors and the `--usage` line go to stderr. Anything that is not the tool's own text is untrusted (the model's answer, but also file names, file contents, git history and the model's earlier answers), and each stream is judged on its own: when **stdout** is a terminal, escape sequences and control characters in the model's text are removed; when **stderr** is a terminal, the same is done to every status line, and the request that `--dry-run` and `--show-prompt` print shows control characters as pictures (`␛` for ESC) instead, since it exists to show exactly what is sent and what is sent is unchanged. A stream that is piped or redirected is left exactly as it was, so a saved log is faithful. If the output pipe closes early (`learn file | head`), the run ends quietly with the exit code of any failure already found, else 0.
 
 ## Exit codes
 
