@@ -1,4 +1,4 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, execFileSync, spawnSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from "node:fs/promises";
@@ -483,6 +483,41 @@ describe.skipIf(!hasPython)("the chat footer when the terminal is resized", () =
     expect(footers[0]).toMatch(/^\S+ · learn-usage-\w+\/sample\.ts · m · intermediate · 1k in\/200 out · last 1k\/4\.1k \(24%\)$/);
     expect(footers[1]).toBe("m · 2k in/400 out · last 1k/4.1k (24%)");
     expect(footers[2]).toMatch(/^\S+ · learn-usage-\w+\/sample\.ts · m · intermediate · 3k in\/600 out · last 1k\/4\.1k \(24%\)$/);
+  }, 40_000);
+});
+
+describe.skipIf(!hasPython)("the chat footer for a bare word", () => {
+  /** A small git repository to run in, so the word search covers a few files and not a whole temporary directory. */
+  async function repo(): Promise<string> {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "learn-word-chat-")));
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src/util.ts"), ["import x from 'x';", "", "// debounce is defined below", "export function debounce(fn: () => void, ms: number) {", "  let t: any;", "  return () => {", "    clearTimeout(t);", "    t = setTimeout(fn, ms);", "  };", "}", ""].join("\n"));
+    await writeFile(join(dir, "src/use.ts"), "import { debounce } from './util';\ndebounce(() => 1, 3);\n");
+    return dir;
+  }
+  const footers = (out: string) => out.split("\r\n").filter((l) => /\d+k? in\/\d+ out/.test(l));
+
+  it("shows the definition a word question resolved to, for @word in a follow-up", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const dir = await repo();
+    const out = await onTerminal(["src/use.ts", "--chat"], { PTY_COLS: "200" }, [
+      ["\n> ", "what does @debounce do?\r"],
+      ["\n> ", "/exit\r"],
+    ], dir);
+    expect(out).toMatch(/\nexit 0\n$/);
+    const lines = footers(out);
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain(" · src/use.ts · m · ");
+    expect(lines[1]).toContain(" · src/util.ts:4-10 · m · ");
+  }, 40_000);
+
+  it("shows it from the start, when the first thing explained is the word", async () => {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const dir = await repo();
+    const out = await onTerminal(["debounce", "--chat"], { PTY_COLS: "200" }, [["\n> ", "/exit\r"]], dir);
+    expect(out).toMatch(/\nexit 0\n$/);
+    expect(footers(out)[0]).toContain(" · src/util.ts:4-10 · m · ");
   }, 40_000);
 });
 

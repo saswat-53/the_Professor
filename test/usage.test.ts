@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -282,3 +282,16 @@ describe("Session stats describe the Session", () => {
     expect(session.stats).toMatchObject({ reference: "b.ts:3-4", model: "m", level: "expert" });
   });
 });
+
+describe("Session stats for a bare word", () => {
+  it("name the definition the word resolved to, as a project-relative file and lines, not the word", async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), "learn-stats-word-")));
+    execFileSync("git", ["init", "-q"], { cwd: dir });
+    await mkdir(join(dir, "src"));
+    await writeFile(join(dir, "src/util.ts"), ["import x from 'x';", "", "// debounce is defined below", "export function debounce(fn: () => void, ms: number) {", "  let t: any;", "  return () => {", "    clearTimeout(t);", "    t = setTimeout(fn, ms);", "  };", "}", ""].join("\n"));
+    const session = new Session();
+    await all(explain({ reference: "debounce", cwd: dir, root: dir, settings: { baseUrl: "https://api.example.com/v1", model: "m" }, model: scripted([{ type: "text", text: "ok" }]), signal: new AbortController().signal, session }));
+    expect(session.stats.reference).toBe("src/util.ts:4-10");
+  });
+});
+

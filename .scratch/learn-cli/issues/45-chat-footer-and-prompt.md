@@ -12,7 +12,7 @@
 
 - [x] In a terminal chat, the footer is printed once, as dim text on one line, above each prompt, and once after a cancelled answer. Scrollback is untouched: nothing is pinned, no scroll region is set, no cursor save/restore is used (ADR 0004) (tested: one footer per prompt, once after a cancel, dim as a whole. Nothing pinned and no scroll-region or cursor save/restore code exists in the footer path, but no test asserts the absence of those sequences)
 - [x] Fields, in order: `project · file:range · model · level · tokens · fill`; cost is never shown
-- [ ] `file:range` is the latest Reference (including one added with `@other.ts`, and the resolved file and range for a bare word); piped or clipboard input shows `stdin` or `clipboard` **Open:** file, `@file` (last one wins, unchanged when an attach fails), piped, clipboard, `--diff` and `--blame` are tested; a bare word (`@debounce`, or `learn debounce`) is not tested at the footer level
+- [x] `file:range` is the latest Reference (including one added with `@other.ts`, and the resolved file and range for a bare word); piped or clipboard input shows `stdin` or `clipboard` (tested: file, `@file` (last one wins, unchanged when an attach fails), piped, clipboard, `--diff`, `--blame`, and a bare word, both as the first reference and as `@word` in a follow-up, which shows the definition it resolved to, `src/util.ts:4-10`, never the word)
 - [x] Tokens show reported figures plainly and estimated figures with `~`
 - [x] Fill is shown for local endpoints only: the last request's input tokens over `--context-window`, labelled as the last request (for example `last 3.1k/4k (76%)`), dim, yellow above 70%, red above 90%; `~` when estimated. Hosted endpoints show no percentage and no window; there is no built-in window table (the ticket's example `last 3.1k/4k` is really `last 3.1k/4.1k`: 4096 is shown as 4.1k)
 - [x] The width is read from `process.stdout.columns` before each render (so a resize is honoured) and measured as display width after stripping ANSI; the footer is always one line, never wrapping
@@ -55,7 +55,7 @@ This ticket depends on terminal width, resize and process timing, so it is not d
 Local evidence only (macOS): the full suite passed 6 of 6 and 8 of 8 consecutive runs after the fixes below. Not yet done:
 
 - [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04), with `test/cli-usage.test.ts` run several times: the chat tests drive a pty, and the cancel and resize tests depend on how output is chunked and on the window-size signal arriving before the next footer is built.
-- [ ] The four open boxes above (bare-word focus, animated owl, very long names, `--root`), each either tested or consciously accepted.
+- [ ] The three open boxes above (animated owl, very long names, `--root`), each either tested or consciously accepted. (Bare-word focus is now tested.)
 
 Things found along the way:
 
