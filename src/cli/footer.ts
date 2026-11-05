@@ -8,6 +8,8 @@ export interface FooterInput {
   project: string;
   /** Columns available, read from the terminal before each render. */
   width: number;
+  /** Dim the line and colour the fill; the caller decides from `outputMode`, so colour is decided in one place. Default: off. */
+  color?: boolean;
 }
 
 const SEPARATOR = " · ";
@@ -47,7 +49,6 @@ const widthOf = (text: string): number => graphemes(text).reduce((sum, g) => sum
 const clean = (text: string): string => createEscapeStripper()(text).replace(/\s+/g, " ").trim();
 const named = (text: string): string => clean(text) || PLACEHOLDER;
 
-const join = (fields: (string | undefined)[]): string => fields.filter((field) => field !== undefined && field !== "").join(SEPARATOR);
 
 /** The first characters of `text` that fit in `budget` columns, never splitting one. */
 function head(text: string, budget: number): string {
@@ -91,6 +92,27 @@ function fitReference(reference: string, budget: number): string | undefined {
   return `${ELLIPSIS}${tail(reference, budget - 1)}`;
 }
 
+/** One piece of the footer. The fill carries its percentage so it can be coloured by it. */
+interface Field {
+  text: string;
+  percent?: number;
+}
+
+const joinFields = (fields: Field[]): string => fields.map((field) => field.text).join(SEPARATOR);
+
+/** ANSI SGR: dim for the line, yellow and red for a fill that is getting full. */
+const sgr = (code: string, text: string): string => `\u001b[${code}m${text}\u001b[0m`;
+const fillCode = (percent: number): string => (percent > 90 ? "31" : percent > 70 ? "33" : "2");
+
+/** The chosen fields as text: plain, or dim with the fill in its own colour. */
+function paintFooter(fields: Field[], color: boolean): string {
+  if (!color) return joinFields(fields);
+  const last = fields.at(-1);
+  if (last?.percent === undefined) return sgr("2", joinFields(fields));
+  const before = fields.slice(0, -1);
+  return `${before.length > 0 ? sgr("2", `${joinFields(before)}${SEPARATOR}`) : ""}${sgr(fillCode(last.percent), last.text)}`;
+}
+
 /**
  * The one line printed above each chat prompt: `project · file:range · model · level · tokens`, plus the last request's
  * context fill on a local endpoint. When the line does not fit, fields go in a fixed order: the project, then the level,
@@ -98,7 +120,7 @@ function fitReference(reference: string, budget: number): string | undefined {
  * still does not fit is cut from the right. Below `NARROW` columns only the model and the fill are shown.
  * Pure: it is given the data and the width and returns text, so it is tested without a terminal.
  */
-export function renderFooter({ stats, project: rawProject, width }: FooterInput): string {
+export function renderFooter({ stats, project: rawProject, width, color = false }: FooterInput): string {
   if (width < 1) return "";
   // Names come from directories, files and settings, which anyone can make hostile: clean them here, so no caller has to remember to.
   const project = named(rawProject);
@@ -107,36 +129,44 @@ export function renderFooter({ stats, project: rawProject, width }: FooterInput)
   const total = stats.total;
   const used = `${count(total.inputTokens, total.source === "estimated")} in/${count(total.outputTokens, total.source === "estimated")} out`;
   // Fill needs a real window (a local endpoint) and a last request to measure; a hosted endpoint shows none, since there is no known window.
-  const fill =
+  const fill: Field | undefined =
     stats.contextWindow !== undefined && stats.last
-      ? `last ${count(stats.last.inputTokens, stats.last.source === "estimated")}/${shortCount(stats.contextWindow)} (${Math.round((stats.last.inputTokens / stats.contextWindow) * 100)}%)`
+      ? (() => {
+          const percent = Math.round((stats.last.inputTokens / stats.contextWindow) * 100);
+          return { text: `last ${count(stats.last.inputTokens, stats.last.source === "estimated")}/${shortCount(stats.contextWindow)} (${percent}%)`, percent };
+        })()
       : undefined;
   const reference = stats.reference === undefined ? undefined : named(stats.reference);
   const model = stats.model === undefined ? "" : named(stats.model);
   const { level } = stats;
+  const text = (value: string | undefined): Field | undefined => (value === undefined ? undefined : { text: value });
 
-  const fits = (fields: (string | undefined)[]): string | undefined => {
-    const line = join(fields);
-    return widthOf(line) <= width ? line : undefined;
+  /** The fields that make a line, if that line fits. Fitting is by plain text; colour is added afterwards and never changes what fits. */
+  const fits = (fields: (Field | undefined)[]): Field[] | undefined => {
+    const chosen = fields.filter((field): field is Field => field !== undefined && field.text !== "");
+    return widthOf(joinFields(chosen)) <= width ? chosen : undefined;
   };
-  const shortened = (): string | undefined => {
+  const shortened = (): Field[] | undefined => {
     if (reference === undefined) return undefined;
-    const fitted = fitReference(reference, width - widthOf(join([model, used, fill])) - widthOf(SEPARATOR));
-    return fitted === undefined ? undefined : fits([fitted, model, used, fill]);
+    const fitted = fitReference(reference, width - widthOf(joinFields([text(model), text(used), fill].filter((f): f is Field => f !== undefined))) - widthOf(SEPARATOR));
+    return fitted === undefined ? undefined : fits([text(fitted), text(model), text(used), fill]);
   };
 
   const wide =
     width < NARROW
       ? undefined
-      : (fits([project, reference, model, level, used, fill]) ??
-        fits([reference, model, level, used, fill]) ??
-        fits([reference, model, used, fill]) ??
+      : (fits([text(project), text(reference), text(model), text(level), text(used), fill]) ??
+        fits([text(reference), text(model), text(level), text(used), fill]) ??
+        fits([text(reference), text(model), text(used), fill]) ??
         shortened() ??
-        fits([model, used, fill]));
-  if (wide !== undefined) return wide;
-  const minimal = fits([model, fill]);
-  if (minimal !== undefined) return minimal;
-  // Not even the model and the fill fit: cut the model to leave room for the fill, or drop the fill when there is no room for both.
-  const room = width - (fill === undefined ? 0 : widthOf(SEPARATOR) + widthOf(fill));
-  return room >= 4 && fill !== undefined ? join([cutRight(model, room), fill]) : cutRight(model, width);
+        fits([text(model), text(used), fill]));
+  const chosen =
+    wide ??
+    fits([text(model), fill]) ??
+    // Not even the model and the fill fit: cut the model to leave room for the fill, or drop the fill when there is no room for both.
+    (() => {
+      const room = width - (fill === undefined ? 0 : widthOf(SEPARATOR) + widthOf(fill.text));
+      return room >= 4 && fill !== undefined ? [{ text: cutRight(model, room) }, fill] : [{ text: cutRight(model, width) }];
+    })();
+  return paintFooter(chosen, color);
 }

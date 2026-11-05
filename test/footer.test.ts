@@ -154,3 +154,52 @@ describe("renderFooter with hostile or wide text", () => {
   });
 });
 
+describe("renderFooter colour", () => {
+  const DIM = "\u001b[2m";
+  const YELLOW = "\u001b[33m";
+  const RED = "\u001b[31m";
+  const RESET = "\u001b[0m";
+  const ANSI = /\u001b\[[0-9;]*m/g;
+  const coloured = (stats: SessionStats, width = 120, project = "Professor") => renderFooter({ stats, project, width, color: true });
+  /** A local endpoint with a 1000-token window, so the last request's input tokens are the percentage. */
+  const filled = (lastInput: number): SessionStats => ({ ...hosted, contextWindow: 1000, last: { inputTokens: lastInput, outputTokens: 10, source: "reported" } });
+
+  it("adds no escape sequence at all when colour is off, which is the default", () => {
+    expect(renderFooter({ stats: filled(950), project: "Professor", width: 120 })).not.toContain("\u001b");
+    expect(renderFooter({ stats: filled(950), project: "Professor", width: 120, color: false })).not.toContain("\u001b");
+  });
+
+  it("dims the whole line", () => {
+    expect(coloured(hosted)).toBe(`${DIM}Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out${RESET}`);
+  });
+
+  it("gives the fill its own colour on top: dim to 70%, yellow above 70%, red above 90%", () => {
+    const before = `${DIM}Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out · ${RESET}`;
+    expect(coloured(filled(700))).toBe(`${before}${DIM}last 700/1k (70%)${RESET}`);
+    expect(coloured(filled(710))).toBe(`${before}${YELLOW}last 710/1k (71%)${RESET}`);
+    expect(coloured(filled(900))).toBe(`${before}${YELLOW}last 900/1k (90%)${RESET}`);
+    expect(coloured(filled(910))).toBe(`${before}${RED}last 910/1k (91%)${RESET}`);
+  });
+
+  it("never changes which fields fit: stripped of colour it is the same line at every width", () => {
+    for (const stats of [hosted, filled(950)]) {
+      for (let width = 1; width <= 120; width++) {
+        expect(coloured(stats, width).replace(ANSI, ""), `width ${width}`).toBe(renderFooter({ stats, project: "Professor", width }));
+      }
+    }
+  });
+
+  it("colours only the real fill: a model named like one is just text", () => {
+    const line = coloured({ ...hosted, model: "last 950/1k (95%)" });
+    expect(line).toBe(`${DIM}Professor · src/auth.ts:40-60 · last 950/1k (95%) · beginner · 3.1k in/420 out${RESET}`);
+    // Narrow, the model is the last field on the line, where a fill would be: still just text, so dim.
+    expect(coloured({ ...hosted, model: "last 950/1k (95%)" }, 39)).toBe(`${DIM}last 950/1k (95%)${RESET}`);
+  });
+
+  it("adds only its own escape sequences: a hostile name still cannot bring one in", () => {
+    const line = coloured({ ...hosted, model: "gpt-\u001b[31mx\u001b]0;pwned\u0007" }, 120, "Pro\u001b[2Jfessor");
+    expect(line.replace(ANSI, "")).not.toContain("\u001b");
+    expect(line).not.toContain("pwned");
+  });
+});
+
