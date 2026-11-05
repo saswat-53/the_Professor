@@ -27,9 +27,9 @@
 Project names, file names, reference labels and model names are untrusted text that ends up on the user's terminal.
 
 - [x] A project directory or file whose name contains ESC, CSI or OSC sequences, BEL, newline, carriage return, tab, 8-bit C1 characters, bidi overrides or zero-width characters renders with all of those removed (the existing escape stripper is reused, not copied), and the footer is still one line (newline, CR, tab, bidi and zero-width are tested in `footer.test.ts`; 8-bit C1 characters rely on the escape stripper's own tests, since the stripper is reused)
-- [ ] Names containing wide (CJK, emoji) and combining characters are measured by display width, so the footer never exceeds the terminal width; a very long name (thousands of characters) is truncated, never wrapped **Open:** wide and combining names are tested at every width; a name of thousands of characters is not tested
+- [x] Names containing wide (CJK, emoji) and combining characters are measured by display width, so the footer never exceeds the terminal width; a very long name (thousands of characters) is truncated, never wrapped (tested at every width with wide, combining and emoji names, and with names of 5,000 characters in the project, the file and the model, in ASCII, CJK and emoji: never wider than the terminal, never more than one line; a very long path keeps as many trailing directories as fit, then the file name and lines)
 - [x] An empty name after stripping falls back to a fixed placeholder, not a blank field
-- [ ] No absolute path ever appears in the footer: paths are project-relative; a symlink is shown as the project-relative path of the file it points to (core resolves links to their real path, so `link.ts` shows as `real.ts`); a path outside the project root is refused before it could be shown; the home directory and the `--root` value are never printed **Open:** tested with a plain file, a symlink and an absolute-path argument, and the temp and home directories never appear; `--root` is not exercised
+- [x] No absolute path ever appears in the footer: paths are project-relative; a symlink is shown as the project-relative path of the file it points to (core resolves links to their real path, so `link.ts` shows as `real.ts`); a path outside the project root is refused before it could be shown; the home directory and the `--root` value are never printed (tested with a plain file, a symlink, an absolute-path argument, and `--root` typed both absolute and relative (`..`): the typed value and the parent directories never appear; the temp and home directories never appear either)
 - [x] Tests build real temporary directories with hostile names (seam 2, CLI as a black box, a fake server) and assert on the bytes written to the terminal stream, not only on the visible text
 
 ## Break it
@@ -55,7 +55,7 @@ This ticket depends on terminal width, resize and process timing, so it is not d
 Local evidence only (macOS): the full suite passed 6 of 6 and 8 of 8 consecutive runs after the fixes below. Not yet done:
 
 - [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04), with `test/cli-usage.test.ts` run several times: the chat tests drive a pty, and the cancel and resize tests depend on how output is chunked and on the window-size signal arriving before the next footer is built.
-- [ ] The three open boxes above (animated owl, very long names, `--root`), each either tested or consciously accepted. (Bare-word focus is now tested.)
+- [ ] The animated owl: the colour-terminal tests run with `LEARN_OWL=off`, so the footer has not been checked against the animated mascot. (Bare-word focus, very long names and `--root` are now tested.)
 
 Things found along the way:
 

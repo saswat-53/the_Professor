@@ -448,6 +448,19 @@ describe.skipIf(!hasPython)("the chat footer with hostile names and real paths",
     expect(footer).toBe("project · ab.ts · m · intermediate · 1k in/200 out · last 1k/4.1k (24%)");
   }, 40_000);
 
+  it("never shows the --root value: the project is its directory's name, and the file is relative to it, whether --root was typed absolute or relative", async () => {
+    const dir = join(await parent(), "project");
+    const sub = join(dir, "sub");
+    await mkdir(sub, { recursive: true });
+    await writeFile(join(sub, "file.ts"), "export const a = 1;\n");
+    for (const root of [dir, ".."]) {
+      const { footer } = await firstFooter(sub, ["--root", root, "file.ts"]);
+      expect(footer, root).toMatch(/^project · sub\/file\.ts · m · /);
+      expect(footer, root).not.toContain(dirname(dir));
+      expect(footer, root).not.toContain("..");
+    }
+  }, 60_000);
+
   it("never shows an absolute path: the project is its directory's name, the file is relative to it, whether it was reached through a symlink or not", async () => {
     const root = await parent();
     const dir = join(root, "project");

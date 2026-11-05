@@ -219,3 +219,41 @@ describe("renderPromptHeader", () => {
   });
 });
 
+describe("renderFooter with names thousands of characters long", () => {
+  const WIDTHS = [1, 2, 5, 10, 20, 39, 40, 41, 80, 120, 200];
+  const lineOf = (stats: SessionStats, project: string, width: number) => renderFooter({ stats, project, width });
+
+  it("cuts a very long model name to the terminal's width with an ellipsis, on one line", () => {
+    const stats: SessionStats = { ...hosted, model: "x".repeat(5000) };
+    expect(lineOf(stats, "Professor", 20)).toBe(`${"x".repeat(19)}…`);
+    expect(lineOf(stats, "Professor", 120)).toBe(`${"x".repeat(119)}…`);
+  });
+
+  it("is never wider than the terminal and always one line, however long the project, the file or the model is", () => {
+    const long = (ch: string) => ch.repeat(5000);
+    for (const ch of ["x", "漢", "😀"]) {
+      for (const [name, stats, project] of [
+        ["project", hosted, long(ch)],
+        ["file", { ...hosted, reference: `${long(ch)}/${long(ch)}.ts:1-9999` }, "Professor"],
+        ["model", { ...hosted, model: long(ch) }, "Professor"],
+        ["all three", { ...hosted, contextWindow: 4096, reference: long(ch), model: long(ch) }, long(ch)],
+      ] as const) {
+        for (const width of WIDTHS) {
+          const line = lineOf(stats, project, width);
+          // Columns, counted the independent way: 1 for the ASCII, 2 for the CJK and emoji used here.
+          const columns = [...line].reduce((sum, c) => sum + (c.length > 1 || c.charCodeAt(0) > 0x2e80 ? 2 : 1), 0);
+          expect(columns, `${name} ${ch} at ${width}`).toBeLessThanOrEqual(width);
+          expect(line, `${name} ${ch} at ${width}`).not.toContain("\n");
+        }
+      }
+    }
+  });
+
+  it("shortens a very long file path from the left, keeping the end of it: as many trailing directories as the room allows, then the file name and the lines", () => {
+    const stats: SessionStats = { ...hosted, reference: `${"d/".repeat(2500)}auth.ts:40-60` };
+    // 66 columns. The project and then the level go first. The rest, "gpt-x · 3.1k in/420 out" and two separators, takes 26,
+    // leaving 40 for the path: "…/" (2) + twelve "d/" (24) + "auth.ts:40-60" (13) is 39, and a thirteenth "d/" would make 41.
+    expect(lineOf(stats, "Professor", 66)).toBe(`…/${"d/".repeat(12)}auth.ts:40-60 · gpt-x · 3.1k in/420 out`);
+  });
+});
+
