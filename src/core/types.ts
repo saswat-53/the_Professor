@@ -17,9 +17,21 @@ export interface ModelRequest {
   user: string;
 }
 
-/** The model is a plain dependency: anything that turns a request into text chunks. */
+/** What a model streams: pieces of the answer, and (when the endpoint reports it) the tokens the request used. */
+export type ModelEvent =
+  | { type: "text"; text: string }
+  | { type: "usage"; inputTokens?: number; outputTokens?: number };
+
+/** The model is a plain dependency: anything that turns a request into events. */
 export interface LanguageModel {
-  stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<string>;
+  stream(request: ModelRequest, signal: AbortSignal): AsyncIterable<ModelEvent>;
+}
+
+/** Tokens one request used: as the endpoint reported them, or as learn estimated them when it did not. */
+export interface TurnUsage {
+  inputTokens: number;
+  outputTokens: number;
+  source: "reported" | "estimated";
 }
 
 export interface Settings {
@@ -35,5 +47,6 @@ export interface Settings {
 export type ExplainEvent =
   | { type: "context-report"; report: ContextReport }
   | { type: "text-delta"; text: string }
+  | { type: "usage"; usage: TurnUsage }
   | { type: "done" }
   | { type: "error"; error: LearnError };

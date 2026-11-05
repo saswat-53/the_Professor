@@ -11,7 +11,7 @@ function fakeModel(chunks: string[]) {
   const model: LanguageModel = {
     async *stream(request) {
       requests.push(request);
-      for (const c of chunks) yield c;
+      for (const c of chunks) yield { type: "text", text: c };
     },
   };
   return { model, requests };
@@ -63,9 +63,9 @@ describe("explain cancellation", () => {
     const controller = new AbortController();
     const model: LanguageModel = {
       async *stream() {
-        yield "first";
+        yield { type: "text", text: "first" };
         controller.abort();
-        yield "second";
+        yield { type: "text", text: "second" };
       },
     };
     const events: ExplainEvent[] = [];

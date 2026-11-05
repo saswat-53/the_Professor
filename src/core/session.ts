@@ -132,10 +132,11 @@ export async function* followUp(input: {
   input.onRequest?.(request);
   let answer = "";
   try {
-    for await (const text of input.model.stream(request, input.signal)) {
+    for await (const event of input.model.stream(request, input.signal)) {
       if (input.signal.aborted) break;
-      answer += text;
-      yield { type: "text-delta", text };
+      if (event.type !== "text") continue;
+      answer += event.text;
+      yield { type: "text-delta", text: event.text };
     }
     if (input.signal.aborted) {
       yield { type: "error", error: new CancelledError() };

@@ -341,7 +341,7 @@ describe("--diff", () => {
   });
 
   describe("with a Session (--chat)", () => {
-    const model = (reply = "ANSWER"): LanguageModel => ({ async *stream() { yield reply; } });
+    const model = (reply = "ANSWER"): LanguageModel => ({ async *stream() { yield { type: "text", text: reply }; } });
     const drain = async (events: AsyncIterable<ExplainEvent>) => {
       const out: ExplainEvent[] = [];
       for await (const e of events) out.push(e);

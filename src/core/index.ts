@@ -2,7 +2,7 @@ export { explain, buildRequest, prepareRequest } from "./explain.js";
 export { Session, followUp } from "./session.js";
 export type { DroppedTurns } from "./session.js";
 export { buildSystemPrompt } from "./prompt.js";
-export type { ExplainEvent, LanguageModel, Message, ModelRequest, Settings } from "./types.js";
+export type { ExplainEvent, LanguageModel, Message, ModelEvent, ModelRequest, Settings, TurnUsage } from "./types.js";
 export {
   BadKeyError,
   BlockedFileError,

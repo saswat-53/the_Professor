@@ -13,7 +13,7 @@ import { createFileReader, resolveEndpoint } from "./sensitive.js";
 import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedExcerpt, resolveReference } from "./reference.js";
 import type { Session } from "./session.js";
 import { listSearchableFiles } from "./word-search.js";
-import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
+import type { ExplainEvent, LanguageModel, ModelRequest, Settings, TurnUsage } from "./types.js";
 
 /**
  * Local failures (a missing file, a permission error) keep their own message. A failure from the
@@ -158,13 +158,19 @@ export async function* explain(
   }
   input.onRequest?.(request);
   let answer = "";
+  let usage: TurnUsage | undefined;
   try {
-    for await (const text of input.model.stream(request, input.signal)) {
+    for await (const event of input.model.stream(request, input.signal)) {
       if (input.signal.aborted) break;
-      answer += text;
-      yield { type: "text-delta", text };
+      if (event.type === "usage") {
+        if (event.inputTokens !== undefined && event.outputTokens !== undefined) usage = { inputTokens: event.inputTokens, outputTokens: event.outputTokens, source: "reported" };
+        continue;
+      }
+      answer += event.text;
+      yield { type: "text-delta", text: event.text };
     }
     // An abort that ends the stream quietly is still a cancel, not a success.
+    if (!input.signal.aborted && usage) yield { type: "usage", usage };
     if (!input.signal.aborted) input.session?.begin(request, answer, sensitive);
     yield input.signal.aborted ? { type: "error", error: new CancelledError() } : { type: "done" };
   } catch (err) {

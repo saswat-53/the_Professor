@@ -12,8 +12,8 @@ function fakeModel(answers: string[]) {
       requests.push(request);
       // Two chunks, so the reply is assembled the way a streamed one is.
       const text = answers[requests.length - 1] ?? "";
-      yield text.slice(0, 5);
-      yield text.slice(5);
+      yield { type: "text", text: text.slice(0, 5) };
+      yield { type: "text", text: text.slice(5) };
     },
   };
   return { model, requests };

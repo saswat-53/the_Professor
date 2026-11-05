@@ -149,8 +149,8 @@ async function sendTest(a: InitAnswers, d: InitDeps, controller: AbortController
     const apiKey = await resolveApiKey({ keyEnv: a.keyEnv, baseUrl: a.baseUrl, env: d.env });
     say(`Asking ${a.model}...`);
     let reply = "";
-    for await (const piece of d.model(apiKey, a.keyEnv).stream(testRequest(a), controller.signal)) {
-      reply += piece;
+    for await (const event of d.model(apiKey, a.keyEnv).stream(testRequest(a), controller.signal)) {
+      if (event.type === "text") reply += event.text;
       if (reply.length > 200) break;
     }
     // An aborted stream can simply end instead of throwing: that is a cancellation, not an empty answer.

@@ -13,7 +13,7 @@ function fakeModel() {
   const model: LanguageModel = {
     async *stream(request) {
       requests.push(request);
-      yield "a".repeat(10);
+      yield { type: "text", text: "a".repeat(10) };
     },
   };
   return { model, requests };

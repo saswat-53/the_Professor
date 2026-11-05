@@ -10,7 +10,7 @@ function fakeModel(answers: string[]) {
   const model: LanguageModel = {
     async *stream(request) {
       requests.push(request);
-      yield answers[requests.length - 1] ?? "";
+      yield { type: "text", text: answers[requests.length - 1] ?? "" };
     },
   };
   return { model, requests };

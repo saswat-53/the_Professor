@@ -22,7 +22,7 @@ async function project(name: string, lines: string[]) {
   return dir;
 }
 const numbered = (n: number) => Array.from({ length: n }, (_, i) => `l${String(i + 1).padStart(2, "0")}`);
-const model: LanguageModel = { async *stream() { yield "hi"; } };
+const model: LanguageModel = { async *stream() { yield { type: "text", text: "hi" }; } };
 
 describe("Context report", () => {
   // Every way the report and the request could drift apart. Content lines are `lNN`, at file line NN + the header's length.

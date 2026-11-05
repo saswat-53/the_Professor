@@ -14,9 +14,9 @@ const gradingRequest = (question: string, answer: string) =>
 async function collect(model: LanguageModel, request: ModelRequest, signal: AbortSignal): Promise<string> {
   let text = "";
   try {
-    for await (const chunk of model.stream(request, signal)) {
+    for await (const event of model.stream(request, signal)) {
       if (signal.aborted) break;
-      text += chunk;
+      if (event.type === "text") text += event.text;
     }
   } catch (err) {
     if (signal.aborted) throw new CancelledError();
@@ -64,9 +64,9 @@ export async function* gradeAnswer(input: { session: Session; question: string; 
   try {
     const request = sideRequest(input.session, gradingRequest(input.question, input.answer));
     input.onRequest?.(request);
-    for await (const text of input.model.stream(request, input.signal)) {
+    for await (const event of input.model.stream(request, input.signal)) {
       if (input.signal.aborted) break;
-      yield { type: "text-delta", text };
+      if (event.type === "text") yield { type: "text-delta", text: event.text };
     }
     if (input.signal.aborted) throw new CancelledError();
   } catch (err) {

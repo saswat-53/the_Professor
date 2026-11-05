@@ -18,7 +18,7 @@ async function run(reference: string, root = tmpdir(), contextBudget?: number) {
   const model: LanguageModel = {
     async *stream(request) {
       requests.push(request);
-      yield "ok";
+      yield { type: "text", text: "ok" };
     },
   };
   const events: ExplainEvent[] = [];

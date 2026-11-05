@@ -1,7 +1,7 @@
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { APICallError, streamText } from "ai";
 import { BadKeyError, LearnError, ModelNotFoundError, NetworkError, ProviderError, RateLimitError, UnexpectedError } from "../core/index.js";
-import type { LanguageModel } from "../core/index.js";
+import type { LanguageModel, ModelEvent } from "../core/index.js";
 
 /** Error codes of the connection itself: the socket could not be made, was reset, or the name did not resolve. */
 const CONNECTION_CODES = new Set([
@@ -97,7 +97,7 @@ export function openAICompatibleModel(
   let usageUnsupported = false;
 
   /** One request. Raw errors are thrown as they are so the caller can tell a rejected `stream_options` from any other failure. */
-  async function* attempt(request: Parameters<LanguageModel["stream"]>[0], signal: AbortSignal | undefined, includeUsage: boolean) {
+  async function* attempt(request: Parameters<LanguageModel["stream"]>[0], signal: AbortSignal | undefined, includeUsage: boolean): AsyncGenerator<ModelEvent> {
     const provider = createOpenAICompatible({ name: "learn", baseURL: request.baseUrl, apiKey, includeUsage });
     const result = streamText({
       model: provider(request.model),
@@ -108,7 +108,8 @@ export function openAICompatibleModel(
       onError: () => {}, // errors surface through the stream below
     });
     for await (const part of result.fullStream) {
-      if (part.type === "text-delta") yield part.text;
+      if (part.type === "text-delta") yield { type: "text", text: part.text };
+      else if (part.type === "finish") yield { type: "usage", inputTokens: part.totalUsage.inputTokens, outputTokens: part.totalUsage.outputTokens };
       else if (part.type === "error") throw part.error;
     }
   }
@@ -117,9 +118,10 @@ export function openAICompatibleModel(
     async *stream(request, signal) {
       let yielded = false;
       try {
-        for await (const text of attempt(request, signal, !usageUnsupported)) {
-          yielded = true;
-          yield text;
+        for await (const event of attempt(request, signal, !usageUnsupported)) {
+          // Only text counts as output for the retry rule: a usage event is not something the user has seen.
+          if (event.type === "text") yielded = true;
+          yield event;
         }
         return;
       } catch (err) {

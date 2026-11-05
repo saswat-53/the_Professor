@@ -39,7 +39,7 @@ async function drive(answers: string[], over: Partial<InitDeps> = {}, { tty = fa
     home: HOME,
     file: FILE,
     write: async (file, text) => void written.push({ file, text }),
-    model: () => ({ async *stream() { yield "ready"; } }),
+    model: () => ({ async *stream() { yield { type: "text", text: "ready" }; } }),
     warn: (t) => warnings.push(t),
     error: (t) => errors.push(t),
     ...over,
@@ -173,7 +173,7 @@ describe("learn init", () => {
 
     it("a hosted endpoint with the variable unset is reported by name, not sent", async () => {
       let asked = false;
-      const r = await drive(["2", ENTER, ENTER, ENTER, ENTER, ENTER, "y"], { model: () => ({ async *stream() { asked = true; yield "x"; } }) });
+      const r = await drive(["2", ENTER, ENTER, ENTER, ENTER, ENTER, "y"], { model: () => ({ async *stream() { asked = true; yield { type: "text", text: "x" }; } }) });
       expect(asked).toBe(false);
       expect(r.code).toBe(2);
       expect(r.errors.join()).toContain("OPENAI_API_KEY");
@@ -181,7 +181,7 @@ describe("learn init", () => {
 
     it("the key goes to the model factory, from the named variable only", async () => {
       let seen: string | undefined;
-      await drive(["2", ENTER, ENTER, ENTER, ENTER, ENTER, "y"], { env: { OPENAI_API_KEY: " k1 \n", OTHER: "no" }, model: (key) => ((seen = key), { async *stream() { yield "ok"; } }) });
+      await drive(["2", ENTER, ENTER, ENTER, ENTER, ENTER, "y"], { env: { OPENAI_API_KEY: " k1 \n", OTHER: "no" }, model: (key) => ((seen = key), { async *stream() { yield { type: "text", text: "ok" }; } }) });
       expect(seen).toBe("k1");
     });
   });

@@ -218,7 +218,7 @@ describe("context: as received by the model", () => {
     const model: LanguageModel = {
       async *stream(r) {
         requests.push(r);
-        yield "ok";
+        yield { type: "text", text: "ok" };
       },
     };
     const events: ExplainEvent[] = [];

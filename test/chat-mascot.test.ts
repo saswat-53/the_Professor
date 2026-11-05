@@ -9,7 +9,7 @@ import type { Mood } from "../src/cli/mascot/animator.js";
 import { explain, Session } from "../src/core/index.js";
 import type { LanguageModel } from "../src/core/index.js";
 
-const quiet: LanguageModel = { async *stream() { yield "an answer"; } };
+const quiet: LanguageModel = { async *stream() { yield { type: "text", text: "an answer" }; } };
 
 /** A Session that already holds one explanation, which is what a chat follows up on. */
 async function started() {
