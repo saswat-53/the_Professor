@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { run } from "./support/cli.js";
 
@@ -349,3 +349,45 @@ describe.skipIf(!hasPython)("the chat footer on a colour terminal", () => {
     expect(lines[footer + 1]).toMatch(new RegExp(`^${READLINE}> `));
   }, 30_000);
 });
+
+describe.skipIf(!hasPython)("the chat footer follows what the chat is asked about", () => {
+  /** The footer lines (one per prompt) a chat showed, given what the user typed between prompts. */
+  async function footersAfter(questions: string[]): Promise<string[]> {
+    reportedUsage = { prompt_tokens: 1000, completion_tokens: 200 };
+    const steps: [string, string][] = [...questions.map((q): [string, string] => ["\n> ", `${q}\r`]), ["\n> ", "/exit\r"]];
+    const out = await onTerminal([file, "--chat"], { PTY_COLS: "200" }, steps);
+    expect(out).toMatch(/\nexit 0\n$/);
+    return out.split("\n").filter((l) => l.includes(" · m · ")).map((l) => l.replace(/\r$/, ""));
+  }
+  /** The project-relative name of a file next to sample.ts, as a mention must write it from the working directory. */
+  const mention = async (name: string, lines = "") => {
+    const dir = dirname(file);
+    await writeFile(join(dir, name), "export const one = 1;\nexport const two = 2;\n");
+    return { path: `${basename(dir)}/${name}`, text: `@${basename(dir)}/${name}${lines}` };
+  };
+
+  it("moves to a file the question mentions with @, with its lines", async () => {
+    const other = await mention("other.ts", ":1-2");
+    const footers = await footersAfter([`what is in ${other.text}?`]);
+    expect(footers).toHaveLength(2);
+    expect(footers[0]).toContain(`${basename(dirname(file))}/sample.ts · m ·`);
+    expect(footers[1]).toContain(`${other.path}:1-2 · m ·`);
+  }, 40_000);
+
+  it("takes the last file when a question mentions several", async () => {
+    const first = await mention("first.ts");
+    const last = await mention("last.ts");
+    const footers = await footersAfter([`compare ${first.text} with ${last.text}`]);
+    expect(footers[1]).toContain(`${last.path} · m ·`);
+    expect(footers[1]).not.toContain("first.ts");
+  }, 40_000);
+
+  it("stays where it was when a mention cannot be attached, since nothing was sent", async () => {
+    const footers = await footersAfter(["what is @nope-missing.ts?"]);
+    expect(footers).toHaveLength(2);
+    expect(footers[1]).toContain(`${basename(dirname(file))}/sample.ts · m ·`);
+    // And the failed question counted for nothing: the totals are as they were.
+    expect(footers[1]).toContain("1k in/200 out");
+  }, 40_000);
+});
+

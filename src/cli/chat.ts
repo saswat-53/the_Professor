@@ -1,6 +1,6 @@
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { CancelledError, QUIZ_LENGTH, followUp, formatContextReport, generateQuiz, gradeAnswer, hasOverride, reportForError } from "../core/index.js";
+import { CancelledError, QUIZ_LENGTH, focusLabel, followUp, formatContextReport, generateQuiz, gradeAnswer, hasOverride, reportForError } from "../core/index.js";
 import type { Attached, ExplainEvent, LanguageModel, LearnError, ModelRequest, Session } from "../core/index.js";
 import type { Mood } from "./mascot/animator.js";
 
@@ -254,6 +254,9 @@ export async function runChat(opts: ChatOptions): Promise<number> {
       question = attached.content;
       attachedFiles = attached.files;
       sensitive = attached.reports.some(hasOverride);
+      // The footer follows the latest thing asked about: the last file the message attached (nothing changes when it attached none).
+      const focus = attached.reports.map(focusLabel).filter((label): label is string => label !== undefined).at(-1);
+      if (focus !== undefined) opts.session.focus(focus);
     } catch (err) {
       const refused = reportForError(err);
       if (refused) opts.report("info", formatContextReport(refused));
