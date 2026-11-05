@@ -456,7 +456,8 @@ describe.skipIf(!hasPython)("the chat footer with hostile names and real paths",
     await symlink("real.ts", join(dir, "link.ts"));
     for (const target of ["real.ts", "link.ts", join(dir, "real.ts")]) {
       const { footer } = await firstFooter(dir, [target]);
-      expect(footer, target).toMatch(/^project · (real|link)\.ts · m · /);
+      // A symlink is shown as the file it points to (core resolves links to their real path), never as the link.
+      expect(footer, target).toMatch(/^project · real\.ts · m · /);
       expect(footer, target).not.toContain(root);
       expect(footer, target).not.toContain(tmpdir());
       expect(footer, target).not.toContain(homedir());
