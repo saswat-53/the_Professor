@@ -1,4 +1,5 @@
 import type { SessionStats } from "../core/index.js";
+import { createEscapeStripper } from "./escape-stripper.js";
 import { shortCount } from "./usage-line.js";
 
 export interface FooterInput {
@@ -15,14 +16,65 @@ const NARROW = 40;
 /** A file path shortened to fewer columns than this says too little to be worth showing; it is dropped instead. */
 const MIN_REFERENCE = 12;
 const ELLIPSIS = "…";
+/** Shown where a name is empty once cleaned, so a field is never blank. */
+const PLACEHOLDER = "(unnamed)";
 
-/** How many columns `text` takes. */
-const widthOf = (text: string): number => text.length;
+const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/** The characters as a person sees them: a letter with its accents, or an emoji sequence, is one. */
+const graphemes = (text: string): string[] => Array.from(segmenter.segment(text), (part) => part.segment);
+
+/** Code point ranges that a terminal draws two columns wide: Hangul Jamo, CJK, kana, Hangul, fullwidth forms. */
+const WIDE: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f], [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff], [0xa000, 0xa4cf],
+  [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe6f], [0xff00, 0xff60], [0xffe0, 0xffe6], [0x20000, 0x3fffd],
+];
+
+/** Columns one character takes: 0 for a combining mark on its own, 2 for a wide character or an emoji, else 1. */
+function columnsOf(grapheme: string): number {
+  const first = grapheme.codePointAt(0)!;
+  if (/^\p{M}+$/u.test(grapheme)) return 0;
+  if (/\p{Emoji_Presentation}/u.test(String.fromCodePoint(first)) || WIDE.some(([low, high]) => first >= low && first <= high)) return 2;
+  return 1;
+}
+
+/** How many columns `text` takes on a terminal, which is not how many characters or UTF-16 units it has. */
+const widthOf = (text: string): number => graphemes(text).reduce((sum, g) => sum + columnsOf(g), 0);
+
+/**
+ * `text` with escape sequences, control characters and text-hiding characters removed (the same stripper the model's
+ * text goes through), and every run of whitespace, newlines included, made one space, so it is one visible line.
+ */
+const clean = (text: string): string => createEscapeStripper()(text).replace(/\s+/g, " ").trim();
+const named = (text: string): string => clean(text) || PLACEHOLDER;
 
 const join = (fields: (string | undefined)[]): string => fields.filter((field) => field !== undefined && field !== "").join(SEPARATOR);
 
+/** The first characters of `text` that fit in `budget` columns, never splitting one. */
+function head(text: string, budget: number): string {
+  let used = 0;
+  let out = "";
+  for (const g of graphemes(text)) {
+    used += columnsOf(g);
+    if (used > budget) break;
+    out += g;
+  }
+  return out;
+}
+
+/** The last characters of `text` that fit in `budget` columns, never splitting one. */
+function tail(text: string, budget: number): string {
+  let used = 0;
+  let out = "";
+  for (const g of graphemes(text).reverse()) {
+    used += columnsOf(g);
+    if (used > budget) break;
+    out = g + out;
+  }
+  return out;
+}
+
 /** `text` cut from the right to fit `budget` columns, ending in an ellipsis. */
-const cutRight = (text: string, budget: number): string => (widthOf(text) <= budget ? text : budget < 1 ? "" : `${text.slice(0, budget - 1)}${ELLIPSIS}`);
+const cutRight = (text: string, budget: number): string => (widthOf(text) <= budget ? text : budget < 1 ? "" : `${head(text, budget - 1)}${ELLIPSIS}`);
 
 /**
  * A file path and range shortened from the left to fit `budget` columns, keeping the end (the file name and the lines):
@@ -36,7 +88,7 @@ function fitReference(reference: string, budget: number): string | undefined {
     const candidate = `${ELLIPSIS}/${parts.slice(i).join("/")}`;
     if (widthOf(candidate) <= budget) return candidate;
   }
-  return `${ELLIPSIS}${reference.slice(-(budget - 1))}`;
+  return `${ELLIPSIS}${tail(reference, budget - 1)}`;
 }
 
 /**
@@ -46,8 +98,10 @@ function fitReference(reference: string, budget: number): string | undefined {
  * still does not fit is cut from the right. Below `NARROW` columns only the model and the fill are shown.
  * Pure: it is given the data and the width and returns text, so it is tested without a terminal.
  */
-export function renderFooter({ stats, project, width }: FooterInput): string {
+export function renderFooter({ stats, project: rawProject, width }: FooterInput): string {
   if (width < 1) return "";
+  // Names come from directories, files and settings, which anyone can make hostile: clean them here, so no caller has to remember to.
+  const project = named(rawProject);
   const mark = (estimated: boolean) => (estimated ? "~" : "");
   const count = (n: number, estimated: boolean) => `${mark(estimated)}${shortCount(n)}`;
   const total = stats.total;
@@ -57,7 +111,9 @@ export function renderFooter({ stats, project, width }: FooterInput): string {
     stats.contextWindow !== undefined && stats.last
       ? `last ${count(stats.last.inputTokens, stats.last.source === "estimated")}/${shortCount(stats.contextWindow)} (${Math.round((stats.last.inputTokens / stats.contextWindow) * 100)}%)`
       : undefined;
-  const { reference, model = "", level } = stats;
+  const reference = stats.reference === undefined ? undefined : named(stats.reference);
+  const model = stats.model === undefined ? "" : named(stats.model);
+  const { level } = stats;
 
   const fits = (fields: (string | undefined)[]): string | undefined => {
     const line = join(fields);

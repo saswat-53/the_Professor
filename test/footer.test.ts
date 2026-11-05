@@ -83,3 +83,74 @@ describe("renderFooter on a narrow terminal", () => {
     }
   });
 });
+
+describe("renderFooter with hostile or wide text", () => {
+  const at = (stats: SessionStats, width: number, project = "Professor") => renderFooter({ stats, project, width });
+  const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b\u202a-\u202e\u2060\u2066-\u2069\ufeff]/;
+
+  it("removes terminal escape sequences from the project, the file and the model", () => {
+    const line = renderFooter({
+      stats: { ...hosted, reference: "src/\u001b]0;pwned\u0007auth.ts:40-60", model: "gpt-\u001b[31mx" },
+      project: "Pro\u001b[2Jfessor",
+      width: 120,
+    });
+    expect(line).toBe("Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("keeps the footer on one line: newlines, tabs and carriage returns become single spaces or vanish", () => {
+    const line = renderFooter({ stats: hosted, project: "my\nproject\tname\r", width: 120 });
+    expect(line).toBe("my project name · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+    expect(line).not.toMatch(CONTROL);
+  });
+
+  it("removes characters that hide or reorder text: bidi overrides and zero-width characters", () => {
+    expect(renderFooter({ stats: hosted, project: "Pro\u202efessor\u200b", width: 120 })).toBe("Professor · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("puts a placeholder where a name is empty once cleaned, so a field is never blank", () => {
+    const line = renderFooter({ stats: { ...hosted, model: "\u001b[31m" }, project: "\u200b\u202e", width: 120 });
+    expect(line).toBe("(unnamed) · src/auth.ts:40-60 · (unnamed) · beginner · 3.1k in/420 out");
+  });
+
+  it("leaves out a file that is absent, but not one that is present and empty", () => {
+    expect(at({ ...hosted, reference: undefined }, 120)).toBe("Professor · gpt-x · beginner · 3.1k in/420 out");
+    expect(at({ ...hosted, reference: "\u001b[0m" }, 120)).toBe("Professor · (unnamed) · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("measures wide characters by the columns they take, not by how many there are", () => {
+    // プロジェクト is 6 characters and 12 columns, so the full line is 69 columns, not 63.
+    expect(at(hosted, 69, "プロジェクト")).toBe("プロジェクト · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+    expect(at(hosted, 68, "プロジェクト")).toBe("src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("measures a letter with a combining accent as one column", () => {
+    // "Café" written as e + U+0301 is 5 code units but 4 columns: the full line is 61 columns.
+    expect(at(hosted, 61, "Cafe\u0301")).toBe("Cafe\u0301 · src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+    expect(at(hosted, 60, "Cafe\u0301")).toBe("src/auth.ts:40-60 · gpt-x · beginner · 3.1k in/420 out");
+  });
+
+  it("cuts wide text on a character boundary, never inside one, and stays within the width", () => {
+    // 9 characters, 18 columns: 4 of them (8 columns) and the ellipsis fit in 10.
+    expect(at({ ...hosted, model: "モデルモデルモデル" }, 10)).toBe("モデルモ…");
+    // Emoji are two UTF-16 units each: cutting at 5 columns must not leave half of one.
+    expect(at({ ...hosted, model: "😀😀😀😀😀" }, 6)).toBe("😀😀…");
+  });
+
+  it("shortens a file path from the left on a character boundary too", () => {
+    // At 40 columns the path gets 14: the ellipsis, then the end of it that fits in 13 (ー and ル take 2 each, ".ts:40-60" takes 9).
+    const line = at({ ...hosted, reference: "src/認証モジュール.ts:40-60", model: "gpt-x" }, 40);
+    expect(line).toBe("…ール.ts:40-60 · gpt-x · 3.1k in/420 out");
+  });
+
+  it("is never wider than the terminal at any width, whatever the text is made of", () => {
+    // A deliberately different way to count columns, enough for the characters used here: combining accents 0, kana, kanji and emoji 2, the rest 1.
+    const columns = (text: string) => [...text].reduce((sum, ch) => sum + (/[\u0300-\u036f]/.test(ch) ? 0 : /[\u3040-\u30ff\u4e00-\u9fff\u{1f600}-\u{1f64f}]/u.test(ch) ? 2 : 1), 0);
+    const odd: SessionStats = { ...hosted, contextWindow: 4096, reference: "src/認証モジュール.ts:40-60", model: "モデル😀Cafe\u0301-5" };
+    for (let width = 1; width <= 120; width++) {
+      const line = renderFooter({ stats: odd, project: "プロジェクト\u001b[31m\n", width });
+      expect(columns(line), `width ${width}: ${line}`).toBeLessThanOrEqual(width);
+      expect(line).not.toMatch(CONTROL);
+    }
+  });
+});
+
