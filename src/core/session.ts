@@ -1,5 +1,6 @@
-import { CancelledError, LearnError, ProviderError, SessionTooLongError, UsageError } from "./errors.js";
-import type { ExplainEvent, LanguageModel, Message, ModelRequest } from "./types.js";
+import { LearnError, ProviderError, SessionTooLongError, UsageError } from "./errors.js";
+import type { ExplainEvent, LanguageModel, Message, ModelRequest, TurnUsage } from "./types.js";
+import { cancelled, turnUsage } from "./usage.js";
 
 /** One finished question and answer. `number` counts from 1 (the first explanation) and never changes, so a report can name it after earlier turns were dropped. */
 interface Turn {
@@ -13,6 +14,12 @@ interface Turn {
 }
 
 const sizeOf = (t: Turn) => t.user.length + t.assistant.length;
+
+/** What the Session has used so far: the last turn on its own, and every turn added up. A turn with any estimated figure makes the total estimated. */
+export interface SessionStats {
+  last?: TurnUsage;
+  total: TurnUsage;
+}
 
 /** What a request leaves out of the Session to fit the cap. */
 export interface DroppedTurns {
@@ -32,6 +39,8 @@ export class Session {
   /** @param capChars the most characters the transcript may hold, counting the new question. Default: no cap. */
   constructor(readonly capChars: number = Number.POSITIVE_INFINITY) {}
 
+  #last: TurnUsage | undefined;
+  #total: TurnUsage = { inputTokens: 0, outputTokens: 0, source: "reported" };
   #first: ModelRequest | undefined;
   #turns: Turn[] = [];
   #count = 0;
@@ -46,6 +55,21 @@ export class Session {
   /** The turns still held, oldest first, for `/save`. Turns dropped to fit the cap are not here. */
   get turns(): readonly { number: number; user: string; assistant: string; sensitive: boolean }[] {
     return this.#turns.map(({ number, user, assistant, sensitive }) => ({ number, user, assistant, sensitive }));
+  }
+
+  /** Adds one turn's usage to the stats. Called by `explain` and `followUp`. */
+  recordUsage(usage: TurnUsage): void {
+    this.#last = usage;
+    this.#total = {
+      inputTokens: this.#total.inputTokens + usage.inputTokens,
+      outputTokens: this.#total.outputTokens + usage.outputTokens,
+      source: this.#total.source === "estimated" || usage.source === "estimated" ? "estimated" : "reported",
+    };
+  }
+
+  /** A snapshot of the usage so far: later turns do not change one already taken. */
+  get stats(): SessionStats {
+    return { ...(this.#last && { last: { ...this.#last } }), total: { ...this.#total } };
   }
 
   /** Characters in the transcript so far. */
@@ -131,21 +155,29 @@ export async function* followUp(input: {
   const { request } = plan;
   input.onRequest?.(request);
   let answer = "";
+  let reported: { inputTokens?: number; outputTokens?: number } = {};
   try {
     for await (const event of input.model.stream(request, input.signal)) {
       if (input.signal.aborted) break;
-      if (event.type !== "text") continue;
+      if (event.type === "usage") {
+        reported = { inputTokens: event.inputTokens, outputTokens: event.outputTokens };
+        continue;
+      }
       answer += event.text;
       yield { type: "text-delta", text: event.text };
     }
     if (input.signal.aborted) {
-      yield { type: "error", error: new CancelledError() };
+      yield* cancelled(input.session, request, answer);
       return;
     }
   } catch (err) {
-    yield { type: "error", error: input.signal.aborted ? new CancelledError() : err instanceof LearnError ? err : new ProviderError("the model provider returned an error that learn could not classify") };
+    if (input.signal.aborted) yield* cancelled(input.session, request, answer);
+    else yield { type: "error", error: err instanceof LearnError ? err : new ProviderError("the model provider returned an error that learn could not classify") };
     return;
   }
   input.session.record(input.question, answer, input.files, input.sensitive);
+  const usage = turnUsage(request, answer, reported);
+  input.session.recordUsage(usage);
+  yield { type: "usage", usage };
   yield { type: "done" };
 }

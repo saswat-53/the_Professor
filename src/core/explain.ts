@@ -14,7 +14,7 @@ import { type Excerpt, type Resolvers, defaultResolvers, parseReference, pipedEx
 import type { Session } from "./session.js";
 import { listSearchableFiles } from "./word-search.js";
 import type { ExplainEvent, LanguageModel, ModelRequest, Settings } from "./types.js";
-import { turnUsage } from "./usage.js";
+import { cancelled, turnUsage } from "./usage.js";
 
 /**
  * Local failures (a missing file, a permission error) keep their own message. A failure from the
@@ -171,11 +171,21 @@ export async function* explain(
       yield { type: "text-delta", text: event.text };
     }
     // An abort that ends the stream quietly is still a cancel, not a success.
-    if (!input.signal.aborted) yield { type: "usage", usage: turnUsage(request, answer, reported) };
-    if (!input.signal.aborted) input.session?.begin(request, answer, sensitive);
-    yield input.signal.aborted ? { type: "error", error: new CancelledError() } : { type: "done" };
+    if (!input.signal.aborted) {
+      const usage = turnUsage(request, answer, reported);
+      // Everything is recorded before anything is yielded, so a caller that stops reading at the usage event still leaves the Session complete.
+      input.session?.recordUsage(usage);
+      input.session?.begin(request, answer, sensitive);
+      yield { type: "usage", usage };
+    }
+    if (input.signal.aborted) {
+      yield* cancelled(input.session, request, answer);
+      return;
+    }
+    yield { type: "done" };
   } catch (err) {
     // Whatever the model threw after an abort is the abort's echo, not a provider failure.
-    yield { type: "error", error: input.signal.aborted ? new CancelledError() : fromModel(err) };
+    if (input.signal.aborted) yield* cancelled(input.session, request, answer);
+    else yield { type: "error", error: fromModel(err) };
   }
 }
