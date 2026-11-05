@@ -71,6 +71,11 @@ _Avoid_: Status bar, status line, HUD (it is a printed line, not something drawn
 **Chat**:
 The interactive loop (`--chat`) over a Session: a prompt (`> `, or `❯ ` on a colour terminal) under a **Footer**, where the user types follow-up questions. A multi-line paste goes between a `<<<` line and a `>>>` line. The Session is the conversation; the Chat is only how a terminal user drives it.
 
+**Chat command**:
+A word starting with `/` typed at the **Chat** prompt: `/save [name]`, `/glossary term: meaning`, `/quiz`, `/help` and `/exit` (also spelled `/quit`). The table in `src/cli/chat-commands.ts` is the one place they are defined: each has a name, other spellings, a usage line, one line of help, and whether it takes words after it. The help printed when the chat opens, `/help`, the "is not a command" reply and the "Chat commands" section of `learn --help` are all generated from that table, so none of them can disagree with it. What each command does is in a map in `chat.ts` typed by the table's names, so a command without a handler, or a handler for a command that is not in the table, does not compile, and a test fails when any command has no help text or usage line.
+Only an exact lower-case `/word` that is not in the table is reported as "not a command". A `/word` followed by other words is an ordinary question for the model, and so is a command that takes no words when it is typed with some (`/exit now`). Inside a **Quiz**, `/skip` and `/quit` answer the quiz prompt (pass a question, stop the quiz) and are not Chat commands.
+_Avoid_: Slash command
+
 **Diff**:
 What `--diff` explains: the working tree's changes against HEAD (or a ref), staged and unstaged together, plus untracked files shown as new files; a repository with no commits is all new files. Every changed file name, including the old side of a rename and a deleted file, goes through the Sensitive-file rules before git is asked for any content, so an excluded file's changes are never read; the Context report names what was left out. The diff counts against the **Budget** whole (there is no Context, so no half-budget rule); over it is refused. It is sent inside a fence as data, and a shallow clone adds a note to the report.
 _Avoid_: Patch, changeset

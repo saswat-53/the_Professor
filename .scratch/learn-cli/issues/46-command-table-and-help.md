@@ -4,7 +4,7 @@
 
 **Blocked by:** none (independent of 44 and 45)
 
-**Status:** in progress: everything but the glossary entry is done
+**Status:** implemented, awaiting Linux CI
 
 **Concepts to look up:** table-driven dispatch, single source of truth, discriminated unions, exhaustiveness checks, snapshot testing of help text.
 
@@ -32,6 +32,14 @@
 
 ## Glossary
 
-- [ ] `GLOSSARY.md` has a **Chat command** entry saying the table is the one place commands are defined
+- [x] `GLOSSARY.md` has a **Chat command** entry saying the table is the one place commands are defined
 
 ## Comments
+
+### Progress (commits ceaf6b0, a4f1c8d, d231a0d, and the glossary commit)
+
+Everything on the list is done. Not yet done:
+
+- [ ] A green Linux CI run (Node 22, 24 and 26 on ubuntu-24.04). The new chat tests drive a pty like the others, but the in-process command tests and the `--help` tests do not depend on timing.
+- [ ] `README.md` still describes a `learn>` prompt and does not mention `/help`, the footer or `--usage`; the "Typing and leaving" section should be updated from the command table.
+
