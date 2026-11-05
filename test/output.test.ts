@@ -5,17 +5,21 @@ const tty = { stdoutIsTTY: true, stderrIsTTY: true, env: {} };
 
 describe("outputMode", () => {
   const color = (t: Parameters<typeof outputMode>[0]) => outputMode(t).color;
-  it("is terminal mode with colour when both streams are terminals", () => expect(outputMode(tty)).toEqual({ color: true, stripEscapes: true }));
-  it("is plain mode when both streams are piped", () => expect(outputMode({ ...tty, stdoutIsTTY: false, stderrIsTTY: false })).toEqual({ color: false, stripEscapes: false }));
+  it("is terminal mode with colour when both streams are terminals", () => expect(outputMode(tty)).toEqual({ color: true, stripEscapes: true, stripStatus: true }));
+  it("is plain mode when both streams are piped", () => expect(outputMode({ ...tty, stdoutIsTTY: false, stderrIsTTY: false })).toEqual({ color: false, stripEscapes: false, stripStatus: false }));
   it("has no colour but strips escapes when only stderr is redirected (the text still reaches a terminal)", () =>
-    expect(outputMode({ ...tty, stderrIsTTY: false })).toEqual({ color: false, stripEscapes: true }));
+    expect(outputMode({ ...tty, stderrIsTTY: false })).toEqual({ color: false, stripEscapes: true, stripStatus: false }));
   it("has no colour and no stripping when only stdout is piped", () =>
-    expect(outputMode({ ...tty, stdoutIsTTY: false })).toEqual({ color: false, stripEscapes: false }));
+    expect(outputMode({ ...tty, stdoutIsTTY: false })).toEqual({ color: false, stripEscapes: false, stripStatus: true }));
   it("turns colour off for NO_COLOR but keeps stripping on", () =>
-    expect(outputMode({ ...tty, env: { NO_COLOR: "1" } })).toEqual({ color: false, stripEscapes: true }));
+    expect(outputMode({ ...tty, env: { NO_COLOR: "1" } })).toEqual({ color: false, stripEscapes: true, stripStatus: true }));
+  it("strips status text by whether stderr is a terminal, whatever stdout is: `learn file | less` still reaches a terminal on stderr", () => {
+    expect(outputMode({ ...tty, stdoutIsTTY: false }).stripStatus).toBe(true);
+    expect(outputMode({ ...tty, stderrIsTTY: false }).stripStatus).toBe(false);
+  });
   it("ignores an empty NO_COLOR", () => expect(color({ ...tty, env: { NO_COLOR: "" } })).toBe(true));
   it("turns colour off for TERM=dumb but keeps stripping on", () =>
-    expect(outputMode({ ...tty, env: { TERM: "dumb" } })).toEqual({ color: false, stripEscapes: true }));
+    expect(outputMode({ ...tty, env: { TERM: "dumb" } })).toEqual({ color: false, stripEscapes: true, stripStatus: true }));
 });
 
 describe("painter", () => {

@@ -23,7 +23,9 @@ import type { StatusKind } from "./output.js";
 /** Status goes to stderr, coloured only for a person watching; stdout carries the explanation alone. */
 const mode = outputMode({ stdoutIsTTY: !!process.stdout.isTTY, stderrIsTTY: !!process.stderr.isTTY, env: process.env });
 const paint = painter(mode.color);
-const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, text)}\n`);
+// Status text carries names from the project, from git and from the user's own typing, none of which can be trusted not to hold escape sequences: on a
+// terminal it is cleaned here, in the one place every status line goes through, and before it is painted, so the tool's own colours stay.
+const status = (kind: StatusKind, text: string) => process.stderr.write(`${paint(kind, mode.stripStatus ? createEscapeStripper()(text) : text)}\n`);
 
 /** The exit code the run is heading for. Recorded before the message is written, so a pipe that closes mid-message cannot turn a failure into a success. */
 let exitCode = 0;

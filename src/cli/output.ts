@@ -1,8 +1,11 @@
 /** What the output mode depends on; passed in so the decision is a pure function. */
 export type Terminal = { stdoutIsTTY: boolean; stderrIsTTY: boolean; env: Record<string, string | undefined> };
 
-/** How output is written. `color` is for status lines on stderr; `stripEscapes` is for the model's text on stdout. */
-export type OutputMode = { color: boolean; stripEscapes: boolean };
+/**
+ * How output is written. `color` is for status lines on stderr; `stripEscapes` is for the model's text on stdout; `stripStatus` is for
+ * the status text on stderr (names, errors, reports), which is as untrusted as the model's text: it follows whether stderr is a terminal.
+ */
+export type OutputMode = { color: boolean; stripEscapes: boolean; stripStatus: boolean };
 
 /**
  * The one decision about who is watching. Terminal mode is stdout being a terminal: the model's text
@@ -14,7 +17,8 @@ export type OutputMode = { color: boolean; stripEscapes: boolean };
  */
 export function outputMode({ stdoutIsTTY, stderrIsTTY, env }: Terminal): OutputMode {
   const color = stdoutIsTTY && stderrIsTTY && !env.NO_COLOR && env.TERM !== "dumb";
-  return { color, stripEscapes: stdoutIsTTY };
+  // Each stream is judged on its own: `learn file | less` has a piped stdout and a terminal stderr, and the status text still reaches that terminal.
+  return { color, stripEscapes: stdoutIsTTY, stripStatus: stderrIsTTY };
 }
 
 export type StatusKind = "info" | "warning" | "error";
